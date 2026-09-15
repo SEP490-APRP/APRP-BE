@@ -2,7 +2,6 @@ package com.sang.be_capnong.dto.response;
 
 import lombok.*;
 import lombok.experimental.FieldDefaults;
-import java.util.Set;
 
 @Data
 @Builder
@@ -12,6 +11,5 @@ import java.util.Set;
 public class UserResponse {
     long id;
     String email;
-    Set<RoleResponse> roles;
-
+    RoleResponse role;
 }

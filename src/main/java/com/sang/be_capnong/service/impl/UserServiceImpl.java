@@ -44,11 +44,9 @@ public class UserServiceImpl implements UserService {
         user.setEmail(request.getEmail());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
 
-        Set<Role> roles = new HashSet<>();
         Role defaultRole = roleRepository.findByName("BUYER")
                 .orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_FOUND));
-        roles.add(defaultRole);
-        user.setRoles(roles);
+        user.setRole(defaultRole);
 
         User savedUser = userRepository.save(user);
         return userMapper.toUserResponse(savedUser);

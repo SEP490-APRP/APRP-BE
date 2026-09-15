@@ -82,10 +82,7 @@ public class AuthenticationServiceImpl implements AuthenticationService {
                     .subject(String.valueOf(user.getId()))
                     .claim("email", user.getEmail())
                     .claim("roles",
-                            user.getRoles()
-                                    .stream()
-                                    .map(Role::getName)
-                                    .toList())
+                            user.getRole() != null ? java.util.List.of(user.getRole().getName()) : java.util.List.of())
                     .issueTime(now)
                     .expirationTime(expiry)
                     .jwtID(jti)
