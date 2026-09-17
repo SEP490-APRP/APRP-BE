@@ -14,7 +14,7 @@ spring:
   datasource:
     url: jdbc:mysql://localhost:3306/DB_CapNong?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Ho_Chi_Minh&characterEncoding=utf8
     username: root
-    password: 123456
+    password: 123456789
     driver-class-name: com.mysql.cj.jdbc.Driver
 
     hikari:
@@ -35,6 +35,22 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
         format_sql: false
+
+  # ===============================
+  # MAIL (GMAIL SMTP)
+  # ===============================
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
 
 # ===============================
 # JWT CONFIG (MAP FROM .env)

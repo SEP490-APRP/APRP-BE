@@ -11,6 +11,7 @@ import com.sang.be_capnong.dto.response.IntrospectResponse;
 import com.sang.be_capnong.entity.InvalidatedToken;
 import com.sang.be_capnong.entity.Role;
 import com.sang.be_capnong.entity.User;
+import com.sang.be_capnong.enums.UserStatus;
 import com.sang.be_capnong.exception.AppException;
 import com.sang.be_capnong.exception.ErrorCode;
 import com.sang.be_capnong.repository.InvalidatedTokenRepository;
@@ -60,6 +61,10 @@ public class AuthenticationServiceImpl implements AuthenticationService {
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             throw new AppException(ErrorCode.UNAUTHENTICATED);
+        }
+
+        if (user.getStatus() == UserStatus.INACTIVE) {
+            throw new AppException(ErrorCode.USER_NOT_ACTIVE);
         }
 
         String token = generateToken(user);
