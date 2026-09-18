@@ -16,8 +16,10 @@ import com.sang.be_capnong.exception.ErrorCode;
 import com.sang.be_capnong.mapper.UserMapper;
 import com.sang.be_capnong.repository.RoleRepository;
 import com.sang.be_capnong.repository.UserRepository;
+import com.sang.be_capnong.service.CloudinaryService;
 import com.sang.be_capnong.service.OtpService;
 import com.sang.be_capnong.service.UserService;
+import com.sang.be_capnong.util.SecurityUtils;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -25,6 +27,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -41,6 +44,7 @@ public class UserServiceImpl implements UserService {
     UserMapper userMapper;
     PasswordEncoder passwordEncoder;
     OtpService otpService;
+    CloudinaryService cloudinaryService;
 
     @Override
     @Transactional
@@ -183,22 +187,89 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
+    public UserResponse getMyInfo() {
+        Integer currentUserId = SecurityUtils.getCurrentUserId();
+        log.info("getMyInfo for user id: {}", currentUserId);
+        User user = userRepository.findById(currentUserId)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+        return userMapper.toUserResponse(user);
+    }
+
+    @Override
+    @Transactional
+    public UserResponse updateMyInfo(UserUpdateRequest request) {
+        Integer currentUserId = SecurityUtils.getCurrentUserId();
+        log.info("updateMyInfo for user id: {}", currentUserId);
+
+        User user = userRepository.findById(currentUserId)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+
+        userMapper.updateUser(user, request);
+
+        if (request.getPassword() != null && !request.getPassword().isBlank()) {
+            user.setPassword(passwordEncoder.encode(request.getPassword()));
+        }
+
+        user.setUpdateAt(LocalDateTime.now());
+        User savedUser = userRepository.save(user);
+
+        return userMapper.toUserResponse(savedUser);
+    }
+
+    @Override
+    @Transactional
+    public UserResponse updateAvatar(MultipartFile file) {
+        Integer currentUserId = SecurityUtils.getCurrentUserId();
+        log.info("updateAvatar for user id: {}", currentUserId);
+
+        User user = userRepository.findById(currentUserId)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+
+        String folder = "users";
+        if (user.getRole() != null && ("SHOP".equalsIgnoreCase(user.getRole().getName()) || "SHOP_OWNER".equalsIgnoreCase(user.getRole().getName()))) {
+            folder = "shops";
+        }
+
+        String imageUrl = cloudinaryService.uploadImage(file, folder);
+        user.setLogoUrl(imageUrl);
+        user.setUpdateAt(LocalDateTime.now());
+
+        User savedUser = userRepository.save(user);
+        return userMapper.toUserResponse(savedUser);
+    }
+
+    @Override
+    @Transactional
     public UserResponse updateUser(Integer userId, UserUpdateRequest request) {
-        throw new UnsupportedOperationException("Not implemented yet");
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+        userMapper.updateUser(user, request);
+        if (request.getPassword() != null && !request.getPassword().isBlank()) {
+            user.setPassword(passwordEncoder.encode(request.getPassword()));
+        }
+        user.setUpdateAt(LocalDateTime.now());
+        return userMapper.toUserResponse(userRepository.save(user));
     }
 
     @Override
     public UserResponse getUserById(Integer userId) {
-        throw new UnsupportedOperationException("Not implemented yet");
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+        return userMapper.toUserResponse(user);
     }
 
     @Override
     public List<UserResponse> getAllUsers() {
-        throw new UnsupportedOperationException("Not implemented yet");
+        return userRepository.findAll().stream()
+                .map(userMapper::toUserResponse)
+                .toList();
     }
 
     @Override
     public void deleteUser(Integer userId) {
-        throw new UnsupportedOperationException("Not implemented yet");
+        if (!userRepository.existsById(userId)) {
+            throw new AppException(ErrorCode.USER_NOT_EXISTED);
+        }
+        userRepository.deleteById(userId);
     }
 }

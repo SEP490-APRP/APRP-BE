@@ -28,6 +28,7 @@ import org.springframework.stereotype.Service;
 
 import java.text.ParseException;
 import java.util.Date;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -76,7 +77,8 @@ public class AuthenticationServiceImpl implements AuthenticationService {
     }
 
     // ================= GENERATE JWT =================
-    private String generateToken(User user) {
+    @Override
+    public String generateToken(User user) {
         try {
             Date now = new Date();
             Date expiry = new Date(now.getTime() + VALID_DURATION * 1000);
@@ -87,7 +89,7 @@ public class AuthenticationServiceImpl implements AuthenticationService {
                     .subject(String.valueOf(user.getId()))
                     .claim("email", user.getEmail())
                     .claim("roles",
-                            user.getRole() != null ? java.util.List.of(user.getRole().getName()) : java.util.List.of())
+                            user.getRole() != null ? List.of(user.getRole().getName()) : List.of())
                     .issueTime(now)
                     .expirationTime(expiry)
                     .jwtID(jti)

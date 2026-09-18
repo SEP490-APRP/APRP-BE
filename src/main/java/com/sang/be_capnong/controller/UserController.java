@@ -4,6 +4,7 @@ import com.sang.be_capnong.dto.request.BuyerCreationRequest;
 import com.sang.be_capnong.dto.request.ResendOtpRequest;
 import com.sang.be_capnong.dto.request.ShipperCreationRequest;
 import com.sang.be_capnong.dto.request.ShopCreationRequest;
+import com.sang.be_capnong.dto.request.UserUpdateRequest;
 import com.sang.be_capnong.dto.request.VerifyOtpRequest;
 import com.sang.be_capnong.dto.response.ApiResponse;
 import com.sang.be_capnong.dto.response.UserResponse;
@@ -13,10 +14,11 @@ import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/users")
@@ -69,6 +71,53 @@ public class UserController {
         userService.resendVerificationOtp(request);
         return ApiResponse.<Void>builder()
                 .message("Mã OTP mới đã được gửi đến email của bạn")
+                .build();
+    }
+
+    @GetMapping("/me")
+    public ApiResponse<UserResponse> getMyInfo() {
+        log.info("REST request to get current user info");
+        return ApiResponse.<UserResponse>builder()
+                .result(userService.getMyInfo())
+                .build();
+    }
+
+    @PutMapping("/me")
+    public ApiResponse<UserResponse> updateMyInfo(@RequestBody @Valid UserUpdateRequest request) {
+        log.info("REST request to update current user info");
+        return ApiResponse.<UserResponse>builder()
+                .message("Cập nhật thông tin thành công")
+                .result(userService.updateMyInfo(request))
+                .build();
+    }
+
+    @PatchMapping(value = "/me/images", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<UserResponse> updateAvatar(
+            @RequestParam(value = "logoUrl", required = false) MultipartFile logoUrl,
+            @RequestParam(value = "image", required = false) MultipartFile image,
+            @RequestParam(value = "file", required = false) MultipartFile file
+    ) {
+        log.info("REST request to update avatar for current user");
+        MultipartFile targetFile = logoUrl != null ? logoUrl : (image != null ? image : file);
+        return ApiResponse.<UserResponse>builder()
+                .message("Cập nhật ảnh đại diện thành công")
+                .result(userService.updateAvatar(targetFile))
+                .build();
+    }
+
+    @GetMapping("/{userId}")
+    public ApiResponse<UserResponse> getUserById(@PathVariable("userId") Integer userId) {
+        log.info("REST request to get user by id: {}", userId);
+        return ApiResponse.<UserResponse>builder()
+                .result(userService.getUserById(userId))
+                .build();
+    }
+
+    @GetMapping
+    public ApiResponse<List<UserResponse>> getAllUsers() {
+        log.info("REST request to get all users");
+        return ApiResponse.<List<UserResponse>>builder()
+                .result(userService.getAllUsers())
                 .build();
     }
 }

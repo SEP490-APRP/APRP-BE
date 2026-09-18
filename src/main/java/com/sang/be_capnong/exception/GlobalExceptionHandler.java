@@ -2,11 +2,13 @@ package com.sang.be_capnong.exception;
 
 import jakarta.validation.ConstraintViolation;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import com.sang.be_capnong.dto.response.ApiResponse;
 
 import java.util.Map;
@@ -18,6 +20,15 @@ public class GlobalExceptionHandler {
 
     private static final String MIN_ATTRIBUTE = "min";
     private static final String MAX_ATTRIBUTE = "max";
+
+    @ExceptionHandler(value = NoResourceFoundException.class)
+    ResponseEntity<ApiResponse> handleNoResourceFoundException(NoResourceFoundException ex) {
+        log.warn("No static resource found: {}", ex.getResourcePath());
+        ApiResponse apiResponse = new ApiResponse();
+        apiResponse.setCode(404);
+        apiResponse.setMessage("Tài nguyên không tồn tại: " + ex.getResourcePath());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(apiResponse);
+    }
 
     @ExceptionHandler(value = Exception.class)
     ResponseEntity<ApiResponse> handleException(Exception ex) {

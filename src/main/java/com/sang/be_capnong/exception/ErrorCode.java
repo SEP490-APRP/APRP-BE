@@ -64,7 +64,12 @@ public enum ErrorCode {
     PRODUCT_IMAGE_NOT_FOUND(3015, "Product image not found", HttpStatus.NOT_FOUND),
     IMAGE_URL_REQUIRED(3016, "Image URL is required", HttpStatus.BAD_REQUEST),
     IMAGE_URL_TOO_LONG(3017, "Image URL must not exceed 500 characters", HttpStatus.BAD_REQUEST),
-    IMAGE_NOT_BELONG_TO_PRODUCT(3018, "Image does not belong to the specified product", HttpStatus.BAD_REQUEST)
+    IMAGE_NOT_BELONG_TO_PRODUCT(3018, "Image does not belong to the specified product", HttpStatus.BAD_REQUEST),
+
+    // Upload & File errors
+    FILE_INVALID(4001, "File ảnh không hợp lệ", HttpStatus.BAD_REQUEST),
+    FILE_TOO_LARGE(4002, "Kích thước file vượt quá giới hạn", HttpStatus.BAD_REQUEST),
+    UPLOAD_FAILED(4003, "Upload file lên Cloudinary thất bại", HttpStatus.INTERNAL_SERVER_ERROR)
     ;
 
     private final int code;

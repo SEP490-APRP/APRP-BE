@@ -9,6 +9,8 @@ import com.sang.be_capnong.dto.request.UserUpdateRequest;
 import com.sang.be_capnong.dto.request.VerifyOtpRequest;
 import com.sang.be_capnong.dto.response.UserResponse;
 
+import org.springframework.web.multipart.MultipartFile;
+
 import java.util.List;
 
 public interface UserService {
@@ -24,6 +26,12 @@ public interface UserService {
     UserResponse verifyAccount(VerifyOtpRequest request);
 
     void resendVerificationOtp(ResendOtpRequest request);
+
+    UserResponse getMyInfo();
+
+    UserResponse updateMyInfo(UserUpdateRequest request);
+
+    UserResponse updateAvatar(MultipartFile file);
 
     UserResponse updateUser(Integer userId, UserUpdateRequest request);
 
