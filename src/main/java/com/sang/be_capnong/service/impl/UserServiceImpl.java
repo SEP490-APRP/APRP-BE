@@ -44,17 +44,39 @@ public class UserServiceImpl implements UserService {
         user.setEmail(request.getEmail());
         user.setPassword(passwordEncoder.encode(request.getPassword()));
 
-        Role defaultRole = roleRepository.findByName("BUYER")
+        String requestedRole = request.getRoleName() != null ? request.getRoleName().toUpperCase() : "BUYER";
+        Role role = roleRepository.findByName(requestedRole)
                 .orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_FOUND));
-        user.setRole(defaultRole);
+        user.setRole(role);
 
+        // Shipper fields are automatically mapped by UserMapper because field names match
+        // But we want to ensure only specific roles get these. For now, mapstruct handles it cleanly.
+        
         User savedUser = userRepository.save(user);
         return userMapper.toUserResponse(savedUser);
     }
 
     @Override
     public UserResponse updateUser(Integer userId, UserUpdateRequest request) {
-        throw new UnsupportedOperationException("Not implemented yet");
+        log.info("updateUser with id: {}", userId);
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+
+        if (request.getPassword() != null && !request.getPassword().isBlank()) {
+            user.setPassword(passwordEncoder.encode(request.getPassword()));
+        }
+        if (request.getFullName() != null) user.setFullName(request.getFullName());
+        if (request.getPhoneNumber() != null) user.setPhoneNumber(request.getPhoneNumber());
+        if (request.getAddress() != null) user.setAddress(request.getAddress());
+        
+        // Shipper Profile update
+        if (request.getVehicleNumber() != null) user.setVehicleNumber(request.getVehicleNumber());
+        if (request.getVehicleDocImageUrl() != null) user.setVehicleDocImageUrl(request.getVehicleDocImageUrl());
+        if (request.getLicense() != null) user.setLicense(request.getLicense());
+        if (request.getLicenseImageUrl() != null) user.setLicenseImageUrl(request.getLicenseImageUrl());
+        
+        User savedUser = userRepository.save(user);
+        return userMapper.toUserResponse(savedUser);
     }
 
     @Override

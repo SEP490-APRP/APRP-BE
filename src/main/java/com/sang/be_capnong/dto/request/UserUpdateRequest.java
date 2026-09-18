@@ -14,4 +14,14 @@ public class UserUpdateRequest {
     @NotBlank(message = "PASSWORD_REQUIRED")
     @Size(min = 8, message = "INVALID_PASSWORD")
     String password;
+
+    String fullName;
+    String phoneNumber;
+    String address;
+
+    // Shipper specific fields
+    String vehicleNumber;
+    String vehicleDocImageUrl;
+    String license;
+    String licenseImageUrl;
 }

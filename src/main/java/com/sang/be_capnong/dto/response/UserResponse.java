@@ -12,4 +12,14 @@ public class UserResponse {
     long id;
     String email;
     RoleResponse role;
+
+    String fullName;
+    String phoneNumber;
+    String address;
+
+    // Shipper specific fields
+    String vehicleNumber;
+    String vehicleDocImageUrl;
+    String license;
+    String licenseImageUrl;
 }

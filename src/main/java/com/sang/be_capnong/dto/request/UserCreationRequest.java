@@ -21,4 +21,17 @@ public class UserCreationRequest {
     @NotBlank(message = "PASSWORD_REQUIRED")
     @Size(min = 8, message = "INVALID_PASSWORD")
     String password;
+
+    @NotBlank(message = "ROLE_REQUIRED")
+    String roleName;
+
+    String fullName;
+    String phoneNumber;
+    String address;
+
+    // Shipper specific fields
+    String vehicleNumber;
+    String vehicleDocImageUrl;
+    String license;
+    String licenseImageUrl;
 }

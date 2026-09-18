@@ -1,14 +1,12 @@
 package com.sang.be_capnong.controller;
 
+import com.sang.be_capnong.dto.request.UserUpdateRequest;
 import jakarta.validation.Valid;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 import com.sang.be_capnong.dto.request.UserCreationRequest;
 import com.sang.be_capnong.dto.response.ApiResponse;
 import com.sang.be_capnong.dto.response.UserResponse;
@@ -27,6 +25,14 @@ public class UserController {
         log.info("Create User Controller! ");
         ApiResponse<UserResponse> apiResponse = new ApiResponse<>();
         apiResponse.setResult(userService.createUser(request));
+        return apiResponse;
+    }
+
+    @PutMapping("/{userId}")
+    ApiResponse<UserResponse> updateUser(@PathVariable Integer userId, @RequestBody @Valid UserUpdateRequest request) {
+        log.info("Update User Profile Controller! id={}", userId);
+        ApiResponse<UserResponse> apiResponse = new ApiResponse<>();
+        apiResponse.setResult(userService.updateUser(userId, request));
         return apiResponse;
     }
 }
