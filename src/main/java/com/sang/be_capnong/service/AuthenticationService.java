@@ -7,6 +7,7 @@ import com.sang.be_capnong.dto.request.LogoutRequest;
 import com.sang.be_capnong.dto.request.RefreshRequest;
 import com.sang.be_capnong.dto.response.AuthenticationResponse;
 import com.sang.be_capnong.dto.response.IntrospectResponse;
+import com.sang.be_capnong.entity.User;
 
 import java.text.ParseException;
 
@@ -21,4 +22,6 @@ public interface AuthenticationService {
 
     AuthenticationResponse refreshToken(RefreshRequest request)
             throws ParseException, JOSEException;
+
+    String generateToken(User user);
 }
