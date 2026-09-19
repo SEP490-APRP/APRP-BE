@@ -26,7 +26,7 @@ public class GlobalExceptionHandler {
         log.warn("No static resource found: {}", ex.getResourcePath());
         ApiResponse apiResponse = new ApiResponse();
         apiResponse.setCode(404);
-        apiResponse.setMessage("Tài nguyên không tồn tại: " + ex.getResourcePath());
+        apiResponse.setMessage("Resource not found: " + ex.getResourcePath());
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(apiResponse);
     }
 

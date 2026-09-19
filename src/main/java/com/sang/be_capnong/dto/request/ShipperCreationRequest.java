@@ -37,4 +37,6 @@ public class ShipperCreationRequest {
     String vehicleNumber;
 
     String vehicleDocImageUrl;
+
+    Boolean emailVerified;
 }

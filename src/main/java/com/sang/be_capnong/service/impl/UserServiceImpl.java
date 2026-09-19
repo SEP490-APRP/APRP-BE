@@ -7,7 +7,14 @@ import com.sang.be_capnong.dto.request.ShopCreationRequest;
 import com.sang.be_capnong.dto.request.UserCreationRequest;
 import com.sang.be_capnong.dto.request.UserUpdateRequest;
 import com.sang.be_capnong.dto.request.VerifyOtpRequest;
+import com.sang.be_capnong.dto.response.PageResponse;
 import com.sang.be_capnong.dto.response.UserResponse;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import java.util.HashSet;
+import java.util.Set;
 import com.sang.be_capnong.entity.Role;
 import com.sang.be_capnong.entity.User;
 import com.sang.be_capnong.enums.UserStatus;
@@ -88,7 +95,8 @@ public class UserServiceImpl implements UserService {
         Role role = roleRepository.findByName("BUYER")
                 .orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_FOUND));
         user.setRole(role);
-        user.setStatus(UserStatus.INACTIVE);
+        boolean isEmailVerified = Boolean.TRUE.equals(request.getEmailVerified());
+        user.setStatus(isEmailVerified ? UserStatus.ACTIVE : UserStatus.INACTIVE);
         user.setLoyaltyPoints(BigDecimal.ZERO);
         user.setTotalRescuedWeight(BigDecimal.ZERO);
         user.setCreateAt(LocalDateTime.now());
@@ -96,7 +104,9 @@ public class UserServiceImpl implements UserService {
 
         User savedUser = userRepository.save(user);
 
-        otpService.generateAndSendOtp(savedUser.getEmail());
+        if (!isEmailVerified) {
+            otpService.generateAndSendOtp(savedUser.getEmail());
+        }
 
         return userMapper.toUserResponse(savedUser);
     }
@@ -118,7 +128,8 @@ public class UserServiceImpl implements UserService {
         Role role = roleRepository.findByName("SHOP")
                 .orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_FOUND));
         user.setRole(role);
-        user.setStatus(UserStatus.INACTIVE);
+        boolean isEmailVerified = Boolean.TRUE.equals(request.getEmailVerified());
+        user.setStatus(isEmailVerified ? UserStatus.PENDING : UserStatus.INACTIVE);
         user.setShopActive(true);
         user.setRatingAverage(0.0);
         user.setCreateAt(LocalDateTime.now());
@@ -126,7 +137,9 @@ public class UserServiceImpl implements UserService {
 
         User savedUser = userRepository.save(user);
 
-        otpService.generateAndSendOtp(savedUser.getEmail());
+        if (!isEmailVerified) {
+            otpService.generateAndSendOtp(savedUser.getEmail());
+        }
 
         return userMapper.toUserResponse(savedUser);
     }
@@ -148,13 +161,16 @@ public class UserServiceImpl implements UserService {
         Role role = roleRepository.findByName("SHIPPER")
                 .orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_FOUND));
         user.setRole(role);
-        user.setStatus(UserStatus.INACTIVE);
+        boolean isEmailVerified = Boolean.TRUE.equals(request.getEmailVerified());
+        user.setStatus(isEmailVerified ? UserStatus.PENDING : UserStatus.INACTIVE);
         user.setCreateAt(LocalDateTime.now());
         user.setUpdateAt(LocalDateTime.now());
 
         User savedUser = userRepository.save(user);
 
-        otpService.generateAndSendOtp(savedUser.getEmail());
+        if (!isEmailVerified) {
+            otpService.generateAndSendOtp(savedUser.getEmail());
+        }
 
         return userMapper.toUserResponse(savedUser);
     }
@@ -167,13 +183,19 @@ public class UserServiceImpl implements UserService {
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
 
-        if (user.getStatus() == UserStatus.ACTIVE) {
+        if (user.getStatus() == UserStatus.ACTIVE || user.getStatus() == UserStatus.PENDING) {
             throw new AppException(ErrorCode.USER_ALREADY_ACTIVE);
         }
 
         otpService.verifyOtp(request.getEmail(), request.getOtp());
 
-        user.setStatus(UserStatus.ACTIVE);
+        boolean isShopOrShipper = user.getRole() != null && (
+                "SHOP".equalsIgnoreCase(user.getRole().getName())
+                || "SHOP_OWNER".equalsIgnoreCase(user.getRole().getName())
+                || "SHIPPER".equalsIgnoreCase(user.getRole().getName())
+        );
+
+        user.setStatus(isShopOrShipper ? UserStatus.PENDING : UserStatus.ACTIVE);
         user.setUpdateAt(LocalDateTime.now());
 
         User savedUser = userRepository.save(user);
@@ -271,5 +293,101 @@ public class UserServiceImpl implements UserService {
             throw new AppException(ErrorCode.USER_NOT_EXISTED);
         }
         userRepository.deleteById(userId);
+    }
+
+    @Override
+    @Transactional
+    public UserResponse approveShopOwner(Integer userId) {
+        log.info("approveShopOwner for user id: {}", userId);
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+
+        user.setStatus(UserStatus.ACTIVE);
+        user.setShopActive(true);
+        user.setUpdateAt(LocalDateTime.now());
+
+        User savedUser = userRepository.save(user);
+        return userMapper.toUserResponse(savedUser);
+    }
+
+    @Override
+    @Transactional
+    public UserResponse approveShipper(Integer userId) {
+        log.info("approveShipper for user id: {}", userId);
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+
+        user.setStatus(UserStatus.ACTIVE);
+        user.setUpdateAt(LocalDateTime.now());
+
+        User savedUser = userRepository.save(user);
+        return userMapper.toUserResponse(savedUser);
+    }
+
+    @Override
+    @Transactional
+    public void activateUser(Integer userId) {
+        log.info("activateUser for user id: {}", userId);
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+
+        user.setStatus(UserStatus.ACTIVE);
+        user.setUpdateAt(LocalDateTime.now());
+        userRepository.save(user);
+    }
+
+    @Override
+    @Transactional
+    public void deactivateUser(Integer userId) {
+        log.info("deactivateUser for user id: {}", userId);
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+
+        user.setStatus(UserStatus.INACTIVE);
+        user.setUpdateAt(LocalDateTime.now());
+        userRepository.save(user);
+    }
+
+    @Override
+    public PageResponse<UserResponse> getUsersByRolePaged(List<String> roles, String statusStr, int page, int size) {
+        log.info("getUsersByRolePaged roles: {}, status: {}, page: {}, size: {}", roles, statusStr, page, size);
+        Pageable pageable = PageRequest.of(Math.max(0, page), Math.max(1, size), Sort.by("id").descending());
+
+        Set<String> normalizedRoles = new HashSet<>();
+        if (roles != null && !roles.isEmpty()) {
+            for (String r : roles) {
+                if (r == null || r.isBlank()) continue;
+                String roleTrimmed = r.trim().toUpperCase();
+                normalizedRoles.add(roleTrimmed);
+                if ("SHOP_OWNER".equals(roleTrimmed)) {
+                    normalizedRoles.add("SHOP");
+                } else if ("SHOP".equals(roleTrimmed)) {
+                    normalizedRoles.add("SHOP_OWNER");
+                }
+            }
+        }
+
+        UserStatus userStatus = null;
+        if (statusStr != null && !statusStr.isBlank()) {
+            try {
+                userStatus = UserStatus.valueOf(statusStr.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                log.warn("Invalid user status: {}", statusStr);
+            }
+        }
+
+        Page<User> userPage;
+        if (!normalizedRoles.isEmpty() && userStatus != null) {
+            userPage = userRepository.findByRole_NameInAndStatus(normalizedRoles, userStatus, pageable);
+        } else if (!normalizedRoles.isEmpty()) {
+            userPage = userRepository.findByRole_NameIn(normalizedRoles, pageable);
+        } else if (userStatus != null) {
+            userPage = userRepository.findByStatus(userStatus, pageable);
+        } else {
+            userPage = userRepository.findAll(pageable);
+        }
+
+        Page<UserResponse> responsePage = userPage.map(userMapper::toUserResponse);
+        return PageResponse.from(responsePage);
     }
 }

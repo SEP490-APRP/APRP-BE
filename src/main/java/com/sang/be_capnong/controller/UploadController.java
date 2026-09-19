@@ -29,7 +29,6 @@ public class UploadController {
         String url = cloudinaryService.uploadImage(file, folder);
 
         return ApiResponse.<UploadResponse>builder()
-                .message("Tải ảnh lên thành công")
                 .result(UploadResponse.builder().url(url).build())
                 .build();
     }

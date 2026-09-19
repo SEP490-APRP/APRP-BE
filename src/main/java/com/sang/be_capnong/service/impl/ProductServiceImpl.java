@@ -98,13 +98,7 @@ public class ProductServiceImpl implements ProductService {
 
         Page<Product> productPage = productRepository.findProducts(effectiveStatus, categoryId, keyword, pageable);
 
-        return PageResponse.<ProductResponse>builder()
-                .currentPage(page)
-                .totalPages(productPage.getTotalPages())
-                .pageSize(pageSize)
-                .totalElements(productPage.getTotalElements())
-                .data(productMapper.toProductResponseList(productPage.getContent()))
-                .build();
+        return PageResponse.from(productPage, productMapper.toProductResponseList(productPage.getContent()));
     }
 
     @Override
@@ -119,13 +113,7 @@ public class ProductServiceImpl implements ProductService {
         String filterStatus = (status != null && !status.isBlank()) ? status : null;
         Page<Product> productPage = productRepository.findByShopIdAndOptionalStatus(currentUserId, filterStatus, pageable);
 
-        return PageResponse.<ProductResponse>builder()
-                .currentPage(page)
-                .totalPages(productPage.getTotalPages())
-                .pageSize(pageSize)
-                .totalElements(productPage.getTotalElements())
-                .data(productMapper.toProductResponseList(productPage.getContent()))
-                .build();
+        return PageResponse.from(productPage, productMapper.toProductResponseList(productPage.getContent()));
     }
 
     @Override

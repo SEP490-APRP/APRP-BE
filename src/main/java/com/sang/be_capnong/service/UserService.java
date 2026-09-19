@@ -7,6 +7,7 @@ import com.sang.be_capnong.dto.request.ShopCreationRequest;
 import com.sang.be_capnong.dto.request.UserCreationRequest;
 import com.sang.be_capnong.dto.request.UserUpdateRequest;
 import com.sang.be_capnong.dto.request.VerifyOtpRequest;
+import com.sang.be_capnong.dto.response.PageResponse;
 import com.sang.be_capnong.dto.response.UserResponse;
 
 import org.springframework.web.multipart.MultipartFile;
@@ -40,4 +41,14 @@ public interface UserService {
     List<UserResponse> getAllUsers();
 
     void deleteUser(Integer userId);
+
+    UserResponse approveShopOwner(Integer userId);
+
+    UserResponse approveShipper(Integer userId);
+
+    void activateUser(Integer userId);
+
+    void deactivateUser(Integer userId);
+
+    PageResponse<UserResponse> getUsersByRolePaged(List<String> roles, String status, int page, int size);
 }

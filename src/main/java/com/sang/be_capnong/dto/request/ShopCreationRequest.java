@@ -45,4 +45,6 @@ public class ShopCreationRequest {
     String bankAccount;
     String bankAccountHolder;
     String bankName;
+
+    Boolean emailVerified;
 }

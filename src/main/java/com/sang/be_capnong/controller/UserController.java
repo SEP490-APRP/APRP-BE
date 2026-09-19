@@ -7,6 +7,7 @@ import com.sang.be_capnong.dto.request.ShopCreationRequest;
 import com.sang.be_capnong.dto.request.UserUpdateRequest;
 import com.sang.be_capnong.dto.request.VerifyOtpRequest;
 import com.sang.be_capnong.dto.response.ApiResponse;
+import com.sang.be_capnong.dto.response.PageResponse;
 import com.sang.be_capnong.dto.response.UserResponse;
 import com.sang.be_capnong.service.UserService;
 import jakarta.validation.Valid;
@@ -33,7 +34,6 @@ public class UserController {
     public ApiResponse<UserResponse> createUser(@RequestBody @Valid BuyerCreationRequest request) {
         log.info("REST request to create user (Buyer): {}", request.getEmail());
         return ApiResponse.<UserResponse>builder()
-                .message("Đăng ký thành công. Vui lòng kiểm tra email để nhận mã xác thực OTP.")
                 .result(userService.createBuyer(request))
                 .build();
     }
@@ -42,7 +42,6 @@ public class UserController {
     public ApiResponse<UserResponse> createShop(@RequestBody @Valid ShopCreationRequest request) {
         log.info("REST request to create Shop: {}, shopName: {}", request.getEmail(), request.getShopName());
         return ApiResponse.<UserResponse>builder()
-                .message("Đăng ký Shop thành công. Vui lòng kiểm tra email để nhận mã xác thực OTP.")
                 .result(userService.createShop(request))
                 .build();
     }
@@ -51,7 +50,6 @@ public class UserController {
     public ApiResponse<UserResponse> createShipper(@RequestBody @Valid ShipperCreationRequest request) {
         log.info("REST request to create Shipper: {}, vehicleNumber: {}", request.getEmail(), request.getVehicleNumber());
         return ApiResponse.<UserResponse>builder()
-                .message("Đăng ký Shipper thành công. Vui lòng kiểm tra email để nhận mã xác thực OTP.")
                 .result(userService.createShipper(request))
                 .build();
     }
@@ -60,7 +58,6 @@ public class UserController {
     public ApiResponse<UserResponse> verifyAccount(@RequestBody @Valid VerifyOtpRequest request) {
         log.info("REST request to verify account with OTP for email: {}", request.getEmail());
         return ApiResponse.<UserResponse>builder()
-                .message("Tài khoản đã được xác thực thành công")
                 .result(userService.verifyAccount(request))
                 .build();
     }
@@ -70,7 +67,7 @@ public class UserController {
         log.info("REST request to resend OTP to email: {}", request.getEmail());
         userService.resendVerificationOtp(request);
         return ApiResponse.<Void>builder()
-                .message("Mã OTP mới đã được gửi đến email của bạn")
+                .message("OTP resent successfully")
                 .build();
     }
 
@@ -86,7 +83,6 @@ public class UserController {
     public ApiResponse<UserResponse> updateMyInfo(@RequestBody @Valid UserUpdateRequest request) {
         log.info("REST request to update current user info");
         return ApiResponse.<UserResponse>builder()
-                .message("Cập nhật thông tin thành công")
                 .result(userService.updateMyInfo(request))
                 .build();
     }
@@ -100,7 +96,6 @@ public class UserController {
         log.info("REST request to update avatar for current user");
         MultipartFile targetFile = logoUrl != null ? logoUrl : (image != null ? image : file);
         return ApiResponse.<UserResponse>builder()
-                .message("Cập nhật ảnh đại diện thành công")
                 .result(userService.updateAvatar(targetFile))
                 .build();
     }
@@ -118,6 +113,53 @@ public class UserController {
         log.info("REST request to get all users");
         return ApiResponse.<List<UserResponse>>builder()
                 .result(userService.getAllUsers())
+                .build();
+    }
+
+    @GetMapping("/paged")
+    public ApiResponse<PageResponse<UserResponse>> getUsersByRolePaged(
+            @RequestParam(name = "roles", required = false) List<String> roles,
+            @RequestParam(name = "status", required = false) String status,
+            @RequestParam(name = "page", required = false, defaultValue = "0") int page,
+            @RequestParam(name = "size", required = false, defaultValue = "10") int size
+    ) {
+        log.info("REST request to get users paged. roles: {}, status: {}, page: {}, size: {}", roles, status, page, size);
+        return ApiResponse.<PageResponse<UserResponse>>builder()
+                .result(userService.getUsersByRolePaged(roles, status, page, size))
+                .build();
+    }
+
+    @PatchMapping("/{userId}/approve-shop-owner")
+    public ApiResponse<UserResponse> approveShopOwner(@PathVariable("userId") Integer userId) {
+        log.info("REST request to approve shop owner with userId: {}", userId);
+        return ApiResponse.<UserResponse>builder()
+                .result(userService.approveShopOwner(userId))
+                .build();
+    }
+
+    @PatchMapping("/{userId}/approve-shipper")
+    public ApiResponse<UserResponse> approveShipper(@PathVariable("userId") Integer userId) {
+        log.info("REST request to approve shipper with userId: {}", userId);
+        return ApiResponse.<UserResponse>builder()
+                .result(userService.approveShipper(userId))
+                .build();
+    }
+
+    @PatchMapping("/{userId}/activate")
+    public ApiResponse<Void> activateUser(@PathVariable("userId") Integer userId) {
+        log.info("REST request to activate user with userId: {}", userId);
+        userService.activateUser(userId);
+        return ApiResponse.<Void>builder()
+                .message("User activated successfully")
+                .build();
+    }
+
+    @PatchMapping("/{userId}/deactivate")
+    public ApiResponse<Void> deactivateUser(@PathVariable("userId") Integer userId) {
+        log.info("REST request to deactivate user with userId: {}", userId);
+        userService.deactivateUser(userId);
+        return ApiResponse.<Void>builder()
+                .message("User deactivated successfully")
                 .build();
     }
 }

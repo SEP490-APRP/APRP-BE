@@ -35,4 +35,5 @@ public class BuyerCreationRequest {
     String address;
 
     DietPreference dietPreference;
+    Boolean emailVerified;
 }
