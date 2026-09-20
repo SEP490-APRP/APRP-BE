@@ -68,6 +68,14 @@ public class AuthenticationServiceImpl implements AuthenticationService {
             throw new AppException(ErrorCode.USER_NOT_ACTIVE);
         }
 
+        if (user.getStatus() == UserStatus.PENDING) {
+            throw new AppException(ErrorCode.USER_PENDING_APPROVAL);
+        }
+
+        if (user.getStatus() == UserStatus.LOCKED) {
+            throw new AppException(ErrorCode.USER_LOCKED);
+        }
+
         String token = generateToken(user);
 
         return AuthenticationResponse.builder()

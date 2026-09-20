@@ -1,6 +1,7 @@
 package com.sang.be_capnong.config;
 
 import com.sang.be_capnong.entity.User;
+import com.sang.be_capnong.enums.UserStatus;
 import com.sang.be_capnong.repository.UserRepository;
 import com.sang.be_capnong.service.AuthenticationService;
 import jakarta.servlet.ServletException;
@@ -53,6 +54,35 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
 
         if (userOptional.isPresent()) {
             User user = userOptional.get();
+
+            // Kiểm tra trạng thái tài khoản
+            if (user.getStatus() == UserStatus.PENDING) {
+                log.warn("OAuth2 user account is pending admin approval: {}", email);
+                String targetUrl = UriComponentsBuilder.fromUriString(frontendUrl + "/login")
+                        .queryParam("error", "account_pending_approval")
+                        .build().toUriString();
+                getRedirectStrategy().sendRedirect(request, response, targetUrl);
+                return;
+            }
+
+            if (user.getStatus() == UserStatus.INACTIVE) {
+                log.warn("OAuth2 user account is inactive / not verified: {}", email);
+                String targetUrl = UriComponentsBuilder.fromUriString(frontendUrl + "/login")
+                        .queryParam("error", "account_not_active")
+                        .build().toUriString();
+                getRedirectStrategy().sendRedirect(request, response, targetUrl);
+                return;
+            }
+
+            if (user.getStatus() == UserStatus.LOCKED) {
+                log.warn("OAuth2 user account is locked: {}", email);
+                String targetUrl = UriComponentsBuilder.fromUriString(frontendUrl + "/login")
+                        .queryParam("error", "account_locked")
+                        .build().toUriString();
+                getRedirectStrategy().sendRedirect(request, response, targetUrl);
+                return;
+            }
+
             // Nếu có ảnh từ Google mà tài khoản chưa có logoUrl, cập nhật luôn
             if ((user.getLogoUrl() == null || user.getLogoUrl().isBlank()) && picture != null) {
                 user.setLogoUrl(picture);
@@ -64,7 +94,7 @@ public class OAuth2AuthenticationSuccessHandler extends SimpleUrlAuthenticationS
                     .queryParam("token", token)
                     .build().toUriString();
 
-            log.info("Redirecting existing user to: {}", targetUrl);
+            log.info("Redirecting existing active user to: {}", targetUrl);
             getRedirectStrategy().sendRedirect(request, response, targetUrl);
 
         } else {
