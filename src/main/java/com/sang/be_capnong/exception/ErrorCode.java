@@ -69,7 +69,30 @@ public enum ErrorCode {
     // Upload & File errors
     FILE_INVALID(4001, "Invalid image file", HttpStatus.BAD_REQUEST),
     FILE_TOO_LARGE(4002, "File size exceeds limit", HttpStatus.BAD_REQUEST),
-    UPLOAD_FAILED(4003, "Failed to upload file to Cloudinary", HttpStatus.INTERNAL_SERVER_ERROR)
+    UPLOAD_FAILED(4003, "Failed to upload file to Cloudinary", HttpStatus.INTERNAL_SERVER_ERROR),
+
+    // Mystery Box errors (Series 5000)
+    BOX_TYPE_REQUIRED(5001, "Box type is required", HttpStatus.BAD_REQUEST),
+    BOX_TYPE_TOO_LONG(5002, "Box type must not exceed 50 characters", HttpStatus.BAD_REQUEST),
+    MYSTERY_BOX_PRICE_REQUIRED(5003, "Price is required", HttpStatus.BAD_REQUEST),
+    MYSTERY_BOX_PRICE_INVALID(5004, "Price must be greater than or equal to 0", HttpStatus.BAD_REQUEST),
+    MYSTERY_BOX_QUANTITY_REQUIRED(5005, "Total quantity is required", HttpStatus.BAD_REQUEST),
+    MYSTERY_BOX_QUANTITY_INVALID(5006, "Total quantity must be at least 1", HttpStatus.BAD_REQUEST),
+    MYSTERY_BOX_ITEMS_REQUIRED(5007, "At least one product item is required in the mystery box", HttpStatus.BAD_REQUEST),
+    PRODUCT_ID_REQUIRED(5008, "Product ID in mystery box item is required", HttpStatus.BAD_REQUEST),
+    PRODUCT_QUANTITY_REQUIRED(5009, "Product quantity in mystery box item is required", HttpStatus.BAD_REQUEST),
+    PRODUCT_QUANTITY_INVALID(5010, "Product quantity in mystery box item must be at least 1", HttpStatus.BAD_REQUEST),
+    DUPLICATE_PRODUCT_IN_BOX(5011, "Duplicate product found in mystery box items", HttpStatus.BAD_REQUEST),
+    MYSTERY_BOX_NOT_FOUND(5012, "Mystery box not found", HttpStatus.NOT_FOUND),
+    NOT_MYSTERY_BOX_OWNER(5013, "You do not have permission to modify this mystery box", HttpStatus.FORBIDDEN),
+    PRODUCT_NOT_BELONG_TO_SHOP(5014, "One or more products do not belong to your shop", HttpStatus.FORBIDDEN),
+    STOCK_INSUFFICIENT(5015, "Insufficient stock for product in mystery box", HttpStatus.BAD_REQUEST),
+    PRODUCT_NOT_ACTIVE(5016, "One or more products are not active", HttpStatus.BAD_REQUEST),
+    TOTAL_QUANTITY_LESS_THAN_SOLD(5017, "Total quantity cannot be less than already sold quantity", HttpStatus.BAD_REQUEST),
+    CANNOT_DELETE_SOLD_MYSTERY_BOX(5018, "Cannot delete mystery box that has already been purchased. Please deactivate it instead", HttpStatus.BAD_REQUEST),
+    SHOP_NOT_ACTIVE(5019, "Shop account is not active or approved", HttpStatus.FORBIDDEN),
+    DESCRIPTION_TOO_LONG(5020, "Description must not exceed 500 characters", HttpStatus.BAD_REQUEST),
+    NOTE_TOO_LONG(5021, "Note must not exceed 255 characters", HttpStatus.BAD_REQUEST)
     ;
 
     private final int code;
