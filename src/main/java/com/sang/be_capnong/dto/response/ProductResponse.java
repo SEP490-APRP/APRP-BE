@@ -22,6 +22,8 @@ public class ProductResponse {
     String description;
     String status;
     LocalDate expiryDate;
+    String rejectReason;
+    LocalDateTime updatedAt;
     Integer discountPercent;
     LocalDateTime discountStartDate;
     LocalDateTime discountEndDate;

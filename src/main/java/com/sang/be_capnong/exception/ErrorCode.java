@@ -65,6 +65,9 @@ public enum ErrorCode {
     IMAGE_URL_REQUIRED(3016, "Image URL is required", HttpStatus.BAD_REQUEST),
     IMAGE_URL_TOO_LONG(3017, "Image URL must not exceed 500 characters", HttpStatus.BAD_REQUEST),
     IMAGE_NOT_BELONG_TO_PRODUCT(3018, "Image does not belong to the specified product", HttpStatus.BAD_REQUEST),
+    PRODUCT_NOT_PENDING(3019, "Product is not pending approval", HttpStatus.BAD_REQUEST),
+    REJECT_REASON_REQUIRED(3020, "Rejection reason is required", HttpStatus.BAD_REQUEST),
+    CANNOT_ACTIVATE_DIRECTLY(3021, "Shop cannot activate product directly; requires admin approval", HttpStatus.FORBIDDEN),
 
     // Upload & File errors
     FILE_INVALID(4001, "Invalid image file", HttpStatus.BAD_REQUEST),

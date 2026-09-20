@@ -26,6 +26,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import com.sang.be_capnong.dto.request.ProductRejectRequest;
 
 @Service
 @RequiredArgsConstructor
@@ -60,7 +62,8 @@ public class ProductServiceImpl implements ProductService {
         Product product = productMapper.toProduct(request);
         product.setShop(shop);
         product.setCategory(category);
-        product.setStatus("ACTIVE");
+        product.setStatus("PENDING");
+        product.setUpdatedAt(LocalDateTime.now());
 
         Product savedProduct = productRepository.save(product);
         return productMapper.toProductResponse(savedProduct);
@@ -135,12 +138,42 @@ public class ProductServiceImpl implements ProductService {
             throw new AppException(ErrorCode.PRODUCT_EXPIRY_INVALID);
         }
 
-        productMapper.updateProduct(product, request);
-        product.setCategory(category);
-        if (request.getStatus() != null && !request.getStatus().isBlank()) {
-            product.setStatus(request.getStatus().trim());
+        // Shop cannot self-activate product directly if it is not already ACTIVE
+        if (request.getStatus() != null && "ACTIVE".equalsIgnoreCase(request.getStatus().trim())) {
+            if (!"ACTIVE".equalsIgnoreCase(product.getStatus())) {
+                throw new AppException(ErrorCode.CANNOT_ACTIVATE_DIRECTLY);
+            }
         }
 
+        String oldProductName = product.getProductName();
+        String currentStatus = product.getStatus() != null ? product.getStatus() : "PENDING";
+
+        productMapper.updateProduct(product, request);
+        product.setCategory(category);
+
+        // Status transition lifecycle
+        if ("REJECTED".equalsIgnoreCase(currentStatus)) {
+            product.setStatus("PENDING");
+            product.setRejectReason(null);
+        } else if ("PENDING".equalsIgnoreCase(currentStatus)) {
+            product.setStatus("PENDING");
+        } else if ("ACTIVE".equalsIgnoreCase(currentStatus)) {
+            if (request.getStatus() != null && "INACTIVE".equalsIgnoreCase(request.getStatus().trim())) {
+                product.setStatus("INACTIVE");
+            } else if (!oldProductName.equalsIgnoreCase(request.getProductName().trim())) {
+                product.setStatus("PENDING");
+            } else {
+                product.setStatus("ACTIVE");
+            }
+        } else if ("INACTIVE".equalsIgnoreCase(currentStatus)) {
+            if (request.getStatus() != null && "ACTIVE".equalsIgnoreCase(request.getStatus().trim())) {
+                product.setStatus("PENDING");
+            } else if (request.getStatus() != null && !request.getStatus().isBlank()) {
+                product.setStatus(request.getStatus().trim());
+            }
+        }
+
+        product.setUpdatedAt(LocalDateTime.now());
         Product updatedProduct = productRepository.save(product);
         return productMapper.toProductResponse(updatedProduct);
     }
@@ -162,6 +195,45 @@ public class ProductServiceImpl implements ProductService {
         }
 
         product.setStatus("INACTIVE");
+        product.setUpdatedAt(LocalDateTime.now());
         productRepository.save(product);
+    }
+
+    @Override
+    public ProductResponse approveProduct(Integer productId) {
+        log.info("Admin approving product id: {}", productId);
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+
+        if (!"PENDING".equalsIgnoreCase(product.getStatus())) {
+            throw new AppException(ErrorCode.PRODUCT_NOT_PENDING);
+        }
+
+        product.setStatus("ACTIVE");
+        product.setRejectReason(null);
+        product.setUpdatedAt(LocalDateTime.now());
+
+        Product savedProduct = productRepository.save(product);
+        log.info("Product id: {} successfully approved to ACTIVE", productId);
+        return productMapper.toProductResponse(savedProduct);
+    }
+
+    @Override
+    public ProductResponse rejectProduct(Integer productId, ProductRejectRequest request) {
+        log.info("Admin rejecting product id: {} with reason: {}", productId, request.getReason());
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+
+        if (request.getReason() == null || request.getReason().isBlank()) {
+            throw new AppException(ErrorCode.REJECT_REASON_REQUIRED);
+        }
+
+        product.setStatus("REJECTED");
+        product.setRejectReason(request.getReason().trim());
+        product.setUpdatedAt(LocalDateTime.now());
+
+        Product savedProduct = productRepository.save(product);
+        log.info("Product id: {} successfully set to REJECTED", productId);
+        return productMapper.toProductResponse(savedProduct);
     }
 }

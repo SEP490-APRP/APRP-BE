@@ -26,6 +26,8 @@ public interface ProductMapper {
     @Mapping(target = "productMysteries", ignore = true)
     @Mapping(target = "productCombos", ignore = true)
     @Mapping(target = "reviews", ignore = true)
+    @Mapping(target = "rejectReason", ignore = true)
+    @Mapping(target = "updatedAt", ignore = true)
     Product toProduct(ProductCreationRequest request);
 
     ProductResponse toProductResponse(Product product);
@@ -44,5 +46,7 @@ public interface ProductMapper {
     @Mapping(target = "productMysteries", ignore = true)
     @Mapping(target = "productCombos", ignore = true)
     @Mapping(target = "reviews", ignore = true)
+    @Mapping(target = "rejectReason", ignore = true)
+    @Mapping(target = "updatedAt", ignore = true)
     void updateProduct(@MappingTarget Product product, ProductUpdateRequest request);
 }
