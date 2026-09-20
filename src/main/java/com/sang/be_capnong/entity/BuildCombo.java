@@ -48,6 +48,10 @@ public class BuildCombo {
     @Column(length = 500)
     String imageUrl;
 
+    @Column(length = 50)
+    @Builder.Default
+    String status = "ACTIVE";
+
     @OneToMany(mappedBy = "buildCombo", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     List<ProductCombo> productCombos;
