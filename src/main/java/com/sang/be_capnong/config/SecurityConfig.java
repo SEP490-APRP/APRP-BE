@@ -3,6 +3,7 @@ package com.sang.be_capnong.config;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -27,6 +28,9 @@ public class SecurityConfig {
     private final String[] PUBLIC_ENDPOINTS = {
             "/users/**",
             "/shippers/**",
+            "/upload/**",
+            "/oauth2/**",
+            "/login/oauth2/**",
             "/auth/login", "/auth/introspect", "/auth/logout", "/auth/refresh",
             "/v3/api-docs/**",
             "/swagger-ui/**",
@@ -35,6 +39,10 @@ public class SecurityConfig {
 
     @Autowired
     private CustomJwtDecoder customJwtDecoder;
+
+    @Autowired
+    @Lazy
+    private OAuth2AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -47,6 +55,9 @@ public class SecurityConfig {
                         .requestMatchers("/products/my-shop").authenticated()
                         .requestMatchers(HttpMethod.GET, "/products", "/products/**").permitAll()
                         .anyRequest().authenticated()
+                )
+                .oauth2Login(oauth2 -> oauth2
+                        .successHandler(oAuth2AuthenticationSuccessHandler)
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt
@@ -81,10 +92,5 @@ public class SecurityConfig {
         JwtAuthenticationConverter jwtConverter = new JwtAuthenticationConverter();
         jwtConverter.setJwtGrantedAuthoritiesConverter(converter);
         return jwtConverter;
-    }
-
-    @Bean
-    PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder(10);
     }
 }

@@ -40,6 +40,7 @@ public class User {
     String address;
 
     @Enumerated(EnumType.STRING)
+    @Column(length = 50)
     UserStatus status;
 
     // ===== SHOP FIELDS =====

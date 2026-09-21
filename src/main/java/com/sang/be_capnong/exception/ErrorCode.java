@@ -16,10 +16,28 @@ public enum ErrorCode {
     USER_NOT_EXISTED(10010, "User not existed",HttpStatus.NOT_FOUND),
     MISS_ROLE(10011, "Missing required role", HttpStatus.FORBIDDEN),
 //   Create user errors
-    EMAIL_INVALID(1006, "EMAIL_INVALID", HttpStatus.BAD_REQUEST),
-    EMAIL_REQUIRED(1009, "EMAIL_REQUIRED", HttpStatus.BAD_REQUEST),
-    INVALID_PASSWORD(1007, "PASSWORD_INVALID", HttpStatus.BAD_REQUEST),
-    PASSWORD_REQUIRED(1008, "PASSWORD_REQUIRED", HttpStatus.BAD_REQUEST),
+    EMAIL_INVALID(1006, "Email is invalid", HttpStatus.BAD_REQUEST),
+    EMAIL_REQUIRED(1009, "Email is required", HttpStatus.BAD_REQUEST),
+    EMAIL_TOO_LONG(1010, "Email must not exceed 100 characters", HttpStatus.BAD_REQUEST),
+    INVALID_PASSWORD(1007, "Password must be at least 8 characters", HttpStatus.BAD_REQUEST),
+    PASSWORD_REQUIRED(1008, "Password is required", HttpStatus.BAD_REQUEST),
+    FULL_NAME_REQUIRED(1011, "Full name is required", HttpStatus.BAD_REQUEST),
+    PHONE_NUMBER_REQUIRED(1012, "Phone number is required", HttpStatus.BAD_REQUEST),
+    PHONE_NUMBER_INVALID(1013, "Phone number format is invalid", HttpStatus.BAD_REQUEST),
+    ADDRESS_REQUIRED(1014, "Address is required", HttpStatus.BAD_REQUEST),
+    SHOP_NAME_REQUIRED(1015, "Shop name is required", HttpStatus.BAD_REQUEST),
+    VEHICLE_NUMBER_REQUIRED(1016, "Vehicle number is required", HttpStatus.BAD_REQUEST),
+    PHONE_EXISTED(1017, "Phone number is already registered", HttpStatus.BAD_REQUEST),
+    OTP_REQUIRED(1018, "OTP is required", HttpStatus.BAD_REQUEST),
+    OTP_INVALID(1019, "OTP is invalid", HttpStatus.BAD_REQUEST),
+    OTP_EXPIRED(1020, "OTP has expired", HttpStatus.BAD_REQUEST),
+    OTP_NOT_FOUND(1021, "No OTP found for this email", HttpStatus.NOT_FOUND),
+    USER_NOT_ACTIVE(1022, "Account is not verified yet. Please verify your OTP", HttpStatus.FORBIDDEN),
+    USER_ALREADY_ACTIVE(1023, "Account is already verified and active", HttpStatus.BAD_REQUEST),
+    SEND_MAIL_FAILED(1024, "Failed to send email", HttpStatus.INTERNAL_SERVER_ERROR),
+    USER_PENDING_APPROVAL(1025, "Account is pending admin approval. Please wait for approval before accessing the platform", HttpStatus.FORBIDDEN),
+    USER_LOCKED(1026, "Account has been locked. Please contact support", HttpStatus.FORBIDDEN),
+
 
     // Category errors
     CATEGORY_NOT_FOUND(2001, "Category not found", HttpStatus.NOT_FOUND),
@@ -49,7 +67,12 @@ public enum ErrorCode {
     PRODUCT_IMAGE_NOT_FOUND(3015, "Product image not found", HttpStatus.NOT_FOUND),
     IMAGE_URL_REQUIRED(3016, "Image URL is required", HttpStatus.BAD_REQUEST),
     IMAGE_URL_TOO_LONG(3017, "Image URL must not exceed 500 characters", HttpStatus.BAD_REQUEST),
-    IMAGE_NOT_BELONG_TO_PRODUCT(3018, "Image does not belong to the specified product", HttpStatus.BAD_REQUEST)
+    IMAGE_NOT_BELONG_TO_PRODUCT(3018, "Image does not belong to the specified product", HttpStatus.BAD_REQUEST),
+
+    // Upload & File errors
+    FILE_INVALID(4001, "Invalid image file", HttpStatus.BAD_REQUEST),
+    FILE_TOO_LARGE(4002, "File size exceeds limit", HttpStatus.BAD_REQUEST),
+    UPLOAD_FAILED(4003, "Failed to upload file to Cloudinary", HttpStatus.INTERNAL_SERVER_ERROR)
     ;
 
     private final int code;
