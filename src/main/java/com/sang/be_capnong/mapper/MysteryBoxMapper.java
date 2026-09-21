@@ -7,10 +7,12 @@ import com.sang.be_capnong.dto.response.ProductMysteryResponse;
 import com.sang.be_capnong.entity.MysteryBox;
 import com.sang.be_capnong.entity.ProductImage;
 import com.sang.be_capnong.entity.ProductMystery;
+import org.mapstruct.BeanMapping;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.MappingTarget;
 import org.mapstruct.Named;
+import org.mapstruct.NullValuePropertyMappingStrategy;
 
 import java.util.List;
 
@@ -39,6 +41,7 @@ public interface MysteryBoxMapper {
 
     List<ProductMysteryResponse> toProductMysteryResponseList(List<ProductMystery> productMysteries);
 
+    @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
     @Mapping(target = "mysteryId", ignore = true)
     @Mapping(target = "shop", ignore = true)
     @Mapping(target = "soldQuantity", ignore = true)

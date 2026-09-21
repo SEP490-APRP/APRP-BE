@@ -18,8 +18,10 @@ import com.sang.be_capnong.repository.MysteryBoxRepository;
 import com.sang.be_capnong.repository.ProductMysteryRepository;
 import com.sang.be_capnong.repository.ProductRepository;
 import com.sang.be_capnong.repository.UserRepository;
+import com.sang.be_capnong.repository.specification.MysteryBoxSpecification;
 import com.sang.be_capnong.service.MysteryBoxService;
 import com.sang.be_capnong.util.SecurityUtils;
+import org.springframework.data.jpa.domain.Specification;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -55,8 +57,7 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
         User shop = userRepository.findById(currentUserId)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
 
-        if (shop.getRole() == null || (!"SHOP".equalsIgnoreCase(shop.getRole().getName())
-                && !"SHOP_OWNER".equalsIgnoreCase(shop.getRole().getName()))) {
+        if (shop.getRole() == null || !"SHOP".equalsIgnoreCase(shop.getRole().getName())) {
             throw new AppException(ErrorCode.USER_NOT_A_SHOP);
         }
 
@@ -194,8 +195,9 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
         Boolean effectiveIsActive = isActive != null ? isActive : true;
         String filterBoxType = (boxType != null && !boxType.isBlank()) ? boxType.trim() : null;
 
-        Page<MysteryBox> boxPage = mysteryBoxRepository.findMysteryBoxes(
-                shopId, filterBoxType, effectiveIsActive, minPrice, maxPrice, pageable);
+        Specification<MysteryBox> spec = MysteryBoxSpecification.filterMysteryBoxes(
+                shopId, filterBoxType, effectiveIsActive, minPrice, maxPrice);
+        Page<MysteryBox> boxPage = mysteryBoxRepository.findAll(spec, pageable);
 
         List<MysteryBoxResponse> responseList = mysteryBoxMapper.toMysteryBoxResponseList(boxPage.getContent());
         // Items remain null in general listing

@@ -9,10 +9,12 @@ import com.sang.be_capnong.entity.BuildCombo;
 import com.sang.be_capnong.entity.ProductCombo;
 import com.sang.be_capnong.entity.ProductImage;
 import com.sang.be_capnong.entity.User;
+import org.mapstruct.BeanMapping;
 import org.mapstruct.Mapper;
 import org.mapstruct.Mapping;
 import org.mapstruct.MappingTarget;
 import org.mapstruct.Named;
+import org.mapstruct.NullValuePropertyMappingStrategy;
 
 import java.util.List;
 
@@ -42,6 +44,7 @@ public interface BuildComboMapper {
 
     List<ProductComboResponse> toProductComboResponseList(List<ProductCombo> productCombos);
 
+    @BeanMapping(nullValuePropertyMappingStrategy = NullValuePropertyMappingStrategy.IGNORE)
     @Mapping(target = "comboId", ignore = true)
     @Mapping(target = "shop", ignore = true)
     @Mapping(target = "soldQuantity", ignore = true)

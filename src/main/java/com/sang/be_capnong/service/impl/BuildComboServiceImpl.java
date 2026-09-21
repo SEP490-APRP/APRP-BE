@@ -19,10 +19,12 @@ import com.sang.be_capnong.repository.BuildComboRepository;
 import com.sang.be_capnong.repository.ProductComboRepository;
 import com.sang.be_capnong.repository.ProductRepository;
 import com.sang.be_capnong.repository.UserRepository;
+import com.sang.be_capnong.repository.specification.BuildComboSpecification;
 import com.sang.be_capnong.service.BuildComboService;
 import com.sang.be_capnong.util.SecurityUtils;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.jpa.domain.Specification;
 import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -135,9 +137,10 @@ public class BuildComboServiceImpl implements BuildComboService {
         int pageSize = Math.max(1, size);
         Pageable pageable = PageRequest.of(pageIndex, pageSize, Sort.by(direction, effectiveSortBy));
 
-        Page<BuildCombo> comboPage = buildComboRepository.findCombos(
-                effectiveStatus, mealType, region, type, keyword, pageable
+        Specification<BuildCombo> spec = BuildComboSpecification.filterCombos(
+                effectiveStatus, mealType, region, type, keyword
         );
+        Page<BuildCombo> comboPage = buildComboRepository.findAll(spec, pageable);
 
         List<BuildComboResponse> responseList = comboPage.getContent().stream().map(combo -> {
             BuildComboResponse resp = buildComboMapper.toBuildComboResponse(combo);
@@ -172,7 +175,8 @@ public class BuildComboServiceImpl implements BuildComboService {
         Pageable pageable = PageRequest.of(pageIndex, pageSize, Sort.by(Sort.Direction.DESC, "comboId"));
 
         String filterStatus = (status != null && !status.isBlank()) ? status.trim().toUpperCase() : null;
-        Page<BuildCombo> comboPage = buildComboRepository.findByShopIdAndOptionalFilters(currentUserId, filterStatus, mealType, pageable);
+        Specification<BuildCombo> spec = BuildComboSpecification.filterShopCombos(currentUserId, filterStatus, mealType);
+        Page<BuildCombo> comboPage = buildComboRepository.findAll(spec, pageable);
 
         List<BuildComboResponse> responseList = comboPage.getContent().stream().map(combo -> {
             BuildComboResponse resp = buildComboMapper.toBuildComboResponse(combo);
