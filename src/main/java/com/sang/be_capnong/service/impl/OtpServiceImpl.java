@@ -80,7 +80,7 @@ public class OtpServiceImpl implements OtpService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
 
-        if (user.getStatus() == UserStatus.ACTIVE) {
+        if (user.getStatus() != UserStatus.INACTIVE) {
             throw new AppException(ErrorCode.USER_ALREADY_ACTIVE);
         }
 
