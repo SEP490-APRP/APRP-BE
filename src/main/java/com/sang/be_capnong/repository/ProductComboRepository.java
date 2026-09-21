@@ -12,4 +12,6 @@ public interface ProductComboRepository extends JpaRepository<ProductCombo, Inte
     List<ProductCombo> findByBuildComboComboId(int comboId);
 
     void deleteByBuildComboComboId(int comboId);
+
+    List<ProductCombo> findByProduct_ProductId(int productId);
 }

@@ -314,13 +314,10 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
         }
 
         int sold = box.getSoldQuantity() != null ? box.getSoldQuantity() : 0;
-        if (sold > 0) {
-            log.warn("Cannot hard delete sold mystery box id: {}. Sold: {}", id, sold);
-            throw new AppException(ErrorCode.CANNOT_DELETE_SOLD_MYSTERY_BOX);
-        }
+        int total = box.getTotalQuantity() != null ? box.getTotalQuantity() : 0;
+        int unsoldBoxes = Math.max(0, total - sold);
 
         // Refund unsold products back to stock
-        int unsoldBoxes = box.getTotalQuantity() != null ? box.getTotalQuantity() : 0;
         if (unsoldBoxes > 0) {
             List<ProductMystery> items = productMysteryRepository.findByMysteryBox_MysteryId(id);
             for (ProductMystery item : items) {
@@ -331,7 +328,10 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
             }
         }
 
-        mysteryBoxRepository.delete(box);
-        log.info("Deleted mystery box id: {} and refunded inventory", id);
+        // Soft delete: deactivate and close remaining inventory
+        box.setIsActive(false);
+        box.setTotalQuantity(sold);
+        mysteryBoxRepository.save(box);
+        log.info("Soft deleted mystery box id: {}, deactivated and refunded {} unsold units", id, unsoldBoxes);
     }
 }

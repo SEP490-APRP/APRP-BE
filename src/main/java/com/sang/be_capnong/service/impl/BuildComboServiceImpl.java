@@ -314,25 +314,26 @@ public class BuildComboServiceImpl implements BuildComboService {
             throw new AppException(ErrorCode.NOT_COMBO_OWNER);
         }
 
-        // Prevent deletion if already sold
-        if (buildCombo.getSoldQuantity() != null && buildCombo.getSoldQuantity() > 0) {
-            throw new AppException(ErrorCode.CANNOT_DELETE_SOLD_COMBO);
+        int sold = (buildCombo.getSoldQuantity() != null) ? buildCombo.getSoldQuantity() : 0;
+        int total = (buildCombo.getTotalQuantity() != null) ? buildCombo.getTotalQuantity() : 0;
+        int unsoldQuantity = Math.max(0, total - sold);
+
+        // Refund inventory for unsold combos
+        if (unsoldQuantity > 0) {
+            List<ProductCombo> items = productComboRepository.findByBuildComboComboId(comboId);
+            for (ProductCombo item : items) {
+                Product prod = item.getProduct();
+                int refundStock = item.getProductQuantity() * unsoldQuantity;
+                prod.setStockQuantity((prod.getStockQuantity() != null ? prod.getStockQuantity() : 0) + refundStock);
+                productRepository.save(prod);
+            }
         }
 
-        // Refund 100% inventory for unsold combos
-        List<ProductCombo> items = productComboRepository.findByBuildComboComboId(comboId);
-        int unsoldQuantity = buildCombo.getTotalQuantity();
-
-        for (ProductCombo item : items) {
-            Product prod = item.getProduct();
-            int refundStock = item.getProductQuantity() * unsoldQuantity;
-            prod.setStockQuantity((prod.getStockQuantity() != null ? prod.getStockQuantity() : 0) + refundStock);
-            productRepository.save(prod);
-        }
-
-        productComboRepository.deleteByBuildComboComboId(comboId);
-        buildComboRepository.delete(buildCombo);
-        log.info("Build combo id: {} successfully deleted and inventory refunded.", comboId);
+        // Soft delete: status INACTIVE and cap totalQuantity at soldQuantity
+        buildCombo.setStatus("INACTIVE");
+        buildCombo.setTotalQuantity(sold);
+        buildComboRepository.save(buildCombo);
+        log.info("Build combo id: {} soft deleted (set INACTIVE), refunded {} unsold units", comboId, unsoldQuantity);
     }
 
     private User getAndValidateShopUser(Integer userId) {

@@ -4,13 +4,21 @@ import com.sang.be_capnong.dto.request.ProductCreationRequest;
 import com.sang.be_capnong.dto.request.ProductUpdateRequest;
 import com.sang.be_capnong.dto.response.PageResponse;
 import com.sang.be_capnong.dto.response.ProductResponse;
+import com.sang.be_capnong.entity.BuildCombo;
 import com.sang.be_capnong.entity.Category;
+import com.sang.be_capnong.entity.MysteryBox;
 import com.sang.be_capnong.entity.Product;
+import com.sang.be_capnong.entity.ProductCombo;
+import com.sang.be_capnong.entity.ProductMystery;
 import com.sang.be_capnong.entity.User;
 import com.sang.be_capnong.exception.AppException;
 import com.sang.be_capnong.exception.ErrorCode;
 import com.sang.be_capnong.mapper.ProductMapper;
+import com.sang.be_capnong.repository.BuildComboRepository;
 import com.sang.be_capnong.repository.CategoryRepository;
+import com.sang.be_capnong.repository.MysteryBoxRepository;
+import com.sang.be_capnong.repository.ProductComboRepository;
+import com.sang.be_capnong.repository.ProductMysteryRepository;
 import com.sang.be_capnong.repository.ProductRepository;
 import com.sang.be_capnong.repository.UserRepository;
 import com.sang.be_capnong.service.ProductService;
@@ -27,6 +35,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import com.sang.be_capnong.dto.request.ProductRejectRequest;
 
 @Service
@@ -39,6 +48,10 @@ public class ProductServiceImpl implements ProductService {
     CategoryRepository categoryRepository;
     UserRepository userRepository;
     ProductMapper productMapper;
+    ProductMysteryRepository productMysteryRepository;
+    MysteryBoxRepository mysteryBoxRepository;
+    ProductComboRepository productComboRepository;
+    BuildComboRepository buildComboRepository;
 
     @Override
     public ProductResponse createProduct(ProductCreationRequest request) {
@@ -175,6 +188,11 @@ public class ProductServiceImpl implements ProductService {
 
         product.setUpdatedAt(LocalDateTime.now());
         Product updatedProduct = productRepository.save(product);
+
+        if (!"ACTIVE".equalsIgnoreCase(updatedProduct.getStatus())) {
+            cascadeDeactivateLinkedBoxesAndCombos(productId);
+        }
+
         return productMapper.toProductResponse(updatedProduct);
     }
 
@@ -197,6 +215,8 @@ public class ProductServiceImpl implements ProductService {
         product.setStatus("INACTIVE");
         product.setUpdatedAt(LocalDateTime.now());
         productRepository.save(product);
+
+        cascadeDeactivateLinkedBoxesAndCombos(productId);
     }
 
     @Override
@@ -234,6 +254,37 @@ public class ProductServiceImpl implements ProductService {
 
         Product savedProduct = productRepository.save(product);
         log.info("Product id: {} successfully set to REJECTED", productId);
+
+        cascadeDeactivateLinkedBoxesAndCombos(productId);
+
         return productMapper.toProductResponse(savedProduct);
+    }
+
+    private void cascadeDeactivateLinkedBoxesAndCombos(Integer productId) {
+        log.info("Cascading deactivation for mystery boxes and combos containing product id: {}", productId);
+
+        // Deactivate active Mystery Boxes containing this product
+        List<ProductMystery> productMysteries = productMysteryRepository.findByProduct_ProductId(productId);
+        for (ProductMystery pm : productMysteries) {
+            MysteryBox box = pm.getMysteryBox();
+            if (box != null && Boolean.TRUE.equals(box.getIsActive())) {
+                box.setIsActive(false);
+                mysteryBoxRepository.save(box);
+                log.info("Cascaded deactivation (isActive=false) to Mystery Box id: {} due to non-active product id: {}",
+                        box.getMysteryId(), productId);
+            }
+        }
+
+        // Deactivate active Build Combos containing this product
+        List<ProductCombo> productCombos = productComboRepository.findByProduct_ProductId(productId);
+        for (ProductCombo pc : productCombos) {
+            BuildCombo combo = pc.getBuildCombo();
+            if (combo != null && "ACTIVE".equalsIgnoreCase(combo.getStatus())) {
+                combo.setStatus("INACTIVE");
+                buildComboRepository.save(combo);
+                log.info("Cascaded deactivation (status=INACTIVE) to Build Combo id: {} due to non-active product id: {}",
+                        combo.getComboId(), productId);
+            }
+        }
     }
 }

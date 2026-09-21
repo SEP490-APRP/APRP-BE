@@ -10,4 +10,5 @@ import java.util.List;
 public interface ProductMysteryRepository extends JpaRepository<ProductMystery, Integer> {
     List<ProductMystery> findByMysteryBox_MysteryId(int mysteryId);
     void deleteByMysteryBox_MysteryId(int mysteryId);
+    List<ProductMystery> findByProduct_ProductId(int productId);
 }
