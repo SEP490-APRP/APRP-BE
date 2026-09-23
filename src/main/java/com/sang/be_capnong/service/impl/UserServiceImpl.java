@@ -64,8 +64,10 @@ public class UserServiceImpl implements UserService {
         User user = userMapper.toUser(request);
         user.setPassword(passwordEncoder.encode(request.getPassword()));
 
-        Role defaultRole = roleRepository.findByName("BUYER")
+        String requestedRole = request.getRoleName() != null ? request.getRoleName().toUpperCase() : "BUYER";
+        Role defaultRole = roleRepository.findByName(requestedRole)
                 .orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_FOUND));
+
         user.setRole(defaultRole);
         user.setStatus(UserStatus.INACTIVE);
         user.setCreateAt(LocalDateTime.now());
@@ -226,7 +228,7 @@ public class UserServiceImpl implements UserService {
         User user = userRepository.findById(currentUserId)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
 
-        userMapper.updateUser(user, request);
+        updateUserFieldsByRole(user, request);
 
         if (request.getPassword() != null && !request.getPassword().isBlank()) {
             user.setPassword(passwordEncoder.encode(request.getPassword()));
@@ -263,14 +265,60 @@ public class UserServiceImpl implements UserService {
     @Override
     @Transactional
     public UserResponse updateUser(Integer userId, UserUpdateRequest request) {
+        log.info("updateUser for user id: {}", userId);
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
-        userMapper.updateUser(user, request);
+
+        updateUserFieldsByRole(user, request);
+
         if (request.getPassword() != null && !request.getPassword().isBlank()) {
             user.setPassword(passwordEncoder.encode(request.getPassword()));
         }
+
         user.setUpdateAt(LocalDateTime.now());
         return userMapper.toUserResponse(userRepository.save(user));
+    }
+
+    /**
+     * Helper cập nhật thông tin User dựa trên Role của tài khoản:
+     * - Common fields (fullName, phoneNumber, address) áp dụng cho mọi role.
+     * - Role-specific fields chỉ cập nhật nếu user sở hữu Role tương ứng.
+     */
+    private void updateUserFieldsByRole(User user, UserUpdateRequest request) {
+        // Cập nhật các trường chung cho tất cả các Role
+        if (request.getFullName() != null) user.setFullName(request.getFullName());
+        if (request.getPhoneNumber() != null) user.setPhoneNumber(request.getPhoneNumber());
+        if (request.getAddress() != null) user.setAddress(request.getAddress());
+
+        String roleName = (user.getRole() != null && user.getRole().getName() != null)
+                ? user.getRole().getName().toUpperCase()
+                : "";
+
+        // Cập nhật thông tin đặc thù của BUYER
+        if ("BUYER".equals(roleName)) {
+            if (request.getDietPreference() != null) user.setDietPreference(request.getDietPreference());
+        }
+
+        // Cập nhật thông tin đặc thù của SHOP / SHOP_OWNER
+        if ("SHOP".equals(roleName) || "SHOP_OWNER".equals(roleName)) {
+            if (request.getShopName() != null) user.setShopName(request.getShopName());
+            if (request.getDescription() != null) user.setDescription(request.getDescription());
+            if (request.getLogoUrl() != null) user.setLogoUrl(request.getLogoUrl());
+            if (request.getAchievement() != null) user.setAchievement(request.getAchievement());
+            if (request.getLicense() != null) user.setLicense(request.getLicense());
+            if (request.getLicenseImageUrl() != null) user.setLicenseImageUrl(request.getLicenseImageUrl());
+            if (request.getBankAccount() != null) user.setBankAccount(request.getBankAccount());
+            if (request.getBankAccountHolder() != null) user.setBankAccountHolder(request.getBankAccountHolder());
+            if (request.getBankName() != null) user.setBankName(request.getBankName());
+        }
+
+        // Cập nhật thông tin đặc thù của SHIPPER
+        if ("SHIPPER".equals(roleName)) {
+            if (request.getVehicleNumber() != null) user.setVehicleNumber(request.getVehicleNumber());
+            if (request.getVehicleDocImageUrl() != null) user.setVehicleDocImageUrl(request.getVehicleDocImageUrl());
+            if (request.getLicense() != null) user.setLicense(request.getLicense());
+            if (request.getLicenseImageUrl() != null) user.setLicenseImageUrl(request.getLicenseImageUrl());
+        }
     }
 
     @Override

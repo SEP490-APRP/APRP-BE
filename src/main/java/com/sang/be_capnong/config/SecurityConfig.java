@@ -27,6 +27,7 @@ public class SecurityConfig {
 
     private final String[] PUBLIC_ENDPOINTS = {
             "/users/**",
+            "/shippers/**",
             "/upload/**",
             "/oauth2/**",
             "/login/oauth2/**",
