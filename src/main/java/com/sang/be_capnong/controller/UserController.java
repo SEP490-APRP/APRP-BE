@@ -4,6 +4,7 @@ import com.sang.be_capnong.dto.request.BuyerCreationRequest;
 import com.sang.be_capnong.dto.request.ResendOtpRequest;
 import com.sang.be_capnong.dto.request.ShipperCreationRequest;
 import com.sang.be_capnong.dto.request.ShopCreationRequest;
+import com.sang.be_capnong.dto.request.UserCreationRequest;
 import com.sang.be_capnong.dto.request.UserUpdateRequest;
 import com.sang.be_capnong.dto.request.VerifyOtpRequest;
 import com.sang.be_capnong.dto.response.ApiResponse;
@@ -160,6 +161,14 @@ public class UserController {
         userService.deactivateUser(userId);
         return ApiResponse.<Void>builder()
                 .message("User deactivated successfully")
+                .build();
+    }
+
+    @PutMapping("/{userId}")
+    public ApiResponse<UserResponse> updateUser(@PathVariable("userId") Integer userId, @RequestBody @Valid UserUpdateRequest request) {
+        log.info("REST request to update user profile by id: {}", userId);
+        return ApiResponse.<UserResponse>builder()
+                .result(userService.updateUser(userId, request))
                 .build();
     }
 }
