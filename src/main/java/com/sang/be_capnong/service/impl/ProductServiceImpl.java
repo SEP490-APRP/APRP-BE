@@ -204,11 +204,7 @@ public class ProductServiceImpl implements ProductService {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-        User currentUser = userRepository.findById(currentUserId)
-                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
-
-        boolean isAdmin = currentUser.getRole() != null && "ADMIN".equalsIgnoreCase(currentUser.getRole().getName());
-        if (!isAdmin && product.getShop().getId() != currentUserId) {
+        if (product.getShop() == null || product.getShop().getId() != currentUserId) {
             throw new AppException(ErrorCode.NOT_PRODUCT_OWNER);
         }
 

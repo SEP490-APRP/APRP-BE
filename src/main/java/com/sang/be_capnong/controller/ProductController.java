@@ -83,7 +83,7 @@ public class ProductController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('SHOP', 'ADMIN')")
+    @PreAuthorize("hasAuthority('SHOP')")
     public ApiResponse<Void> deleteProduct(@PathVariable("id") Integer id) {
         log.info("REST request to delete product id: {}", id);
         productService.deleteProduct(id);
