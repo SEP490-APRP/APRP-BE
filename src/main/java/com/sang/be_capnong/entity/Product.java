@@ -46,6 +46,11 @@ public class Product {
     String status;
     LocalDate expiryDate;
 
+    @Column(columnDefinition = "TEXT")
+    String rejectReason;
+
+    LocalDateTime updatedAt;
+
     Integer discountPercent;
     LocalDateTime discountStartDate;
     LocalDateTime discountEndDate;

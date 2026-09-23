@@ -54,6 +54,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/categories", "/categories/**").permitAll()
                         .requestMatchers("/products/my-shop").authenticated()
                         .requestMatchers(HttpMethod.GET, "/products", "/products/**").permitAll()
+                        .requestMatchers("/mystery-boxes/my-shop").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/mystery-boxes", "/mystery-boxes/**").permitAll()
+                        .requestMatchers("/combos/my-shop").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/combos", "/combos/**").permitAll()
                         .anyRequest().authenticated()
                 )
                 .oauth2Login(oauth2 -> oauth2
