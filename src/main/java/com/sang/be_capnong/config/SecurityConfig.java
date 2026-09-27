@@ -32,10 +32,15 @@ public class SecurityConfig {
             "/oauth2/**",
             "/login/oauth2/**",
             "/auth/login", "/auth/introspect", "/auth/logout", "/auth/refresh",
+            // POST /shipping/preview: buyer chưa đăng nhập vẫn cần xem phí ship trước khi checkout
+            "/shipping/preview",
+            "/shipping/address-suggestions", // Gợi ý địa chỉ từ Google API
             "/v3/api-docs/**",
             "/swagger-ui/**",
             "/swagger-ui.html"
     };
+
+
 
     @Autowired
     private CustomJwtDecoder customJwtDecoder;
