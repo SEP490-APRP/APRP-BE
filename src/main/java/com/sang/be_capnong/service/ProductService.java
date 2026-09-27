@@ -5,6 +5,8 @@ import com.sang.be_capnong.dto.request.ProductUpdateRequest;
 import com.sang.be_capnong.dto.response.PageResponse;
 import com.sang.be_capnong.dto.response.ProductResponse;
 
+import com.sang.be_capnong.dto.request.ProductRejectRequest;
+
 public interface ProductService {
 
     ProductResponse createProduct(ProductCreationRequest request);
@@ -30,4 +32,8 @@ public interface ProductService {
     ProductResponse updateProduct(Integer productId, ProductUpdateRequest request);
 
     void deleteProduct(Integer productId);
+
+    ProductResponse approveProduct(Integer productId);
+
+    ProductResponse rejectProduct(Integer productId, ProductRejectRequest request);
 }

@@ -68,11 +68,54 @@ public enum ErrorCode {
     IMAGE_URL_REQUIRED(3016, "Image URL is required", HttpStatus.BAD_REQUEST),
     IMAGE_URL_TOO_LONG(3017, "Image URL must not exceed 500 characters", HttpStatus.BAD_REQUEST),
     IMAGE_NOT_BELONG_TO_PRODUCT(3018, "Image does not belong to the specified product", HttpStatus.BAD_REQUEST),
+    PRODUCT_NOT_PENDING(3019, "Product is not pending approval", HttpStatus.BAD_REQUEST),
+    REJECT_REASON_REQUIRED(3020, "Rejection reason is required", HttpStatus.BAD_REQUEST),
+    CANNOT_ACTIVATE_DIRECTLY(3021, "Shop cannot activate product directly; requires admin approval", HttpStatus.FORBIDDEN),
 
     // Upload & File errors
     FILE_INVALID(4001, "Invalid image file", HttpStatus.BAD_REQUEST),
     FILE_TOO_LARGE(4002, "File size exceeds limit", HttpStatus.BAD_REQUEST),
-    UPLOAD_FAILED(4003, "Failed to upload file to Cloudinary", HttpStatus.INTERNAL_SERVER_ERROR)
+    UPLOAD_FAILED(4003, "Failed to upload file to Cloudinary", HttpStatus.INTERNAL_SERVER_ERROR),
+
+    // Mystery Box errors (Series 5000)
+    BOX_TYPE_REQUIRED(5001, "Box type is required", HttpStatus.BAD_REQUEST),
+    BOX_TYPE_TOO_LONG(5002, "Box type must not exceed 50 characters", HttpStatus.BAD_REQUEST),
+    MYSTERY_BOX_PRICE_REQUIRED(5003, "Price is required", HttpStatus.BAD_REQUEST),
+    MYSTERY_BOX_PRICE_INVALID(5004, "Price must be greater than or equal to 0", HttpStatus.BAD_REQUEST),
+    MYSTERY_BOX_QUANTITY_REQUIRED(5005, "Total quantity is required", HttpStatus.BAD_REQUEST),
+    MYSTERY_BOX_QUANTITY_INVALID(5006, "Total quantity must be at least 1", HttpStatus.BAD_REQUEST),
+    MYSTERY_BOX_ITEMS_REQUIRED(5007, "At least one product item is required in the mystery box", HttpStatus.BAD_REQUEST),
+    PRODUCT_ID_REQUIRED(5008, "Product ID in mystery box item is required", HttpStatus.BAD_REQUEST),
+    PRODUCT_QUANTITY_REQUIRED(5009, "Product quantity in mystery box item is required", HttpStatus.BAD_REQUEST),
+    PRODUCT_QUANTITY_INVALID(5010, "Product quantity in mystery box item must be at least 1", HttpStatus.BAD_REQUEST),
+    DUPLICATE_PRODUCT_IN_BOX(5011, "Duplicate product found in mystery box items", HttpStatus.BAD_REQUEST),
+    MYSTERY_BOX_NOT_FOUND(5012, "Mystery box not found", HttpStatus.NOT_FOUND),
+    NOT_MYSTERY_BOX_OWNER(5013, "You do not have permission to modify this mystery box", HttpStatus.FORBIDDEN),
+    PRODUCT_NOT_BELONG_TO_SHOP(5014, "One or more products do not belong to your shop", HttpStatus.FORBIDDEN),
+    STOCK_INSUFFICIENT(5015, "Insufficient stock for product in mystery box", HttpStatus.BAD_REQUEST),
+    PRODUCT_NOT_ACTIVE(5016, "One or more products are not active", HttpStatus.BAD_REQUEST),
+    TOTAL_QUANTITY_LESS_THAN_SOLD(5017, "Total quantity cannot be less than already sold quantity", HttpStatus.BAD_REQUEST),
+    CANNOT_DELETE_SOLD_MYSTERY_BOX(5018, "Cannot delete mystery box that has already been purchased. Please deactivate it instead", HttpStatus.BAD_REQUEST),
+    SHOP_NOT_ACTIVE(5019, "Shop account is not active or approved", HttpStatus.FORBIDDEN),
+    DESCRIPTION_TOO_LONG(5020, "Description must not exceed 500 characters", HttpStatus.BAD_REQUEST),
+    NOTE_TOO_LONG(5021, "Note must not exceed 255 characters", HttpStatus.BAD_REQUEST),
+
+    // Build Combo errors (Series 6000)
+    COMBO_NAME_REQUIRED(6001, "Combo name is required", HttpStatus.BAD_REQUEST),
+    COMBO_NAME_TOO_LONG(6002, "Combo name must not exceed 255 characters", HttpStatus.BAD_REQUEST),
+    COMBO_PRICE_REQUIRED(6003, "Combo price is required", HttpStatus.BAD_REQUEST),
+    COMBO_PRICE_INVALID(6004, "Combo price must be greater than or equal to 0", HttpStatus.BAD_REQUEST),
+    COMBO_QUANTITY_REQUIRED(6005, "Total quantity is required", HttpStatus.BAD_REQUEST),
+    COMBO_QUANTITY_INVALID(6006, "Total quantity must be at least 1", HttpStatus.BAD_REQUEST),
+    COMBO_ITEMS_REQUIRED(6007, "At least one product item is required in the combo", HttpStatus.BAD_REQUEST),
+    MEAL_TYPE_REQUIRED(6008, "Meal type is required", HttpStatus.BAD_REQUEST),
+    DUPLICATE_PRODUCT_IN_COMBO(6009, "Duplicate product found in combo items", HttpStatus.BAD_REQUEST),
+    COMBO_NOT_FOUND(6010, "Build combo not found", HttpStatus.NOT_FOUND),
+    NOT_COMBO_OWNER(6011, "You do not have permission to modify this combo", HttpStatus.FORBIDDEN),
+    CANNOT_DELETE_SOLD_COMBO(6012, "Cannot delete combo that has already been purchased. Please deactivate it instead", HttpStatus.BAD_REQUEST),
+    COMBO_TYPE_TOO_LONG(6013, "Combo type must not exceed 50 characters", HttpStatus.BAD_REQUEST),
+    COMBO_REGION_TOO_LONG(6014, "Region must not exceed 100 characters", HttpStatus.BAD_REQUEST),
+    IMAGE_URL_TOO_LONG_COMBO(6015, "Image URL must not exceed 500 characters", HttpStatus.BAD_REQUEST)
     ;
 
     private final int code;

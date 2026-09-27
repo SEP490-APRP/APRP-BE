@@ -1,6 +1,7 @@
 package com.sang.be_capnong.controller;
 
 import com.sang.be_capnong.dto.request.ProductCreationRequest;
+import com.sang.be_capnong.dto.request.ProductRejectRequest;
 import com.sang.be_capnong.dto.request.ProductUpdateRequest;
 import com.sang.be_capnong.dto.response.ApiResponse;
 import com.sang.be_capnong.dto.response.PageResponse;
@@ -82,12 +83,33 @@ public class ProductController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyAuthority('SHOP', 'ADMIN')")
+    @PreAuthorize("hasAuthority('SHOP')")
     public ApiResponse<Void> deleteProduct(@PathVariable("id") Integer id) {
         log.info("REST request to delete product id: {}", id);
         productService.deleteProduct(id);
         return ApiResponse.<Void>builder()
                 .message("Product deleted successfully")
+                .build();
+    }
+
+    @PatchMapping("/{id}/approve")
+    @PreAuthorize("hasAuthority('ADMIN')")
+    public ApiResponse<ProductResponse> approveProduct(@PathVariable("id") Integer id) {
+        log.info("REST request to approve product id: {}", id);
+        return ApiResponse.<ProductResponse>builder()
+                .result(productService.approveProduct(id))
+                .build();
+    }
+
+    @PatchMapping("/{id}/reject")
+    @PreAuthorize("hasAuthority('ADMIN')")
+    public ApiResponse<ProductResponse> rejectProduct(
+            @PathVariable("id") Integer id,
+            @RequestBody @Valid ProductRejectRequest request
+    ) {
+        log.info("REST request to reject product id: {}", id);
+        return ApiResponse.<ProductResponse>builder()
+                .result(productService.rejectProduct(id, request))
                 .build();
     }
 }
