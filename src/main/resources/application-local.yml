@@ -3,6 +3,16 @@ spring:
     name: BE_CapNong
 
   # ===============================
+  # JACKSON (JSON serialization)
+  # ===============================
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false   # LocalDateTime → "2026-09-29T19:34:44" (ISO-8601)
+    deserialization:
+      fail-on-unknown-properties: false
+    time-zone: Asia/Ho_Chi_Minh
+
+  # ===============================
   # LOAD ENV FILE
   # ===============================
   config:
