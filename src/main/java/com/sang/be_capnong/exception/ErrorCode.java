@@ -119,7 +119,8 @@ public enum ErrorCode {
 
     // Order errors (Series 7000)
     ORDER_NOT_FOUND(7001, "Order not found", HttpStatus.NOT_FOUND),
-    INVALID_ORDER_STATE(7002, "Invalid order state transition", HttpStatus.BAD_REQUEST)
+    INVALID_ORDER_STATE(7002, "Invalid order state transition", HttpStatus.BAD_REQUEST),
+    SHOP_NOT_FOUND(7003, "Shop not found or is currently inactive", HttpStatus.BAD_REQUEST)
     ;
 
     private final int code;

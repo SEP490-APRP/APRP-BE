@@ -79,6 +79,20 @@ public class OrderServiceImpl implements OrderService {
                 Product product = productRepository.findById(itemReq.getProductId())
                         .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
+                // Kiểm tra sản phẩm còn bán không
+                if (!"ACTIVE".equalsIgnoreCase(product.getStatus())) {
+                    log.warn("[CreateOrder] Product id={} is not active (status={})", product.getProductId(), product.getStatus());
+                    throw new AppException(ErrorCode.PRODUCT_NOT_FOUND);
+                }
+
+                // Kiểm tra shop còn hoạt động không
+                User productShop = product.getShop();
+                if (productShop == null || productShop.getStatus() != com.sang.be_capnong.enums.UserStatus.ACTIVE) {
+                    log.warn("[CreateOrder] Shop id={} of product id={} is inactive",
+                            productShop != null ? productShop.getId() : "null", product.getProductId());
+                    throw new AppException(ErrorCode.SHOP_NOT_FOUND);
+                }
+
                 // Kiểm tra tồn kho
                 if (product.getStockQuantity() == null || product.getStockQuantity() < itemReq.getQuantity()) {
                     throw new AppException(ErrorCode.STOCK_INSUFFICIENT);
@@ -91,7 +105,7 @@ public class OrderServiceImpl implements OrderService {
                 // Lấy giá thực tế (có áp dụng discount nếu còn hiệu lực)
                 BigDecimal unitPrice = resolveProductPrice(product);
 
-                shopOwner = product.getShop();
+                shopOwner = productShop;
                 detail = OrderDetail.builder()
                         .product(product)
                         .quantity(itemReq.getQuantity())
@@ -105,8 +119,18 @@ public class OrderServiceImpl implements OrderService {
                 MysteryBox box = mysteryBoxRepository.findById(itemReq.getMysteryBoxId())
                         .orElseThrow(() -> new AppException(ErrorCode.MYSTERY_BOX_NOT_FOUND));
 
+                // Kiểm tra Mystery Box còn mở bán không
                 if (!Boolean.TRUE.equals(box.getIsActive())) {
+                    log.warn("[CreateOrder] MysteryBox id={} is inactive", box.getMysteryId());
                     throw new AppException(ErrorCode.MYSTERY_BOX_NOT_FOUND);
+                }
+
+                // Kiểm tra shop còn hoạt động không
+                User boxShop = box.getShop();
+                if (boxShop == null || boxShop.getStatus() != com.sang.be_capnong.enums.UserStatus.ACTIVE) {
+                    log.warn("[CreateOrder] Shop id={} of MysteryBox id={} is inactive",
+                            boxShop != null ? boxShop.getId() : "null", box.getMysteryId());
+                    throw new AppException(ErrorCode.SHOP_NOT_FOUND);
                 }
 
                 // Kiểm tra số lượng còn lại
@@ -120,7 +144,7 @@ public class OrderServiceImpl implements OrderService {
                 box.setSoldQuantity(sold + itemReq.getQuantity());
                 mysteryBoxRepository.save(box);
 
-                shopOwner = box.getShop();
+                shopOwner = boxShop;
                 detail = OrderDetail.builder()
                         .mysteryBox(box)
                         .quantity(itemReq.getQuantity())
@@ -134,8 +158,18 @@ public class OrderServiceImpl implements OrderService {
                 BuildCombo combo = buildComboRepository.findById(itemReq.getBuildComboId())
                         .orElseThrow(() -> new AppException(ErrorCode.COMBO_NOT_FOUND));
 
+                // Kiểm tra combo còn ACTIVE không
                 if (!"ACTIVE".equalsIgnoreCase(combo.getStatus())) {
+                    log.warn("[CreateOrder] BuildCombo id={} is not active (status={})", combo.getComboId(), combo.getStatus());
                     throw new AppException(ErrorCode.COMBO_NOT_FOUND);
+                }
+
+                // Kiểm tra shop còn hoạt động không
+                User comboShop = combo.getShop();
+                if (comboShop == null || comboShop.getStatus() != com.sang.be_capnong.enums.UserStatus.ACTIVE) {
+                    log.warn("[CreateOrder] Shop id={} of BuildCombo id={} is inactive",
+                            comboShop != null ? comboShop.getId() : "null", combo.getComboId());
+                    throw new AppException(ErrorCode.SHOP_NOT_FOUND);
                 }
 
                 // Kiểm tra số lượng còn lại
@@ -282,18 +316,19 @@ public class OrderServiceImpl implements OrderService {
     @Override
     public OrderResponse markOrderAsCancelled(int orderId) {
         Order order = findOrderById(orderId);
-        // Chỉ có thể huỷ trước khi SHIPPING
-        if (order.getStatus() == OrderStatus.SHIPPING
-                || order.getStatus() == OrderStatus.DELIVERED
-                || order.getStatus() == OrderStatus.FAILED
-                || order.getStatus() == OrderStatus.COMPLETED) {
+        // Chỉ được huỷ khi đơn đang ở trạng thái có thể huỷ (PENDING, PAID, CONFIRMED, READY)
+        // CANCELLED / FAILED / DELIVERED / COMPLETED đều không được huỷ lại (tránh hoàn kho 2 lần)
+        if (order.getStatus() != OrderStatus.PENDING
+                && order.getStatus() != OrderStatus.PAID
+                && order.getStatus() != OrderStatus.CONFIRMED
+                && order.getStatus() != OrderStatus.READY) {
             log.error("Cannot cancel order id {}. Current status: {}", orderId, order.getStatus());
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
-        
-        // Trả lại kho
+
+        // Trả lại kho (chỉ chạy 1 lần vì status đã được guard ở trên)
         restoreStock(order);
-        
+
         order.setStatus(OrderStatus.CANCELLED);
         return orderMapper.toOrderResponse(orderRepository.save(order));
     }
