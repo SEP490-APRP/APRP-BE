@@ -115,7 +115,12 @@ public enum ErrorCode {
     CANNOT_DELETE_SOLD_COMBO(6012, "Cannot delete combo that has already been purchased. Please deactivate it instead", HttpStatus.BAD_REQUEST),
     COMBO_TYPE_TOO_LONG(6013, "Combo type must not exceed 50 characters", HttpStatus.BAD_REQUEST),
     COMBO_REGION_TOO_LONG(6014, "Region must not exceed 100 characters", HttpStatus.BAD_REQUEST),
-    IMAGE_URL_TOO_LONG_COMBO(6015, "Image URL must not exceed 500 characters", HttpStatus.BAD_REQUEST)
+    IMAGE_URL_TOO_LONG_COMBO(6015, "Image URL must not exceed 500 characters", HttpStatus.BAD_REQUEST),
+
+    // Cart Errors
+    CART_ITEM_NOT_FOUND(8001, "Cart item not found", HttpStatus.NOT_FOUND),
+    OUT_OF_STOCK(8002, "Not enough stock available", HttpStatus.BAD_REQUEST),
+    INVALID_ITEM_TYPE(8003, "Invalid item type", HttpStatus.BAD_REQUEST)
     ;
 
     private final int code;
