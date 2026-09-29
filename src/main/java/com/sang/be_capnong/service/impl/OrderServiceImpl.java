@@ -37,6 +37,7 @@ public class OrderServiceImpl implements OrderService {
     BuildComboRepository buildComboRepository;
     UserRepository userRepository;
     OrderMapper orderMapper;
+    com.sang.be_capnong.service.ShippingFeeService shippingFeeService;
 
     // ============================================================
     //  TẠO ĐƠN HÀNG
@@ -174,6 +175,23 @@ public class OrderServiceImpl implements OrderService {
                     .map(d -> d.getUnitPrice().multiply(BigDecimal.valueOf(d.getQuantity())))
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
+            // Tính phí ship cho từng Shop đến địa chỉ Buyer
+            // Bọc try-catch: nếu Google API key chưa có / lỗi mạng -> fallback về 15,000đ, đơn hàng vẫn được tạo thành công
+            BigDecimal shippingFee;
+            try {
+                com.sang.be_capnong.dto.request.ShippingFeeRequest feeReq = new com.sang.be_capnong.dto.request.ShippingFeeRequest();
+                feeReq.setShopId(shop.getId());
+                feeReq.setBuyerAddress(request.getShippingAddress());
+                // Nếu CreateOrderRequest có truyền buyerPlaceId thì bổ sung vào đây sau
+                com.sang.be_capnong.dto.response.ShippingFeeResponse feeRes = shippingFeeService.calculateShippingFee(feeReq);
+                shippingFee = (feeRes != null && feeRes.getShippingFee() != null) ? feeRes.getShippingFee() : BigDecimal.valueOf(15_000);
+            } catch (Exception e) {
+                log.warn("[CreateOrder] Không thể tính phí ship cho shopId={} (thiếu Google API key hoặc lỗi mạng). Fallback 15,000đ. Lỗi: {}",
+                        shop.getId(), e.getMessage());
+                shippingFee = BigDecimal.valueOf(15_000);
+            }
+            totalAmount = totalAmount.add(shippingFee);
+
             Order order = Order.builder()
                     .buyer(buyer)
                     .shop(shop)
@@ -181,6 +199,7 @@ public class OrderServiceImpl implements OrderService {
                     .recipientPhone(request.getRecipientPhone() != null ? request.getRecipientPhone() : buyer.getPhoneNumber())
                     .shippingAddress(request.getShippingAddress())
                     .note(request.getNote())
+                    .shippingFee(shippingFee)
                     .paymentMethod(request.getPaymentMethod().toUpperCase())
                     .status(initialStatus)
                     .totalAmount(totalAmount)
