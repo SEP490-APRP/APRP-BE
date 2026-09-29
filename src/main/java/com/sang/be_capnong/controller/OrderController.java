@@ -23,10 +23,10 @@ public class OrderController {
 
     // ── TẠO ĐƠN HÀNG ──────────────────────────────────────────
     @Operation(summary = "Buyer places an order",
-            description = "Creates a new order. Status = PENDING (COD) or PAID (TRANSFER).")
+            description = "Creates a new order. Status = PENDING (COD) or PAID (TRANSFER). Splits into multiple orders if items belong to multiple shops.")
     @PostMapping
-    public ApiResponse<OrderResponse> createOrder(@RequestBody @Valid CreateOrderRequest request) {
-        return ApiResponse.<OrderResponse>builder()
+    public ApiResponse<java.util.List<OrderResponse>> createOrder(@RequestBody @Valid CreateOrderRequest request) {
+        return ApiResponse.<java.util.List<OrderResponse>>builder()
                 .result(orderService.createOrder(request))
                 .message("Order placed successfully.")
                 .build();

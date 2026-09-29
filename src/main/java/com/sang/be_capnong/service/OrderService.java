@@ -5,7 +5,7 @@ import com.sang.be_capnong.dto.response.OrderResponse;
 
 public interface OrderService {
     // === TẠO ĐƠN HÀNG ===
-    OrderResponse createOrder(CreateOrderRequest request);
+    java.util.List<OrderResponse> createOrder(CreateOrderRequest request);
 
     // === STATE MACHINE ===
     OrderResponse markOrderAsConfirmed(int orderId);

@@ -55,7 +55,7 @@ public class OrderServiceImpl implements OrderService {
      */
     @Transactional
     @Override
-    public OrderResponse createOrder(CreateOrderRequest request) {
+    public List<OrderResponse> createOrder(CreateOrderRequest request) {
         // 1. Lấy buyer từ token
         User buyer = getCurrentUser();
 
@@ -64,14 +64,14 @@ public class OrderServiceImpl implements OrderService {
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
 
-        // 3. Xây dựng danh sách OrderDetail và tính tổng tiền
-        List<OrderDetail> orderDetails = new ArrayList<>();
-        BigDecimal totalAmount = BigDecimal.ZERO;
-        User shopOwner = null; // sẽ lấy từ item đầu tiên
+        // Gom nhóm các item theo từng Shop
+        java.util.Map<User, List<OrderDetail>> mapShopToDetails = new java.util.HashMap<>();
 
         for (OrderItemRequest itemReq : request.getItems()) {
             // Validate item phải có đúng 1 loại ID
             validateItemHasExactlyOneId(itemReq);
+            User shopOwner;
+            OrderDetail detail;
 
             if (itemReq.getProductId() != null) {
                 // --- PRODUCT ---
@@ -90,21 +90,14 @@ public class OrderServiceImpl implements OrderService {
                 // Lấy giá thực tế (có áp dụng discount nếu còn hiệu lực)
                 BigDecimal unitPrice = resolveProductPrice(product);
 
-                // Gán shop chủ đơn từ product đầu tiên
-                if (shopOwner == null) {
-                    shopOwner = product.getShop();
-                }
-
-                // Build OrderDetail
-                OrderDetail detail = OrderDetail.builder()
+                shopOwner = product.getShop();
+                detail = OrderDetail.builder()
                         .product(product)
                         .quantity(itemReq.getQuantity())
                         .unitPrice(unitPrice)
                         .itemType("PRODUCT")
                         .isRequestedReturn(false)
                         .build();
-                orderDetails.add(detail);
-                totalAmount = totalAmount.add(unitPrice.multiply(BigDecimal.valueOf(itemReq.getQuantity())));
 
             } else if (itemReq.getMysteryBoxId() != null) {
                 // --- MYSTERY BOX ---
@@ -126,19 +119,14 @@ public class OrderServiceImpl implements OrderService {
                 box.setSoldQuantity(sold + itemReq.getQuantity());
                 mysteryBoxRepository.save(box);
 
-                if (shopOwner == null) {
-                    shopOwner = box.getShop();
-                }
-
-                OrderDetail detail = OrderDetail.builder()
+                shopOwner = box.getShop();
+                detail = OrderDetail.builder()
                         .mysteryBox(box)
                         .quantity(itemReq.getQuantity())
                         .unitPrice(box.getPrice())
                         .itemType("MYSTERY_BOX")
                         .isRequestedReturn(false)
                         .build();
-                orderDetails.add(detail);
-                totalAmount = totalAmount.add(box.getPrice().multiply(BigDecimal.valueOf(itemReq.getQuantity())));
 
             } else {
                 // --- BUILD COMBO ---
@@ -160,51 +148,59 @@ public class OrderServiceImpl implements OrderService {
                 combo.setSoldQuantity(sold + itemReq.getQuantity());
                 buildComboRepository.save(combo);
 
-                if (shopOwner == null) {
-                    shopOwner = combo.getShop();
-                }
-
-                OrderDetail detail = OrderDetail.builder()
+                shopOwner = combo.getShop();
+                detail = OrderDetail.builder()
                         .buildCombo(combo)
                         .quantity(itemReq.getQuantity())
                         .unitPrice(combo.getPrice())
                         .itemType("BUILD_COMBO")
                         .isRequestedReturn(false)
                         .build();
-                orderDetails.add(detail);
-                totalAmount = totalAmount.add(combo.getPrice().multiply(BigDecimal.valueOf(itemReq.getQuantity())));
             }
+
+            mapShopToDetails.computeIfAbsent(shopOwner, k -> new ArrayList<>()).add(detail);
         }
 
         // 4. Xác định trạng thái đơn hàng theo phương thức thanh toán
         OrderStatus initialStatus = resolveInitialStatus(request.getPaymentMethod());
+        List<OrderResponse> responses = new ArrayList<>();
 
-        // 5. Tạo Order
-        Order order = Order.builder()
-                .buyer(buyer)
-                .shop(shopOwner)
-                .recipientName(request.getRecipientName() != null ? request.getRecipientName() : buyer.getFullName())
-                .recipientPhone(request.getRecipientPhone() != null ? request.getRecipientPhone() : buyer.getPhoneNumber())
-                .shippingAddress(request.getShippingAddress())
-                .note(request.getNote())
-                .paymentMethod(request.getPaymentMethod().toUpperCase())
-                .status(initialStatus)
-                .totalAmount(totalAmount)
-                .createdAt(LocalDateTime.now())
-                .build();
+        // 5. Tạo Order cho từng Shop
+        for (java.util.Map.Entry<User, List<OrderDetail>> entry : mapShopToDetails.entrySet()) {
+            User shop = entry.getKey();
+            List<OrderDetail> details = entry.getValue();
 
-        Order savedOrder = orderRepository.save(order);
+            BigDecimal totalAmount = details.stream()
+                    .map(d -> d.getUnitPrice().multiply(BigDecimal.valueOf(d.getQuantity())))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // 6. Gắn order vào từng OrderDetail rồi lưu
-        for (OrderDetail detail : orderDetails) {
-            detail.setOrder(savedOrder);
+            Order order = Order.builder()
+                    .buyer(buyer)
+                    .shop(shop)
+                    .recipientName(request.getRecipientName() != null ? request.getRecipientName() : buyer.getFullName())
+                    .recipientPhone(request.getRecipientPhone() != null ? request.getRecipientPhone() : buyer.getPhoneNumber())
+                    .shippingAddress(request.getShippingAddress())
+                    .note(request.getNote())
+                    .paymentMethod(request.getPaymentMethod().toUpperCase())
+                    .status(initialStatus)
+                    .totalAmount(totalAmount)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+
+            Order savedOrder = orderRepository.save(order);
+
+            for (OrderDetail d : details) {
+                d.setOrder(savedOrder);
+            }
+            orderDetailRepository.saveAll(details);
+
+            log.info("[CreateOrder] Buyer id={} created order id={} for shop id={} | status={} | total={}",
+                    buyer.getId(), savedOrder.getOrderId(), shop.getId(), initialStatus, totalAmount);
+            
+            responses.add(buildOrderResponse(savedOrder, details));
         }
-        orderDetailRepository.saveAll(orderDetails);
 
-        log.info("[CreateOrder] Buyer id={} created order id={} | status={} | total={}",
-                buyer.getId(), savedOrder.getOrderId(), initialStatus, totalAmount);
-
-        return buildOrderResponse(savedOrder, orderDetails);
+        return responses;
     }
 
     // ============================================================
@@ -275,6 +271,10 @@ public class OrderServiceImpl implements OrderService {
             log.error("Cannot cancel order id {}. Current status: {}", orderId, order.getStatus());
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
+        
+        // Trả lại kho
+        restoreStock(order);
+        
         order.setStatus(OrderStatus.CANCELLED);
         return orderMapper.toOrderResponse(orderRepository.save(order));
     }
@@ -288,6 +288,10 @@ public class OrderServiceImpl implements OrderService {
             log.error("Invalid state transition to FAILED for order id {}. Current status: {}", orderId, order.getStatus());
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
+        
+        // Giao hàng thất bại -> Hàng trả về shop -> Trả lại kho
+        restoreStock(order);
+        
         order.setStatus(OrderStatus.FAILED);
         return orderMapper.toOrderResponse(orderRepository.save(order));
     }
@@ -295,6 +299,26 @@ public class OrderServiceImpl implements OrderService {
     // ============================================================
     //  PRIVATE HELPERS
     // ============================================================
+
+    private void restoreStock(Order order) {
+        List<OrderDetail> details = orderDetailRepository.findByOrder_OrderId(order.getOrderId());
+        for (OrderDetail detail : details) {
+            int qty = detail.getQuantity();
+            if ("PRODUCT".equals(detail.getItemType()) && detail.getProduct() != null) {
+                Product product = detail.getProduct();
+                product.setStockQuantity(product.getStockQuantity() + qty);
+                productRepository.save(product);
+            } else if ("MYSTERY_BOX".equals(detail.getItemType()) && detail.getMysteryBox() != null) {
+                MysteryBox box = detail.getMysteryBox();
+                box.setSoldQuantity(Math.max(0, box.getSoldQuantity() - qty));
+                mysteryBoxRepository.save(box);
+            } else if ("BUILD_COMBO".equals(detail.getItemType()) && detail.getBuildCombo() != null) {
+                BuildCombo combo = detail.getBuildCombo();
+                combo.setSoldQuantity(Math.max(0, combo.getSoldQuantity() - qty));
+                buildComboRepository.save(combo);
+            }
+        }
+    }
 
     /**
      * Lấy User hiện tại đang đăng nhập từ Spring Security context.
