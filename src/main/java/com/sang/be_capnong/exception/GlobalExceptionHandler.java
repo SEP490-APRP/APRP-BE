@@ -67,36 +67,34 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(value = MethodArgumentNotValidException.class)
     ResponseEntity<ApiResponse> handleValidation(MethodArgumentNotValidException ex) {
-        String enumkey = null;
         var fieldError = ex.getBindingResult().getFieldError();
-        if (fieldError != null) {
-            enumkey = fieldError.getDefaultMessage();
-        }
-
-        ErrorCode errorCode = ErrorCode.INVALID_KEY;
-        Map<String, Object> attributes = null;
-        try {
-            if (enumkey != null) {
-                errorCode = ErrorCode.valueOf(enumkey);
-            }
-
-            if (fieldError != null) {
-                var constraintViolation = fieldError.unwrap(ConstraintViolation.class);
-                attributes = constraintViolation.getConstraintDescriptor().getAttributes();
-                log.info(attributes.toString());
-            }
-
-        } catch (Exception e) {
-            log.warn("Failed to extract validation error key/attributes: ", e);
-        }
+        String message = fieldError != null ? fieldError.getDefaultMessage() : null;
 
         ApiResponse apiResponse = new ApiResponse();
 
-        apiResponse.setCode(errorCode.getCode());
-        apiResponse.setMessage(Objects.nonNull(attributes) ?
-                mapAttribute(errorCode.getMessage(), attributes) :
-                errorCode.getMessage());
+        // 1. Message là tên enum ErrorCode (kiểu cũ) -> giữ hành vi cũ
+        if (message != null) {
+            try {
+                ErrorCode errorCode = ErrorCode.valueOf(message);
+                Map<String, Object> attributes = null;
+                try {
+                    var cv = fieldError.unwrap(ConstraintViolation.class);
+                    attributes = cv.getConstraintDescriptor().getAttributes();
+                } catch (Exception ignored) { }
 
+                apiResponse.setCode(errorCode.getCode());
+                apiResponse.setMessage(Objects.nonNull(attributes)
+                        ? mapAttribute(errorCode.getMessage(), attributes)
+                        : errorCode.getMessage());
+                return ResponseEntity.badRequest().body(apiResponse);
+            } catch (IllegalArgumentException ignored) {
+                // không phải tên enum -> xuống bước 2
+            }
+        }
+
+        // 2. Message là text thường -> trả 400 với đúng message
+        apiResponse.setCode(400);
+        apiResponse.setMessage(message != null ? message : ErrorCode.INVALID_KEY.getMessage());
         return ResponseEntity.badRequest().body(apiResponse);
     }
 

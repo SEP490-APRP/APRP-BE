@@ -117,7 +117,12 @@ public enum ErrorCode {
     COMBO_REGION_TOO_LONG(6014, "Region must not exceed 100 characters", HttpStatus.BAD_REQUEST),
     IMAGE_URL_TOO_LONG_COMBO(6015, "Image URL must not exceed 500 characters", HttpStatus.BAD_REQUEST),
 
-    // Cart Errors
+    // Order errors (Series 7000)
+    ORDER_NOT_FOUND(7001, "Order not found", HttpStatus.NOT_FOUND),
+    INVALID_ORDER_STATE(7002, "Invalid order state transition", HttpStatus.BAD_REQUEST),
+    SHOP_NOT_FOUND(7003, "Shop not found or is currently inactive", HttpStatus.BAD_REQUEST),
+
+    // Cart Errors (Series 8000)
     CART_ITEM_NOT_FOUND(8001, "Cart item not found", HttpStatus.NOT_FOUND),
     OUT_OF_STOCK(8002, "Not enough stock available", HttpStatus.BAD_REQUEST),
     INVALID_ITEM_TYPE(8003, "Invalid item type", HttpStatus.BAD_REQUEST)
