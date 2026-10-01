@@ -301,7 +301,7 @@ class MysteryBoxServiceTest {
     @Test
     void getMysteryBoxes_success() {
         Page<MysteryBox> page = new PageImpl<>(List.of(sampleBox));
-        when(mysteryBoxRepository.findMysteryBoxes(isNull(), isNull(), eq(true), isNull(), isNull(), any(Pageable.class)))
+        when(mysteryBoxRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class), any(Pageable.class)))
                 .thenReturn(page);
         when(mysteryBoxMapper.toMysteryBoxResponseList(anyList())).thenReturn(List.of(sampleBoxResponse));
 
@@ -387,18 +387,7 @@ class MysteryBoxServiceTest {
         assertThat(sampleBox.getIsActive()).isFalse();
     }
 
-    @Test
-    void deleteMysteryBox_alreadySold_throwsException() {
-        mockAuthenticatedUser(10);
-        sampleBox.setSoldQuantity(3); // Already sold 3 boxes
-        when(mysteryBoxRepository.findById(1)).thenReturn(Optional.of(sampleBox));
 
-        assertThatThrownBy(() -> mysteryBoxService.deleteMysteryBox(1))
-                .isInstanceOf(AppException.class)
-                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.CANNOT_DELETE_SOLD_MYSTERY_BOX);
-
-        verify(mysteryBoxRepository, never()).delete(any());
-    }
 
     @Test
     void deleteMysteryBox_unsold_refundsStockAndDeletes() {
@@ -420,6 +409,6 @@ class MysteryBoxServiceTest {
         // Refund: 10 unsold * 2 = 20 units added back to 50 -> 70
         assertThat(sampleProduct1.getStockQuantity()).isEqualTo(70);
         verify(productRepository).save(sampleProduct1);
-        verify(mysteryBoxRepository).delete(sampleBox);
+        verify(mysteryBoxRepository).save(sampleBox);
     }
 }

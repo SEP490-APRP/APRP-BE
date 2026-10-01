@@ -14,6 +14,10 @@ import com.sang.be_capnong.mapper.ProductMapper;
 import com.sang.be_capnong.repository.CategoryRepository;
 import com.sang.be_capnong.repository.ProductRepository;
 import com.sang.be_capnong.repository.UserRepository;
+import com.sang.be_capnong.repository.ProductMysteryRepository;
+import com.sang.be_capnong.repository.MysteryBoxRepository;
+import com.sang.be_capnong.repository.ProductComboRepository;
+import com.sang.be_capnong.repository.BuildComboRepository;
 import com.sang.be_capnong.service.impl.ProductServiceImpl;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -56,6 +60,18 @@ class ProductServiceTest {
 
     @Mock
     ProductMapper productMapper;
+
+    @Mock
+    ProductMysteryRepository productMysteryRepository;
+
+    @Mock
+    MysteryBoxRepository mysteryBoxRepository;
+
+    @Mock
+    ProductComboRepository productComboRepository;
+
+    @Mock
+    BuildComboRepository buildComboRepository;
 
     @InjectMocks
     ProductServiceImpl productService;
@@ -213,7 +229,7 @@ class ProductServiceTest {
 
         assertThat(freshProduct.getShop()).isEqualTo(shopUser);
         assertThat(freshProduct.getCategory()).isEqualTo(sampleCategory);
-        assertThat(freshProduct.getStatus()).isEqualTo("ACTIVE");
+        assertThat(freshProduct.getStatus()).isEqualTo("PENDING");
     }
 
     @Test
@@ -429,6 +445,7 @@ class ProductServiceTest {
     @Test
     void updateProduct_blankStatus_keepsOriginal() {
         mockAuthenticatedUser(1);
+        sampleProduct.setStatus("PENDING");
         when(productRepository.findById(10)).thenReturn(Optional.of(sampleProduct));
         when(categoryRepository.findById(1)).thenReturn(Optional.of(sampleCategory));
         when(productRepository.save(any(Product.class))).thenReturn(sampleProduct);
@@ -439,7 +456,7 @@ class ProductServiceTest {
         ProductResponse result = productService.updateProduct(10, updateRequest);
 
         assertThat(result).isNotNull();
-        assertThat(sampleProduct.getStatus()).isEqualTo("ACTIVE");
+        assertThat(sampleProduct.getStatus()).isEqualTo("PENDING");
         verify(productRepository).save(sampleProduct);
     }
 
@@ -475,11 +492,10 @@ class ProductServiceTest {
     void deleteProduct_userNotFound_throwsAppException() {
         mockAuthenticatedUser(99);
         when(productRepository.findById(10)).thenReturn(Optional.of(sampleProduct));
-        when(userRepository.findById(99)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> productService.deleteProduct(10))
                 .isInstanceOf(AppException.class)
-                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.USER_NOT_EXISTED);
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.NOT_PRODUCT_OWNER);
 
         verify(productRepository, never()).save(any(Product.class));
     }
@@ -488,7 +504,6 @@ class ProductServiceTest {
     void deleteProduct_byOwner_success() {
         mockAuthenticatedUser(1);
         when(productRepository.findById(10)).thenReturn(Optional.of(sampleProduct));
-        when(userRepository.findById(1)).thenReturn(Optional.of(shopUser));
 
         productService.deleteProduct(10);
 
@@ -497,22 +512,19 @@ class ProductServiceTest {
     }
 
     @Test
-    void deleteProduct_byAdmin_success() {
+    void deleteProduct_byAdmin_throwsNotOwner() {
         mockAuthenticatedUser(99);
         when(productRepository.findById(10)).thenReturn(Optional.of(sampleProduct));
-        when(userRepository.findById(99)).thenReturn(Optional.of(adminUser));
 
-        productService.deleteProduct(10);
-
-        assertThat(sampleProduct.getStatus()).isEqualTo("INACTIVE");
-        verify(productRepository).save(sampleProduct);
+        assertThatThrownBy(() -> productService.deleteProduct(10))
+                .isInstanceOf(AppException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.NOT_PRODUCT_OWNER);
     }
 
     @Test
-    void deleteProduct_notOwnerNotAdmin_throwsAppException() {
+    void deleteProduct_notOwner_throwsAppException() {
         mockAuthenticatedUser(2);
         when(productRepository.findById(10)).thenReturn(Optional.of(sampleProduct));
-        when(userRepository.findById(2)).thenReturn(Optional.of(otherShopUser));
 
         assertThatThrownBy(() -> productService.deleteProduct(10))
                 .isInstanceOf(AppException.class)

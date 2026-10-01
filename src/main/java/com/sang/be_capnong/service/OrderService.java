@@ -1,9 +1,13 @@
 package com.sang.be_capnong.service;
 
 import com.sang.be_capnong.dto.request.CreateOrderRequest;
+import com.sang.be_capnong.dto.request.CheckoutPreviewRequest;
+import com.sang.be_capnong.dto.response.CheckoutPreviewResponse;
 import com.sang.be_capnong.dto.response.OrderResponse;
 
 public interface OrderService {
+    CheckoutPreviewResponse previewCheckout(CheckoutPreviewRequest request);
+    
     // === TẠO ĐƠN HÀNG ===
     java.util.List<OrderResponse> createOrder(CreateOrderRequest request);
 

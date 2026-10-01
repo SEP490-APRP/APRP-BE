@@ -125,7 +125,14 @@ public enum ErrorCode {
     // Cart Errors (Series 8000)
     CART_ITEM_NOT_FOUND(8001, "Cart item not found", HttpStatus.NOT_FOUND),
     OUT_OF_STOCK(8002, "Not enough stock available", HttpStatus.BAD_REQUEST),
-    INVALID_ITEM_TYPE(8003, "Invalid item type", HttpStatus.BAD_REQUEST)
+    INVALID_ITEM_TYPE(8003, "Invalid item type", HttpStatus.BAD_REQUEST),
+
+    // Voucher Errors (Series 9000)
+    VOUCHER_CODE_EXISTED(9001, "Voucher code already exists", HttpStatus.BAD_REQUEST),
+    VOUCHER_NOT_FOUND(9002, "Voucher not found", HttpStatus.NOT_FOUND),
+    VOUCHER_INVALID(9003, "Voucher is inactive or expired", HttpStatus.BAD_REQUEST),
+    VOUCHER_OUT_OF_STOCK(9004, "Voucher is out of stock (claim limit reached)", HttpStatus.BAD_REQUEST),
+    VOUCHER_LIMIT_REACHED(9005, "You have reached the maximum claim limit for this voucher", HttpStatus.BAD_REQUEST)
     ;
 
     private final int code;
