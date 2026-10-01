@@ -14,6 +14,10 @@ import com.sang.be_capnong.mapper.ProductMapper;
 import com.sang.be_capnong.repository.CategoryRepository;
 import com.sang.be_capnong.repository.ProductRepository;
 import com.sang.be_capnong.repository.UserRepository;
+import com.sang.be_capnong.repository.ProductMysteryRepository;
+import com.sang.be_capnong.repository.MysteryBoxRepository;
+import com.sang.be_capnong.repository.ProductComboRepository;
+import com.sang.be_capnong.repository.BuildComboRepository;
 import com.sang.be_capnong.service.impl.ProductServiceImpl;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,16 +62,16 @@ class ProductServiceTest {
     ProductMapper productMapper;
 
     @Mock
-    com.sang.be_capnong.repository.ProductMysteryRepository productMysteryRepository;
+    ProductMysteryRepository productMysteryRepository;
 
     @Mock
-    com.sang.be_capnong.repository.MysteryBoxRepository mysteryBoxRepository;
+    MysteryBoxRepository mysteryBoxRepository;
 
     @Mock
-    com.sang.be_capnong.repository.ProductComboRepository productComboRepository;
+    ProductComboRepository productComboRepository;
 
     @Mock
-    com.sang.be_capnong.repository.BuildComboRepository buildComboRepository;
+    BuildComboRepository buildComboRepository;
 
     @InjectMocks
     ProductServiceImpl productService;

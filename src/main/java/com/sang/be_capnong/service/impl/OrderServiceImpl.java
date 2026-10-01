@@ -14,6 +14,11 @@ import com.sang.be_capnong.exception.ErrorCode;
 import com.sang.be_capnong.mapper.OrderMapper;
 import com.sang.be_capnong.repository.*;
 import com.sang.be_capnong.service.OrderService;
+import com.sang.be_capnong.service.ShippingFeeService;
+import com.sang.be_capnong.enums.UserStatus;
+import com.sang.be_capnong.enums.VoucherType;
+import com.sang.be_capnong.dto.request.ShippingFeeRequest;
+import com.sang.be_capnong.dto.response.ShippingFeeResponse;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -40,7 +45,7 @@ public class OrderServiceImpl implements OrderService {
     BuildComboRepository buildComboRepository;
     UserRepository userRepository;
     OrderMapper orderMapper;
-    com.sang.be_capnong.service.ShippingFeeService shippingFeeService;
+    ShippingFeeService shippingFeeService;
     VoucherRepository voucherRepository;
     VoucherUserRepository voucherUserRepository;
     VoucherUsageRepository voucherUsageRepository;
@@ -166,7 +171,7 @@ public class OrderServiceImpl implements OrderService {
                         .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
                 if (!"ACTIVE".equalsIgnoreCase(product.getStatus())) throw new AppException(ErrorCode.PRODUCT_NOT_FOUND);
                 User productShop = product.getShop();
-                if (productShop == null || productShop.getStatus() != com.sang.be_capnong.enums.UserStatus.ACTIVE) {
+                if (productShop == null || productShop.getStatus() != UserStatus.ACTIVE) {
                     throw new AppException(ErrorCode.SHOP_NOT_FOUND);
                 }
                 if (product.getStockQuantity() == null || product.getStockQuantity() < itemReq.getQuantity()) {
@@ -189,7 +194,7 @@ public class OrderServiceImpl implements OrderService {
                         .orElseThrow(() -> new AppException(ErrorCode.MYSTERY_BOX_NOT_FOUND));
                 if (!Boolean.TRUE.equals(box.getIsActive())) throw new AppException(ErrorCode.MYSTERY_BOX_NOT_FOUND);
                 User boxShop = box.getShop();
-                if (boxShop == null || boxShop.getStatus() != com.sang.be_capnong.enums.UserStatus.ACTIVE) {
+                if (boxShop == null || boxShop.getStatus() != UserStatus.ACTIVE) {
                     throw new AppException(ErrorCode.SHOP_NOT_FOUND);
                 }
                 int sold = box.getSoldQuantity() == null ? 0 : box.getSoldQuantity();
@@ -212,7 +217,7 @@ public class OrderServiceImpl implements OrderService {
                         .orElseThrow(() -> new AppException(ErrorCode.COMBO_NOT_FOUND));
                 if (!"ACTIVE".equalsIgnoreCase(combo.getStatus())) throw new AppException(ErrorCode.COMBO_NOT_FOUND);
                 User comboShop = combo.getShop();
-                if (comboShop == null || comboShop.getStatus() != com.sang.be_capnong.enums.UserStatus.ACTIVE) {
+                if (comboShop == null || comboShop.getStatus() != UserStatus.ACTIVE) {
                     throw new AppException(ErrorCode.SHOP_NOT_FOUND);
                 }
                 int sold = combo.getSoldQuantity() == null ? 0 : combo.getSoldQuantity();
@@ -251,10 +256,10 @@ public class OrderServiceImpl implements OrderService {
 
             BigDecimal shippingFee;
             try {
-                com.sang.be_capnong.dto.request.ShippingFeeRequest feeReq = new com.sang.be_capnong.dto.request.ShippingFeeRequest();
+                ShippingFeeRequest feeReq = new ShippingFeeRequest();
                 feeReq.setShopId(shop.getId());
                 feeReq.setBuyerAddress(shippingAddress);
-                com.sang.be_capnong.dto.response.ShippingFeeResponse feeRes = shippingFeeService.calculateShippingFee(feeReq);
+                ShippingFeeResponse feeRes = shippingFeeService.calculateShippingFee(feeReq);
                 shippingFee = (feeRes != null && feeRes.getShippingFee() != null) ? feeRes.getShippingFee() : BigDecimal.valueOf(15_000);
             } catch (Exception e) {
                 shippingFee = BigDecimal.valueOf(15_000);
@@ -301,7 +306,7 @@ public class OrderServiceImpl implements OrderService {
             shopOrderPreviews.add(shopPreview);
         }
 
-        BigDecimal totalVoucherDiscount = applyVouchersAndReturnTotalDiscount(voucherCodes, shopOrderPreviews, totalGoodsAmount);
+        BigDecimal totalVoucherDiscount = applyVouchersAndReturnTotalDiscount(buyer, voucherCodes, shopOrderPreviews, totalGoodsAmount, totalShippingFee);
 
         for (ShopOrderPreview sp : shopOrderPreviews) {
             BigDecimal shopTotal = sp.getGoodsAmount().add(sp.getShippingFee()).subtract(sp.getVoucherDiscount());
@@ -321,7 +326,7 @@ public class OrderServiceImpl implements OrderService {
                 .build();
     }
 
-    private BigDecimal applyVouchersAndReturnTotalDiscount(List<String> voucherCodes, List<ShopOrderPreview> shopPreviews, BigDecimal totalGoodsAmount) {
+    private BigDecimal applyVouchersAndReturnTotalDiscount(User buyer, List<String> voucherCodes, List<ShopOrderPreview> shopPreviews, BigDecimal totalGoodsAmount, BigDecimal totalShippingFee) {
         BigDecimal totalDiscount = BigDecimal.ZERO;
         if (voucherCodes == null || voucherCodes.isEmpty()) return totalDiscount;
 
@@ -331,16 +336,35 @@ public class OrderServiceImpl implements OrderService {
                 continue; // Skip invalid vouchers
             }
 
+            if (voucher.getUsageLimit() != null) {
+                int used = voucher.getUsedCount() == null ? 0 : voucher.getUsedCount();
+                if (used >= voucher.getUsageLimit()) {
+                    continue;
+                }
+            }
+
+            if (voucher.getPerUserLimit() != null && buyer != null) {
+                int userUsed = voucherUsageRepository.countByUserAndVoucher(buyer, voucher);
+                if (userUsed >= voucher.getPerUserLimit()) {
+                    continue;
+                }
+            }
+
             boolean isSystemVoucher = voucher.getShop() != null && voucher.getShop().getRole() != null && "ADMIN".equalsIgnoreCase(voucher.getShop().getRole().getName());
             if (isSystemVoucher) {
                 if (voucher.getMinOrderValue() != null && totalGoodsAmount.compareTo(voucher.getMinOrderValue()) < 0) {
                      continue; 
                 }
-                BigDecimal discount = calculateDiscount(voucher, totalGoodsAmount);
+                BigDecimal discount = calculateDiscount(voucher, totalGoodsAmount, totalShippingFee);
                 totalDiscount = totalDiscount.add(discount);
+                
+                boolean isFreeShip = VoucherType.FREE_SHIPPING.equals(voucher.getVoucherType());
+                BigDecimal baseTotal = isFreeShip ? totalShippingFee : totalGoodsAmount;
+
                 for (ShopOrderPreview sp : shopPreviews) {
-                    if (totalGoodsAmount.compareTo(BigDecimal.ZERO) > 0) {
-                        BigDecimal ratio = sp.getGoodsAmount().divide(totalGoodsAmount, 4, java.math.RoundingMode.HALF_UP);
+                    if (baseTotal.compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal spBase = isFreeShip ? sp.getShippingFee() : sp.getGoodsAmount();
+                        BigDecimal ratio = spBase.divide(baseTotal, 4, java.math.RoundingMode.HALF_UP);
                         BigDecimal shopVoucherShare = discount.multiply(ratio);
                         sp.setVoucherDiscount(sp.getVoucherDiscount().add(shopVoucherShare));
                         sp.getVoucherDiscountsDetail().put(code.toUpperCase(), shopVoucherShare);
@@ -357,7 +381,7 @@ public class OrderServiceImpl implements OrderService {
                     if (voucher.getMinOrderValue() != null && targetShopPreview.getGoodsAmount().compareTo(voucher.getMinOrderValue()) < 0) {
                          continue;
                     }
-                    BigDecimal discount = calculateDiscount(voucher, targetShopPreview.getGoodsAmount());
+                    BigDecimal discount = calculateDiscount(voucher, targetShopPreview.getGoodsAmount(), targetShopPreview.getShippingFee());
                     targetShopPreview.setVoucherDiscount(targetShopPreview.getVoucherDiscount().add(discount));
                     targetShopPreview.getVoucherDiscountsDetail().put(code.toUpperCase(), discount);
                     totalDiscount = totalDiscount.add(discount);
@@ -367,16 +391,24 @@ public class OrderServiceImpl implements OrderService {
         return totalDiscount;
     }
 
-    private BigDecimal calculateDiscount(Voucher voucher, BigDecimal baseAmount) {
+    private BigDecimal calculateDiscount(Voucher voucher, BigDecimal goodsAmount, BigDecimal shippingFee) {
         BigDecimal discountAmount = BigDecimal.ZERO;
-        if (com.sang.be_capnong.enums.VoucherType.PERCENTAGE.equals(voucher.getVoucherType())) {
+        if (VoucherType.PERCENTAGE.equals(voucher.getVoucherType())) {
             BigDecimal percentage = voucher.getDiscountValue().divide(BigDecimal.valueOf(100));
-            discountAmount = baseAmount.multiply(percentage);
+            discountAmount = goodsAmount.multiply(percentage);
             if (voucher.getMaxDiscount() != null && discountAmount.compareTo(voucher.getMaxDiscount()) > 0) {
                 discountAmount = voucher.getMaxDiscount();
             }
-        } else if (com.sang.be_capnong.enums.VoucherType.FIXED_AMOUNT.equals(voucher.getVoucherType())) {
+        } else if (VoucherType.FIXED_AMOUNT.equals(voucher.getVoucherType())) {
             discountAmount = voucher.getDiscountValue();
+            if (discountAmount.compareTo(goodsAmount) > 0) {
+                discountAmount = goodsAmount;
+            }
+        } else if (VoucherType.FREE_SHIPPING.equals(voucher.getVoucherType())) {
+            discountAmount = voucher.getDiscountValue();
+            if (discountAmount.compareTo(shippingFee) > 0) {
+                discountAmount = shippingFee;
+            }
         }
         return discountAmount;
     }
