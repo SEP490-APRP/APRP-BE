@@ -1,7 +1,9 @@
 package com.sang.be_capnong.controller;
 
+import com.sang.be_capnong.dto.request.CheckoutPreviewRequest;
 import com.sang.be_capnong.dto.request.CreateOrderRequest;
 import com.sang.be_capnong.dto.response.ApiResponse;
+import com.sang.be_capnong.dto.response.CheckoutPreviewResponse;
 import com.sang.be_capnong.dto.response.OrderResponse;
 import com.sang.be_capnong.service.OrderService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -21,7 +23,16 @@ public class OrderController {
 
     OrderService orderService;
 
-    // ── TẠO ĐƠN HÀNG ──────────────────────────────────────────
+    // ── XEM TRƯỚC VÀ TẠO ĐƠN HÀNG ──────────────────────────────────────────
+    @Operation(summary = "Xem trước đơn hàng", description = "Tính toán chi phí, phí ship, voucher cho đơn hàng.")
+    @PostMapping("/preview")
+    public ApiResponse<CheckoutPreviewResponse> previewCheckout(@RequestBody @Valid CheckoutPreviewRequest request) {
+        return ApiResponse.<CheckoutPreviewResponse>builder()
+                .result(orderService.previewCheckout(request))
+                .message("Checkout preview.")
+                .build();
+    }
+
     @Operation(summary = "Buyer places an order",
             description = "Creates a new order. Status = PENDING (COD) or PAID (TRANSFER). Splits into multiple orders if items belong to multiple shops.")
     @PostMapping

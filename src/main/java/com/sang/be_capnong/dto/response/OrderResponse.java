@@ -25,6 +25,7 @@ public class OrderResponse {
     String paymentMethod;
     BigDecimal shippingFee;
     BigDecimal totalAmount;
+    BigDecimal voucherDiscountAmount;
     String note;
     @JsonFormat(shape = com.fasterxml.jackson.annotation.JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss")
     LocalDateTime createdAt;

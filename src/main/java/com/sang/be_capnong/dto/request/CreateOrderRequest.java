@@ -36,4 +36,7 @@ public class CreateOrderRequest {
     @NotEmpty(message = "Order must have at least one item")
     @Valid
     List<OrderItemRequest> items;
+
+    List<String> voucherCodes;
+    List<Integer> cartItemIds;
 }

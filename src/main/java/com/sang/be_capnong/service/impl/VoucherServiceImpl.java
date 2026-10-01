@@ -173,7 +173,7 @@ public class VoucherServiceImpl implements VoucherService {
     }
 
     private VoucherResponse mapToResponse(Voucher v) {
-        String role = v.getShop() != null && v.getShop().getRole() != null ? v.getShop().getRole().getRoleName() : "UNKNOWN";
+        String role = v.getShop() != null && v.getShop().getRole() != null ? v.getShop().getRole().getName() : "UNKNOWN";
         boolean isPublic = !"HIDDEN".equalsIgnoreCase(v.getAutoCreatedReason());
         
         return VoucherResponse.builder()
