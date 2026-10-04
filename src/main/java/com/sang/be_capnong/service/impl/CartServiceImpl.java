@@ -174,6 +174,15 @@ public class CartServiceImpl implements CartService {
         return ApiResponse.<Void>builder().message("Items removed from cart").build();
     }
 
+    @Transactional
+    @Override
+    public void clearCart() {
+        User user = getCurrentUser();
+        cartRepository.findByUser(user).ifPresent(cart -> {
+            cartItemRepository.deleteAll(cart.getCartItems());
+        });
+    }
+
     // --- Helper Methods ---
 
     private User getCurrentUser() {

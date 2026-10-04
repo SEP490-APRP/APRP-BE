@@ -38,6 +38,7 @@ public class OrderServiceImpl implements OrderService {
     UserRepository userRepository;
     OrderMapper orderMapper;
     com.sang.be_capnong.service.ShippingFeeService shippingFeeService;
+    com.sang.be_capnong.service.CartService cartService;
 
     // ============================================================
     //  TẠO ĐƠN HÀNG
@@ -251,6 +252,13 @@ public class OrderServiceImpl implements OrderService {
                     buyer.getId(), savedOrder.getOrderId(), shop.getId(), initialStatus, totalAmount);
             
             responses.add(buildOrderResponse(savedOrder, details));
+        }
+
+        // Sau khi tạo tất cả đơn thành công -> xoá giỏ hàng
+        try {
+            cartService.clearCart();
+        } catch (Exception e) {
+            log.warn("[CreateOrder] Không thể xoá giỏ hàng sau khi đặt hàng: {}", e.getMessage());
         }
 
         return responses;

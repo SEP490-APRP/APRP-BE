@@ -10,7 +10,10 @@ import jakarta.validation.Valid;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/orders")
@@ -21,19 +24,24 @@ public class OrderController {
 
     OrderService orderService;
 
-    // ── TẠO ĐƠN HÀNG ──────────────────────────────────────────
+    // ── BUYER: TẠO ĐƠN HÀNG ──────────────────────────────────────────
     @Operation(summary = "Buyer places an order",
-            description = "Creates a new order. Status = PENDING (COD) or PAID (TRANSFER). Splits into multiple orders if items belong to multiple shops.")
+            description = "Creates a new order. Status = PENDING (COD) or PAID (TRANSFER). " +
+                    "Splits into multiple orders if items belong to multiple shops. Clears the cart after success.")
     @PostMapping
-    public ApiResponse<java.util.List<OrderResponse>> createOrder(@RequestBody @Valid CreateOrderRequest request) {
-        return ApiResponse.<java.util.List<OrderResponse>>builder()
+    @PreAuthorize("hasRole('BUYER')")
+    public ApiResponse<List<OrderResponse>> createOrder(@RequestBody @Valid CreateOrderRequest request) {
+        return ApiResponse.<List<OrderResponse>>builder()
                 .result(orderService.createOrder(request))
                 .message("Order placed successfully.")
                 .build();
     }
 
-    @Operation(summary = "Mark Order as Confirmed", description = "Shop confirms the incoming order. Transitions state from PENDING/PAID to CONFIRMED.")
+    // ── SHOP: Xác nhận & Đóng gói ──────────────────────────────────────
+    @Operation(summary = "Shop confirms order",
+            description = "[SHOP only] Confirms the incoming order. Transitions: PENDING/PAID → CONFIRMED.")
     @PutMapping("/{id}/confirm")
+    @PreAuthorize("hasRole('SHOP')")
     public ApiResponse<OrderResponse> markOrderAsConfirmed(@PathVariable("id") int orderId) {
         return ApiResponse.<OrderResponse>builder()
                 .result(orderService.markOrderAsConfirmed(orderId))
@@ -41,8 +49,10 @@ public class OrderController {
                 .build();
     }
 
-    @Operation(summary = "Mark Order as Ready", description = "Shop finished packing. Transitions state from CONFIRMED to READY.")
+    @Operation(summary = "Shop marks order as ready",
+            description = "[SHOP only] Shop finished packing the order. Transitions: CONFIRMED → READY.")
     @PutMapping("/{id}/ready")
+    @PreAuthorize("hasRole('SHOP')")
     public ApiResponse<OrderResponse> markOrderAsReady(@PathVariable("id") int orderId) {
         return ApiResponse.<OrderResponse>builder()
                 .result(orderService.markOrderAsReady(orderId))
@@ -50,8 +60,11 @@ public class OrderController {
                 .build();
     }
 
-    @Operation(summary = "Mark Order as Shipping", description = "Shipper picks up the order. Transitions state from READY to SHIPPING.")
+    // ── SHIPPER: Vận chuyển & Giao hàng ──────────────────────────────────
+    @Operation(summary = "Shipper starts delivery",
+            description = "[SHIPPER only] Shipper picks up the order. Transitions: READY → SHIPPING.")
     @PutMapping("/{id}/ship")
+    @PreAuthorize("hasRole('SHIPPER')")
     public ApiResponse<OrderResponse> markOrderAsShipping(@PathVariable("id") int orderId) {
         return ApiResponse.<OrderResponse>builder()
                 .result(orderService.markOrderAsShipping(orderId))
@@ -59,8 +72,10 @@ public class OrderController {
                 .build();
     }
 
-    @Operation(summary = "Mark Order as Delivered", description = "Shipper delivers the order. Transitions state from SHIPPING to DELIVERED.")
+    @Operation(summary = "Shipper confirms delivery",
+            description = "[SHIPPER only] Order delivered successfully. Transitions: SHIPPING → DELIVERED.")
     @PutMapping("/{id}/deliver")
+    @PreAuthorize("hasRole('SHIPPER')")
     public ApiResponse<OrderResponse> markOrderAsDelivered(@PathVariable("id") int orderId) {
         return ApiResponse.<OrderResponse>builder()
                 .result(orderService.markOrderAsDelivered(orderId))
@@ -68,21 +83,26 @@ public class OrderController {
                 .build();
     }
 
-    @Operation(summary = "Cancel Order", description = "Cancel the order before it ships.")
-    @PutMapping("/{id}/cancel")
-    public ApiResponse<OrderResponse> markOrderAsCancelled(@PathVariable("id") int orderId) {
-        return ApiResponse.<OrderResponse>builder()
-                .result(orderService.markOrderAsCancelled(orderId))
-                .message("Order has been cancelled.")
-                .build();
-    }
-
-    @Operation(summary = "Fail Order Delivery", description = "Fail the order delivery due to some reason.")
+    @Operation(summary = "Shipper reports failed delivery",
+            description = "[SHIPPER only] Delivery failed (no recipient, wrong address, etc.). Transitions: SHIPPING → FAILED. Stock is restored.")
     @PutMapping("/{id}/fail")
+    @PreAuthorize("hasRole('SHIPPER')")
     public ApiResponse<OrderResponse> markOrderAsFailed(@PathVariable("id") int orderId) {
         return ApiResponse.<OrderResponse>builder()
                 .result(orderService.markOrderAsFailed(orderId))
                 .message("Order delivery failed.")
+                .build();
+    }
+
+    // ── BUYER/SHOP: Hủy đơn ──────────────────────────────────────────
+    @Operation(summary = "Cancel order",
+            description = "[BUYER or SHOP] Cancel the order before it ships. Transitions: PENDING/PAID/CONFIRMED/READY → CANCELLED. Stock is restored.")
+    @PutMapping("/{id}/cancel")
+    @PreAuthorize("hasRole('BUYER') or hasRole('SHOP')")
+    public ApiResponse<OrderResponse> markOrderAsCancelled(@PathVariable("id") int orderId) {
+        return ApiResponse.<OrderResponse>builder()
+                .result(orderService.markOrderAsCancelled(orderId))
+                .message("Order has been cancelled.")
                 .build();
     }
 }
