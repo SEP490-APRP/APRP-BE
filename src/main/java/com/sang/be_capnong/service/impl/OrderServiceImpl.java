@@ -1,7 +1,10 @@
 package com.sang.be_capnong.service.impl;
 
+import com.sang.be_capnong.dto.request.CheckoutPreviewRequest;
 import com.sang.be_capnong.dto.request.CreateOrderRequest;
 import com.sang.be_capnong.dto.request.OrderItemRequest;
+import com.sang.be_capnong.dto.response.CheckoutPreviewResponse;
+import com.sang.be_capnong.dto.response.CheckoutPreviewResponse.ShopOrderPreview;
 import com.sang.be_capnong.dto.response.OrderDetailResponse;
 import com.sang.be_capnong.dto.response.OrderResponse;
 import com.sang.be_capnong.entity.*;
@@ -11,6 +14,11 @@ import com.sang.be_capnong.exception.ErrorCode;
 import com.sang.be_capnong.mapper.OrderMapper;
 import com.sang.be_capnong.repository.*;
 import com.sang.be_capnong.service.OrderService;
+import com.sang.be_capnong.service.ShippingFeeService;
+import com.sang.be_capnong.enums.UserStatus;
+import com.sang.be_capnong.enums.VoucherType;
+import com.sang.be_capnong.dto.request.ShippingFeeRequest;
+import com.sang.be_capnong.dto.response.ShippingFeeResponse;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -37,195 +45,48 @@ public class OrderServiceImpl implements OrderService {
     BuildComboRepository buildComboRepository;
     UserRepository userRepository;
     OrderMapper orderMapper;
-    com.sang.be_capnong.service.ShippingFeeService shippingFeeService;
-    com.sang.be_capnong.service.CartService cartService;
+    ShippingFeeService shippingFeeService;
+    VoucherRepository voucherRepository;
+    VoucherUserRepository voucherUserRepository;
+    VoucherUsageRepository voucherUsageRepository;
+    CartItemRepository cartItemRepository;
 
     // ============================================================
     //  TẠO ĐƠN HÀNG
     // ============================================================
 
-    /**
-     * Workflow tạo đơn hàng:
-     * 1. Lấy thông tin Buyer từ JWT token đang đăng nhập
-     * 2. Validate từng item trong request (phải có đúng 1 trong 3 ID: productId / mysteryBoxId / buildComboId)
-     * 3. Tính tổng tiền và lấy thông tin Shop từ item đầu tiên
-     * 4. Tạo Order với status:
-     *    - PENDING  nếu paymentMethod = "COD"     (thanh toán khi nhận hàng)
-     *    - PAID     nếu paymentMethod = "TRANSFER" (đã thanh toán online)
-     * 5. Tạo từng OrderDetail gắn vào Order
-     * 6. Lưu vào DB và trả về OrderResponse
-     */
+    @Override
+    public CheckoutPreviewResponse previewCheckout(CheckoutPreviewRequest request) {
+        User buyer = getCurrentUser();
+        if (request.getItems() == null || request.getItems().isEmpty()) {
+            throw new AppException(ErrorCode.INVALID_ORDER_STATE);
+        }
+        java.util.Map<User, List<OrderDetail>> mapShopToDetails = groupItemsByShop(request.getItems(), false);
+        return buildCheckoutPreview(buyer, request.getShippingAddress(), request.getVoucherCodes(), mapShopToDetails);
+    }
+
     @Transactional
     @Override
     public List<OrderResponse> createOrder(CreateOrderRequest request) {
-        // 1. Lấy buyer từ token
         User buyer = getCurrentUser();
-
-        // 2. Validate items không rỗng (đã validate ở @Valid, nhưng double-check thủ công)
         if (request.getItems() == null || request.getItems().isEmpty()) {
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
 
-        // Gom nhóm các item theo từng Shop
-        java.util.Map<User, List<OrderDetail>> mapShopToDetails = new java.util.HashMap<>();
+        // 1. Nhóm items và validate (trừ tồn kho)
+        java.util.Map<User, List<OrderDetail>> mapShopToDetails = groupItemsByShop(request.getItems(), true);
 
-        for (OrderItemRequest itemReq : request.getItems()) {
-            // Validate item phải có đúng 1 loại ID
-            validateItemHasExactlyOneId(itemReq);
-            User shopOwner;
-            OrderDetail detail;
+        // 2. Tính toán tiền và Voucher giống như Preview
+        CheckoutPreviewResponse previewRes = buildCheckoutPreview(buyer, request.getShippingAddress(), request.getVoucherCodes(), mapShopToDetails);
 
-            if (itemReq.getProductId() != null) {
-                // --- PRODUCT ---
-                Product product = productRepository.findById(itemReq.getProductId())
-                        .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
-
-                // Kiểm tra sản phẩm còn bán không
-                if (!"ACTIVE".equalsIgnoreCase(product.getStatus())) {
-                    log.warn("[CreateOrder] Product id={} is not active (status={})", product.getProductId(), product.getStatus());
-                    throw new AppException(ErrorCode.PRODUCT_NOT_FOUND);
-                }
-
-                // Kiểm tra shop còn hoạt động không
-                User productShop = product.getShop();
-                if (productShop == null || productShop.getStatus() != com.sang.be_capnong.enums.UserStatus.ACTIVE) {
-                    log.warn("[CreateOrder] Shop id={} of product id={} is inactive",
-                            productShop != null ? productShop.getId() : "null", product.getProductId());
-                    throw new AppException(ErrorCode.SHOP_NOT_FOUND);
-                }
-
-                // Kiểm tra tồn kho
-                if (product.getStockQuantity() == null || product.getStockQuantity() < itemReq.getQuantity()) {
-                    throw new AppException(ErrorCode.STOCK_INSUFFICIENT);
-                }
-
-                // Trừ tồn kho
-                product.setStockQuantity(product.getStockQuantity() - itemReq.getQuantity());
-                productRepository.save(product);
-
-                // Lấy giá thực tế (có áp dụng discount nếu còn hiệu lực)
-                BigDecimal unitPrice = resolveProductPrice(product);
-
-                shopOwner = productShop;
-                detail = OrderDetail.builder()
-                        .product(product)
-                        .quantity(itemReq.getQuantity())
-                        .unitPrice(unitPrice)
-                        .itemType("PRODUCT")
-                        .isRequestedReturn(false)
-                        .build();
-
-            } else if (itemReq.getMysteryBoxId() != null) {
-                // --- MYSTERY BOX ---
-                MysteryBox box = mysteryBoxRepository.findById(itemReq.getMysteryBoxId())
-                        .orElseThrow(() -> new AppException(ErrorCode.MYSTERY_BOX_NOT_FOUND));
-
-                // Kiểm tra Mystery Box còn mở bán không
-                if (!Boolean.TRUE.equals(box.getIsActive())) {
-                    log.warn("[CreateOrder] MysteryBox id={} is inactive", box.getMysteryId());
-                    throw new AppException(ErrorCode.MYSTERY_BOX_NOT_FOUND);
-                }
-
-                // Kiểm tra shop còn hoạt động không
-                User boxShop = box.getShop();
-                if (boxShop == null || boxShop.getStatus() != com.sang.be_capnong.enums.UserStatus.ACTIVE) {
-                    log.warn("[CreateOrder] Shop id={} of MysteryBox id={} is inactive",
-                            boxShop != null ? boxShop.getId() : "null", box.getMysteryId());
-                    throw new AppException(ErrorCode.SHOP_NOT_FOUND);
-                }
-
-                // Kiểm tra số lượng còn lại
-                int sold = box.getSoldQuantity() == null ? 0 : box.getSoldQuantity();
-                int remaining = (box.getTotalQuantity() == null ? 0 : box.getTotalQuantity()) - sold;
-                if (remaining < itemReq.getQuantity()) {
-                    throw new AppException(ErrorCode.STOCK_INSUFFICIENT);
-                }
-
-                // Tăng soldQuantity
-                box.setSoldQuantity(sold + itemReq.getQuantity());
-                mysteryBoxRepository.save(box);
-
-                shopOwner = boxShop;
-                detail = OrderDetail.builder()
-                        .mysteryBox(box)
-                        .quantity(itemReq.getQuantity())
-                        .unitPrice(box.getPrice())
-                        .itemType("MYSTERY_BOX")
-                        .isRequestedReturn(false)
-                        .build();
-
-            } else {
-                // --- BUILD COMBO ---
-                BuildCombo combo = buildComboRepository.findById(itemReq.getBuildComboId())
-                        .orElseThrow(() -> new AppException(ErrorCode.COMBO_NOT_FOUND));
-
-                // Kiểm tra combo còn ACTIVE không
-                if (!"ACTIVE".equalsIgnoreCase(combo.getStatus())) {
-                    log.warn("[CreateOrder] BuildCombo id={} is not active (status={})", combo.getComboId(), combo.getStatus());
-                    throw new AppException(ErrorCode.COMBO_NOT_FOUND);
-                }
-
-                // Kiểm tra shop còn hoạt động không
-                User comboShop = combo.getShop();
-                if (comboShop == null || comboShop.getStatus() != com.sang.be_capnong.enums.UserStatus.ACTIVE) {
-                    log.warn("[CreateOrder] Shop id={} of BuildCombo id={} is inactive",
-                            comboShop != null ? comboShop.getId() : "null", combo.getComboId());
-                    throw new AppException(ErrorCode.SHOP_NOT_FOUND);
-                }
-
-                // Kiểm tra số lượng còn lại
-                int sold = combo.getSoldQuantity() == null ? 0 : combo.getSoldQuantity();
-                int remaining = (combo.getTotalQuantity() == null ? 0 : combo.getTotalQuantity()) - sold;
-                if (remaining < itemReq.getQuantity()) {
-                    throw new AppException(ErrorCode.STOCK_INSUFFICIENT);
-                }
-
-                // Tăng soldQuantity
-                combo.setSoldQuantity(sold + itemReq.getQuantity());
-                buildComboRepository.save(combo);
-
-                shopOwner = combo.getShop();
-                detail = OrderDetail.builder()
-                        .buildCombo(combo)
-                        .quantity(itemReq.getQuantity())
-                        .unitPrice(combo.getPrice())
-                        .itemType("BUILD_COMBO")
-                        .isRequestedReturn(false)
-                        .build();
-            }
-
-            mapShopToDetails.computeIfAbsent(shopOwner, k -> new ArrayList<>()).add(detail);
-        }
-
-        // 4. Xác định trạng thái đơn hàng theo phương thức thanh toán
         OrderStatus initialStatus = resolveInitialStatus(request.getPaymentMethod());
         List<OrderResponse> responses = new ArrayList<>();
+        List<Order> savedOrders = new ArrayList<>();
 
-        // 5. Tạo Order cho từng Shop
-        for (java.util.Map.Entry<User, List<OrderDetail>> entry : mapShopToDetails.entrySet()) {
-            User shop = entry.getKey();
-            List<OrderDetail> details = entry.getValue();
-
-            BigDecimal totalAmount = details.stream()
-                    .map(d -> d.getUnitPrice().multiply(BigDecimal.valueOf(d.getQuantity())))
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-            // Tính phí ship cho từng Shop đến địa chỉ Buyer
-            // Bọc try-catch: nếu Google API key chưa có / lỗi mạng -> fallback về 15,000đ, đơn hàng vẫn được tạo thành công
-            BigDecimal shippingFee;
-            try {
-                com.sang.be_capnong.dto.request.ShippingFeeRequest feeReq = new com.sang.be_capnong.dto.request.ShippingFeeRequest();
-                feeReq.setShopId(shop.getId());
-                feeReq.setBuyerAddress(request.getShippingAddress());
-                // Nếu CreateOrderRequest có truyền buyerPlaceId thì bổ sung vào đây sau
-                com.sang.be_capnong.dto.response.ShippingFeeResponse feeRes = shippingFeeService.calculateShippingFee(feeReq);
-                shippingFee = (feeRes != null && feeRes.getShippingFee() != null) ? feeRes.getShippingFee() : BigDecimal.valueOf(15_000);
-            } catch (Exception e) {
-                log.warn("[CreateOrder] Không thể tính phí ship cho shopId={} (thiếu Google API key hoặc lỗi mạng). Fallback 15,000đ. Lỗi: {}",
-                        shop.getId(), e.getMessage());
-                shippingFee = BigDecimal.valueOf(15_000);
-            }
-            totalAmount = totalAmount.add(shippingFee);
+        // 3. Tạo Order dựa trên preview
+        for (ShopOrderPreview sp : previewRes.getShopOrders()) {
+            User shop = userRepository.findById(sp.getShopId()).orElseThrow();
+            List<OrderDetail> details = mapShopToDetails.get(shop);
 
             Order order = Order.builder()
                     .buyer(buyer)
@@ -234,34 +95,323 @@ public class OrderServiceImpl implements OrderService {
                     .recipientPhone(request.getRecipientPhone() != null ? request.getRecipientPhone() : buyer.getPhoneNumber())
                     .shippingAddress(request.getShippingAddress())
                     .note(request.getNote())
-                    .shippingFee(shippingFee)
+                    .shippingFee(sp.getShippingFee())
                     .paymentMethod(request.getPaymentMethod().toUpperCase())
                     .status(initialStatus)
-                    .totalAmount(totalAmount)
+                    .totalAmount(sp.getTotalAmount())
                     .createdAt(LocalDateTime.now())
+                    // KHONG gán voucherDiscountAmount vào Order entity
                     .build();
 
             Order savedOrder = orderRepository.save(order);
-
+            savedOrders.add(savedOrder);
             for (OrderDetail d : details) {
                 d.setOrder(savedOrder);
             }
             orderDetailRepository.saveAll(details);
-
-            log.info("[CreateOrder] Buyer id={} created order id={} for shop id={} | status={} | total={}",
-                    buyer.getId(), savedOrder.getOrderId(), shop.getId(), initialStatus, totalAmount);
             
-            responses.add(buildOrderResponse(savedOrder, details));
+            OrderResponse res = buildOrderResponse(savedOrder, details);
+            res.setVoucherDiscountAmount(sp.getVoucherDiscount());
+            responses.add(res);
         }
 
-        // Sau khi tạo tất cả đơn thành công -> xoá giỏ hàng
-        try {
-            cartService.clearCart();
-        } catch (Exception e) {
-            log.warn("[CreateOrder] Không thể xoá giỏ hàng sau khi đặt hàng: {}", e.getMessage());
+        // 4. Cập nhật lịch sử dùng Voucher (Lưu discountAmount vào VoucherUsage)
+        if (request.getVoucherCodes() != null && !request.getVoucherCodes().isEmpty()) {
+            for (String code : request.getVoucherCodes()) {
+                Voucher v = voucherRepository.findByVoucherCode(code.toUpperCase()).orElse(null);
+                if (v != null) {
+                    v.setUsedCount((v.getUsedCount() == null ? 0 : v.getUsedCount()) + 1);
+                    voucherRepository.save(v);
+                       
+                    voucherUserRepository.findByUser_IdAndVoucher_VoucherId(buyer.getId(), v.getVoucherId())
+                        .ifPresent(vu -> {
+                            vu.setQuantityUsed((vu.getQuantityUsed() == null ? 0 : vu.getQuantityUsed()) + 1);
+                            voucherUserRepository.save(vu);
+                        });
+                           
+                    boolean isSystemVoucher = v.getShop() != null && v.getShop().getRole() != null && "ADMIN".equalsIgnoreCase(v.getShop().getRole().getName());
+                    for (int i = 0; i < savedOrders.size(); i++) {
+                        Order savedOrder = savedOrders.get(i);
+                        CheckoutPreviewResponse.ShopOrderPreview sp = previewRes.getShopOrders().get(i);
+                        if (isSystemVoucher || savedOrder.getShop().getId() == v.getShop().getId()) { 
+                            BigDecimal discountForThisOrder = sp.getVoucherDiscountsDetail() != null ? sp.getVoucherDiscountsDetail().get(code.toUpperCase()) : null;
+                            if (discountForThisOrder != null && discountForThisOrder.compareTo(BigDecimal.ZERO) > 0) {
+                                VoucherUsage vu = VoucherUsage.builder()
+                                    .order(savedOrder)
+                                    .user(buyer)
+                                    .voucher(v)
+                                    .usedAt(LocalDateTime.now())
+                                    .discountAmount(discountForThisOrder)
+                                    .build();
+                                voucherUsageRepository.save(vu);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 5. Dọn dẹp giỏ hàng — CHỈ xoá những món đã được tick mua (FE gửi cartItemIds)
+        //    Những món không tick vẫn được giữ lại trong giỏ
+        if (request.getCartItemIds() != null && !request.getCartItemIds().isEmpty()) {
+            cartItemRepository.deleteAllById(request.getCartItemIds());
         }
 
         return responses;
+    }
+
+    private java.util.Map<User, List<OrderDetail>> groupItemsByShop(List<OrderItemRequest> items, boolean deductStock) {
+        java.util.Map<User, List<OrderDetail>> mapShopToDetails = new java.util.HashMap<>();
+        for (OrderItemRequest itemReq : items) {
+            validateItemHasExactlyOneId(itemReq);
+            User shopOwner;
+            OrderDetail detail;
+
+            if (itemReq.getProductId() != null) {
+                Product product = productRepository.findById(itemReq.getProductId())
+                        .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+                if (!"ACTIVE".equalsIgnoreCase(product.getStatus())) throw new AppException(ErrorCode.PRODUCT_NOT_FOUND);
+                User productShop = product.getShop();
+                if (productShop == null || productShop.getStatus() != UserStatus.ACTIVE) {
+                    throw new AppException(ErrorCode.SHOP_NOT_FOUND);
+                }
+                if (product.getStockQuantity() == null || product.getStockQuantity() < itemReq.getQuantity()) {
+                    throw new AppException(ErrorCode.STOCK_INSUFFICIENT);
+                }
+                if (deductStock) {
+                    product.setStockQuantity(product.getStockQuantity() - itemReq.getQuantity());
+                    productRepository.save(product);
+                }
+                shopOwner = productShop;
+                detail = OrderDetail.builder()
+                        .product(product)
+                        .quantity(itemReq.getQuantity())
+                        .unitPrice(resolveProductPrice(product))
+                        .itemType("PRODUCT")
+                        .isRequestedReturn(false)
+                        .build();
+            } else if (itemReq.getMysteryBoxId() != null) {
+                MysteryBox box = mysteryBoxRepository.findById(itemReq.getMysteryBoxId())
+                        .orElseThrow(() -> new AppException(ErrorCode.MYSTERY_BOX_NOT_FOUND));
+                if (!Boolean.TRUE.equals(box.getIsActive())) throw new AppException(ErrorCode.MYSTERY_BOX_NOT_FOUND);
+                User boxShop = box.getShop();
+                if (boxShop == null || boxShop.getStatus() != UserStatus.ACTIVE) {
+                    throw new AppException(ErrorCode.SHOP_NOT_FOUND);
+                }
+                int sold = box.getSoldQuantity() == null ? 0 : box.getSoldQuantity();
+                int remaining = (box.getTotalQuantity() == null ? 0 : box.getTotalQuantity()) - sold;
+                if (remaining < itemReq.getQuantity()) throw new AppException(ErrorCode.STOCK_INSUFFICIENT);
+                if (deductStock) {
+                    box.setSoldQuantity(sold + itemReq.getQuantity());
+                    mysteryBoxRepository.save(box);
+                }
+                shopOwner = boxShop;
+                detail = OrderDetail.builder()
+                        .mysteryBox(box)
+                        .quantity(itemReq.getQuantity())
+                        .unitPrice(box.getPrice())
+                        .itemType("MYSTERY_BOX")
+                        .isRequestedReturn(false)
+                        .build();
+            } else {
+                BuildCombo combo = buildComboRepository.findById(itemReq.getBuildComboId())
+                        .orElseThrow(() -> new AppException(ErrorCode.COMBO_NOT_FOUND));
+                if (!"ACTIVE".equalsIgnoreCase(combo.getStatus())) throw new AppException(ErrorCode.COMBO_NOT_FOUND);
+                User comboShop = combo.getShop();
+                if (comboShop == null || comboShop.getStatus() != UserStatus.ACTIVE) {
+                    throw new AppException(ErrorCode.SHOP_NOT_FOUND);
+                }
+                int sold = combo.getSoldQuantity() == null ? 0 : combo.getSoldQuantity();
+                int remaining = (combo.getTotalQuantity() == null ? 0 : combo.getTotalQuantity()) - sold;
+                if (remaining < itemReq.getQuantity()) throw new AppException(ErrorCode.STOCK_INSUFFICIENT);
+                if (deductStock) {
+                    combo.setSoldQuantity(sold + itemReq.getQuantity());
+                    buildComboRepository.save(combo);
+                }
+                shopOwner = comboShop;
+                detail = OrderDetail.builder()
+                        .buildCombo(combo)
+                        .quantity(itemReq.getQuantity())
+                        .unitPrice(combo.getPrice())
+                        .itemType("BUILD_COMBO")
+                        .isRequestedReturn(false)
+                        .build();
+            }
+            mapShopToDetails.computeIfAbsent(shopOwner, k -> new ArrayList<>()).add(detail);
+        }
+        return mapShopToDetails;
+    }
+
+    private CheckoutPreviewResponse buildCheckoutPreview(User buyer, String shippingAddress, List<String> voucherCodes, java.util.Map<User, List<OrderDetail>> mapShopToDetails) {
+        BigDecimal totalGoodsAmount = BigDecimal.ZERO;
+        BigDecimal totalShippingFee = BigDecimal.ZERO;
+        List<ShopOrderPreview> shopOrderPreviews = new ArrayList<>();
+        
+        for (java.util.Map.Entry<User, List<OrderDetail>> entry : mapShopToDetails.entrySet()) {
+            User shop = entry.getKey();
+            List<OrderDetail> details = entry.getValue();
+
+            BigDecimal shopGoodsAmount = details.stream()
+                    .map(d -> d.getUnitPrice().multiply(BigDecimal.valueOf(d.getQuantity())))
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            BigDecimal shippingFee;
+            try {
+                ShippingFeeRequest feeReq = new ShippingFeeRequest();
+                feeReq.setShopId(shop.getId());
+                feeReq.setBuyerAddress(shippingAddress);
+                ShippingFeeResponse feeRes = shippingFeeService.calculateShippingFee(feeReq);
+                shippingFee = (feeRes != null && feeRes.getShippingFee() != null) ? feeRes.getShippingFee() : BigDecimal.valueOf(15_000);
+            } catch (Exception e) {
+                shippingFee = BigDecimal.valueOf(15_000);
+            }
+
+            totalGoodsAmount = totalGoodsAmount.add(shopGoodsAmount);
+            totalShippingFee = totalShippingFee.add(shippingFee);
+            
+            // Build item responses cho preview
+            List<OrderDetailResponse> itemResponses = new ArrayList<>();
+            for(OrderDetail d : details) {
+                String name = "";
+                String imageUrl = "";
+                if ("PRODUCT".equals(d.getItemType()) && d.getProduct() != null) {
+                    name = d.getProduct().getProductName();
+                    imageUrl = d.getProduct().getImages() != null && !d.getProduct().getImages().isEmpty() ? d.getProduct().getImages().get(0).getImageUrl() : "";
+                } else if ("MYSTERY_BOX".equals(d.getItemType()) && d.getMysteryBox() != null) {
+                    name = d.getMysteryBox().getBoxType();
+                    imageUrl = d.getMysteryBox().getImageUrl() != null ? d.getMysteryBox().getImageUrl() : "";
+                } else if ("BUILD_COMBO".equals(d.getItemType()) && d.getBuildCombo() != null) {
+                    name = d.getBuildCombo().getComboName();
+                    imageUrl = d.getBuildCombo().getImageUrl() != null ? d.getBuildCombo().getImageUrl() : "";
+                }
+                itemResponses.add(OrderDetailResponse.builder()
+                        .itemType(d.getItemType())
+                        .itemName(name)
+                        .imageUrl(imageUrl)
+                        .quantity(d.getQuantity())
+                        .unitPrice(d.getUnitPrice())
+                        .subtotal(d.getUnitPrice().multiply(BigDecimal.valueOf(d.getQuantity())))
+                        .build());
+            }
+
+            ShopOrderPreview shopPreview = ShopOrderPreview.builder()
+                .shopId(shop.getId())
+                .shopName(shop.getShopName() != null ? shop.getShopName() : shop.getFullName())
+                .goodsAmount(shopGoodsAmount)
+                .shippingFee(shippingFee)
+                .voucherDiscount(BigDecimal.ZERO)
+                .items(itemResponses)
+                .voucherDiscountsDetail(new java.util.HashMap<>())
+                .build();
+                
+            shopOrderPreviews.add(shopPreview);
+        }
+
+        BigDecimal totalVoucherDiscount = applyVouchersAndReturnTotalDiscount(buyer, voucherCodes, shopOrderPreviews, totalGoodsAmount, totalShippingFee);
+
+        for (ShopOrderPreview sp : shopOrderPreviews) {
+            BigDecimal shopTotal = sp.getGoodsAmount().add(sp.getShippingFee()).subtract(sp.getVoucherDiscount());
+            if (shopTotal.compareTo(BigDecimal.ZERO) < 0) shopTotal = BigDecimal.ZERO;
+            sp.setTotalAmount(shopTotal);
+        }
+
+        BigDecimal finalTotalAmount = totalGoodsAmount.add(totalShippingFee).subtract(totalVoucherDiscount);
+        if (finalTotalAmount.compareTo(BigDecimal.ZERO) < 0) finalTotalAmount = BigDecimal.ZERO;
+
+        return CheckoutPreviewResponse.builder()
+                .shopOrders(shopOrderPreviews)
+                .totalGoodsAmount(totalGoodsAmount)
+                .totalShippingFee(totalShippingFee)
+                .totalVoucherDiscount(totalVoucherDiscount)
+                .finalTotalAmount(finalTotalAmount)
+                .build();
+    }
+
+    private BigDecimal applyVouchersAndReturnTotalDiscount(User buyer, List<String> voucherCodes, List<ShopOrderPreview> shopPreviews, BigDecimal totalGoodsAmount, BigDecimal totalShippingFee) {
+        BigDecimal totalDiscount = BigDecimal.ZERO;
+        if (voucherCodes == null || voucherCodes.isEmpty()) return totalDiscount;
+
+        for (String code : voucherCodes) {
+            Voucher voucher = voucherRepository.findByVoucherCode(code.toUpperCase()).orElse(null);
+            if (voucher == null || !Boolean.TRUE.equals(voucher.getActive()) || voucher.getExpiryDate().isBefore(LocalDateTime.now())) {
+                continue; // Skip invalid vouchers
+            }
+
+            if (voucher.getUsageLimit() != null) {
+                int used = voucher.getUsedCount() == null ? 0 : voucher.getUsedCount();
+                if (used >= voucher.getUsageLimit()) {
+                    continue;
+                }
+            }
+
+            if (voucher.getPerUserLimit() != null && buyer != null) {
+                int userUsed = voucherUsageRepository.countByUserAndVoucher(buyer, voucher);
+                if (userUsed >= voucher.getPerUserLimit()) {
+                    continue;
+                }
+            }
+
+            boolean isSystemVoucher = voucher.getShop() != null && voucher.getShop().getRole() != null && "ADMIN".equalsIgnoreCase(voucher.getShop().getRole().getName());
+            if (isSystemVoucher) {
+                if (voucher.getMinOrderValue() != null && totalGoodsAmount.compareTo(voucher.getMinOrderValue()) < 0) {
+                     continue; 
+                }
+                BigDecimal discount = calculateDiscount(voucher, totalGoodsAmount, totalShippingFee);
+                totalDiscount = totalDiscount.add(discount);
+                
+                boolean isFreeShip = VoucherType.FREE_SHIPPING.equals(voucher.getVoucherType());
+                BigDecimal baseTotal = isFreeShip ? totalShippingFee : totalGoodsAmount;
+
+                for (ShopOrderPreview sp : shopPreviews) {
+                    if (baseTotal.compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal spBase = isFreeShip ? sp.getShippingFee() : sp.getGoodsAmount();
+                        BigDecimal ratio = spBase.divide(baseTotal, 4, java.math.RoundingMode.HALF_UP);
+                        BigDecimal shopVoucherShare = discount.multiply(ratio);
+                        sp.setVoucherDiscount(sp.getVoucherDiscount().add(shopVoucherShare));
+                        sp.getVoucherDiscountsDetail().put(code.toUpperCase(), shopVoucherShare);
+                    }
+                }
+            } else {
+                User shopOwner = voucher.getShop();
+                ShopOrderPreview targetShopPreview = shopPreviews.stream()
+                        .filter(sp -> sp.getShopId() == shopOwner.getId())
+                        .findFirst()
+                        .orElse(null);
+                
+                if (targetShopPreview != null) {
+                    if (voucher.getMinOrderValue() != null && targetShopPreview.getGoodsAmount().compareTo(voucher.getMinOrderValue()) < 0) {
+                         continue;
+                    }
+                    BigDecimal discount = calculateDiscount(voucher, targetShopPreview.getGoodsAmount(), targetShopPreview.getShippingFee());
+                    targetShopPreview.setVoucherDiscount(targetShopPreview.getVoucherDiscount().add(discount));
+                    targetShopPreview.getVoucherDiscountsDetail().put(code.toUpperCase(), discount);
+                    totalDiscount = totalDiscount.add(discount);
+                }
+            }
+        }
+        return totalDiscount;
+    }
+
+    private BigDecimal calculateDiscount(Voucher voucher, BigDecimal goodsAmount, BigDecimal shippingFee) {
+        BigDecimal discountAmount = BigDecimal.ZERO;
+        if (VoucherType.PERCENTAGE.equals(voucher.getVoucherType())) {
+            BigDecimal percentage = voucher.getDiscountValue().divide(BigDecimal.valueOf(100));
+            discountAmount = goodsAmount.multiply(percentage);
+            if (voucher.getMaxDiscount() != null && discountAmount.compareTo(voucher.getMaxDiscount()) > 0) {
+                discountAmount = voucher.getMaxDiscount();
+            }
+        } else if (VoucherType.FIXED_AMOUNT.equals(voucher.getVoucherType())) {
+            discountAmount = voucher.getDiscountValue();
+            if (discountAmount.compareTo(goodsAmount) > 0) {
+                discountAmount = goodsAmount;
+            }
+        } else if (VoucherType.FREE_SHIPPING.equals(voucher.getVoucherType())) {
+            discountAmount = voucher.getDiscountValue();
+            if (discountAmount.compareTo(shippingFee) > 0) {
+                discountAmount = shippingFee;
+            }
+        }
+        return discountAmount;
     }
 
     // ============================================================
