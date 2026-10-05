@@ -71,6 +71,8 @@ public enum ErrorCode {
     PRODUCT_NOT_PENDING(3019, "Product is not pending approval", HttpStatus.BAD_REQUEST),
     REJECT_REASON_REQUIRED(3020, "Rejection reason is required", HttpStatus.BAD_REQUEST),
     CANNOT_ACTIVATE_DIRECTLY(3021, "Shop cannot activate product directly; requires admin approval", HttpStatus.FORBIDDEN),
+    IMAGE_NOT_AGRICULTURAL_PRODUCE(3022, "Ảnh sản phẩm không phải là nông sản hoặc không phù hợp", HttpStatus.BAD_REQUEST),
+    IMAGE_MODERATION_FAILED(3023, "Lỗi trong quá trình kiểm duyệt ảnh", HttpStatus.INTERNAL_SERVER_ERROR),
 
     // Upload & File errors
     FILE_INVALID(4001, "Invalid image file", HttpStatus.BAD_REQUEST),

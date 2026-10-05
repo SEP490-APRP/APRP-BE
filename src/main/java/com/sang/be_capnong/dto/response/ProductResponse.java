@@ -30,4 +30,5 @@ public class ProductResponse {
     CategoryResponse category;
     ShopSummaryResponse shop;
     List<ProductImageResponse> images;
+    ModerationResultResponse moderationResult;
 }

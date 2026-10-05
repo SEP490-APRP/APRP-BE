@@ -2,6 +2,11 @@ spring:
   application:
     name: BE_CapNong
 
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
   # ===============================
   # LOAD ENV FILE
   # ===============================
@@ -112,3 +117,20 @@ logging:
         SQL: OFF
       springframework:
         web: INFO
+
+# ===============================
+# AWS REKOGNITION (AI MODERATION)
+# ===============================
+aws:
+  access-key: ${AWS_ACCESS_KEY_ID:}
+  secret-key: ${AWS_SECRET_ACCESS_KEY:}
+  region: ${AWS_REGION:ap-southeast-1}
+  moderation:
+    min-confidence: 75.0
+    unsafe-min-confidence: 60.0
+    non-agri-threshold: 80.0
+    max-labels: 30
+    label-min-confidence: 50.0
+    max-file-size-bytes: 5242880
+    connect-timeout-seconds: 5
+    read-timeout-seconds: 10

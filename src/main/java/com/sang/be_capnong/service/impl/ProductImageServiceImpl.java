@@ -1,15 +1,20 @@
 package com.sang.be_capnong.service.impl;
 
+import com.sang.be_capnong.dto.ModerationCheckResult;
 import com.sang.be_capnong.dto.request.ProductImageCreationRequest;
 import com.sang.be_capnong.dto.request.ProductImageUpdateRequest;
 import com.sang.be_capnong.dto.response.ProductImageResponse;
+import com.sang.be_capnong.entity.ModerationLabel;
+import com.sang.be_capnong.entity.ModerationResult;
 import com.sang.be_capnong.entity.Product;
 import com.sang.be_capnong.entity.ProductImage;
 import com.sang.be_capnong.exception.AppException;
 import com.sang.be_capnong.exception.ErrorCode;
 import com.sang.be_capnong.mapper.ProductImageMapper;
+import com.sang.be_capnong.repository.ModerationResultRepository;
 import com.sang.be_capnong.repository.ProductImageRepository;
 import com.sang.be_capnong.repository.ProductRepository;
+import com.sang.be_capnong.service.ImageModerationService;
 import com.sang.be_capnong.service.ProductImageService;
 import com.sang.be_capnong.util.SecurityUtils;
 import lombok.AccessLevel;
@@ -17,19 +22,24 @@ import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 @Slf4j
+@Transactional
 public class ProductImageServiceImpl implements ProductImageService {
 
     ProductRepository productRepository;
     ProductImageRepository productImageRepository;
     ProductImageMapper productImageMapper;
+    ImageModerationService imageModerationService;
+    ModerationResultRepository moderationResultRepository;
 
     @Override
     public ProductImageResponse addImage(Integer productId, ProductImageCreationRequest request) {
@@ -41,6 +51,13 @@ public class ProductImageServiceImpl implements ProductImageService {
 
         if (product.getShop().getId() != currentUserId) {
             throw new AppException(ErrorCode.NOT_PRODUCT_OWNER);
+        }
+
+        // 1. Kiểm duyệt ảnh bằng AWS Rekognition
+        ModerationCheckResult checkResult = imageModerationService.checkImageUrl(request.getImageUrl());
+        if (!checkResult.isAgricultural()) {
+            log.warn("Image rejected for product id {}: {}", productId, checkResult.getRejectionReason());
+            throw new AppException(ErrorCode.IMAGE_NOT_AGRICULTURAL_PRODUCE);
         }
 
         long existingCount = productImageRepository.countByProduct_ProductId(productId);
@@ -62,6 +79,10 @@ public class ProductImageServiceImpl implements ProductImageService {
         productImage.setCreatedAt(LocalDateTime.now());
 
         ProductImage savedImage = productImageRepository.save(productImage);
+
+        // 2. Lưu / cập nhật kết quả kiểm duyệt AI vào CSDL để Admin theo dõi
+        saveOrUpdateModerationResult(product, checkResult);
+
         return productImageMapper.toProductImageResponse(savedImage);
     }
 
@@ -104,7 +125,16 @@ public class ProductImageServiceImpl implements ProductImageService {
         }
 
         if (request.getImageUrl() != null && !request.getImageUrl().isBlank()) {
-            image.setImageUrl(request.getImageUrl().trim());
+            String newUrl = request.getImageUrl().trim();
+            if (!newUrl.equals(image.getImageUrl())) {
+                ModerationCheckResult checkResult = imageModerationService.checkImageUrl(newUrl);
+                if (!checkResult.isAgricultural()) {
+                    log.warn("Updated image rejected for product id {}: {}", productId, checkResult.getRejectionReason());
+                    throw new AppException(ErrorCode.IMAGE_NOT_AGRICULTURAL_PRODUCE);
+                }
+                saveOrUpdateModerationResult(product, checkResult);
+            }
+            image.setImageUrl(newUrl);
         }
 
         if (request.getDisplayOrder() != null) {
@@ -182,4 +212,44 @@ public class ProductImageServiceImpl implements ProductImageService {
             }
         }
     }
+
+    private void saveOrUpdateModerationResult(Product product, ModerationCheckResult checkResult) {
+        try {
+            ModerationResult moderationResult = moderationResultRepository.findByProduct_ProductId(product.getProductId())
+                    .orElseGet(() -> ModerationResult.builder()
+                            .product(product)
+                            .moderationLabels(new ArrayList<>())
+                            .build());
+
+            moderationResult.setIsFlagged(checkResult.isFlagged());
+            moderationResult.setOverallConfidence(checkResult.getOverallConfidence());
+            moderationResult.setCheckedAt(LocalDateTime.now());
+            moderationResult.setRawResponse(checkResult.getRawResponse());
+
+            if (moderationResult.getModerationLabels() != null) {
+                moderationResult.getModerationLabels().clear();
+            } else {
+                moderationResult.setModerationLabels(new ArrayList<>());
+            }
+
+            if (checkResult.getLabels() != null) {
+                for (ModerationCheckResult.ModerationLabelItem item : checkResult.getLabels()) {
+                    ModerationLabel label = ModerationLabel.builder()
+                            .labelName(item.getLabelName())
+                            .parentLabel(item.getParentLabel())
+                            .confidence(item.getConfidence())
+                            .moderationResult(moderationResult)
+                            .build();
+                    moderationResult.getModerationLabels().add(label);
+                }
+            }
+
+            moderationResultRepository.save(moderationResult);
+            log.info("Saved ModerationResult for product id: {}, overallConfidence: {}%",
+                    product.getProductId(), checkResult.getOverallConfidence());
+        } catch (Exception e) {
+            log.error("Failed to save ModerationResult for product id {}: {}", product.getProductId(), e.getMessage(), e);
+        }
+    }
 }
+
