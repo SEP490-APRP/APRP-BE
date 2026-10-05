@@ -19,4 +19,7 @@ public interface CartService {
 
     // 4. Xóa 1 hoặc nhiều sản phẩm khỏi giỏ hàng
     ApiResponse<Void> removeCartItems(CartRemoveRequest request);
+
+    // 5. Xóa toàn bộ giỏ hàng (gọi sau khi đặt hàng thành công)
+    void clearCart();
 }

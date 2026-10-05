@@ -151,7 +151,8 @@ public class OrderServiceImpl implements OrderService {
             }
         }
 
-        // 5. Dọn dẹp giỏ hàng
+        // 5. Dọn dẹp giỏ hàng — CHỈ xoá những món đã được tick mua (FE gửi cartItemIds)
+        //    Những món không tick vẫn được giữ lại trong giỏ
         if (request.getCartItemIds() != null && !request.getCartItemIds().isEmpty()) {
             cartItemRepository.deleteAllById(request.getCartItemIds());
         }
