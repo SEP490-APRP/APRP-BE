@@ -117,7 +117,24 @@ public enum ErrorCode {
     CANNOT_DELETE_SOLD_COMBO(6012, "Cannot delete combo that has already been purchased. Please deactivate it instead", HttpStatus.BAD_REQUEST),
     COMBO_TYPE_TOO_LONG(6013, "Combo type must not exceed 50 characters", HttpStatus.BAD_REQUEST),
     COMBO_REGION_TOO_LONG(6014, "Region must not exceed 100 characters", HttpStatus.BAD_REQUEST),
-    IMAGE_URL_TOO_LONG_COMBO(6015, "Image URL must not exceed 500 characters", HttpStatus.BAD_REQUEST)
+    IMAGE_URL_TOO_LONG_COMBO(6015, "Image URL must not exceed 500 characters", HttpStatus.BAD_REQUEST),
+
+    // Order errors (Series 7000)
+    ORDER_NOT_FOUND(7001, "Order not found", HttpStatus.NOT_FOUND),
+    INVALID_ORDER_STATE(7002, "Invalid order state transition", HttpStatus.BAD_REQUEST),
+    SHOP_NOT_FOUND(7003, "Shop not found or is currently inactive", HttpStatus.BAD_REQUEST),
+
+    // Cart Errors (Series 8000)
+    CART_ITEM_NOT_FOUND(8001, "Cart item not found", HttpStatus.NOT_FOUND),
+    OUT_OF_STOCK(8002, "Not enough stock available", HttpStatus.BAD_REQUEST),
+    INVALID_ITEM_TYPE(8003, "Invalid item type", HttpStatus.BAD_REQUEST),
+
+    // Voucher Errors (Series 9000)
+    VOUCHER_CODE_EXISTED(9001, "Voucher code already exists", HttpStatus.BAD_REQUEST),
+    VOUCHER_NOT_FOUND(9002, "Voucher not found", HttpStatus.NOT_FOUND),
+    VOUCHER_INVALID(9003, "Voucher is inactive or expired", HttpStatus.BAD_REQUEST),
+    VOUCHER_OUT_OF_STOCK(9004, "Voucher is out of stock (claim limit reached)", HttpStatus.BAD_REQUEST),
+    VOUCHER_LIMIT_REACHED(9005, "You have reached the maximum claim limit for this voucher", HttpStatus.BAD_REQUEST)
     ;
 
     private final int code;

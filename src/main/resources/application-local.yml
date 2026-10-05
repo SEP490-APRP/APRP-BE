@@ -8,6 +8,16 @@ spring:
       max-request-size: 10MB
 
   # ===============================
+  # JACKSON (JSON serialization)
+  # ===============================
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false   # LocalDateTime → "2026-09-29T19:34:44" (ISO-8601)
+    deserialization:
+      fail-on-unknown-properties: false
+    time-zone: Asia/Ho_Chi_Minh
+
+  # ===============================
   # LOAD ENV FILE
   # ===============================
   config:
@@ -19,7 +29,7 @@ spring:
   datasource:
     url: jdbc:mysql://localhost:3306/DB_CapNong?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Ho_Chi_Minh&characterEncoding=utf8
     username: root
-    password: 123456789
+    password: 123456
     driver-class-name: com.mysql.cj.jdbc.Driver
 
     hikari:
@@ -134,3 +144,14 @@ aws:
     max-file-size-bytes: 5242880
     connect-timeout-seconds: 5
     read-timeout-seconds: 10
+
+# ===============================
+# GOOGLE MAPS CONFIGURATION
+# ===============================
+# Lấy tại https://console.cloud.google.com → APIs & Services → Credentials
+# Cần bật 2 API: Geocoding API + Distance Matrix API
+google:
+  maps:
+    api:
+      key: ${GOOGLE_MAPS_API_KEY}
+
