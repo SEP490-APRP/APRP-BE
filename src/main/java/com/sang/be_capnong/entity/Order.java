@@ -60,6 +60,7 @@ public class Order {
     String note;
 
     @Enumerated(EnumType.STRING)
+    @Column(length = 32)
     OrderStatus status;
 
     LocalDateTime createdAt;

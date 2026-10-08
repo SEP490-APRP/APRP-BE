@@ -132,7 +132,19 @@ public enum ErrorCode {
     VOUCHER_NOT_FOUND(9002, "Voucher not found", HttpStatus.NOT_FOUND),
     VOUCHER_INVALID(9003, "Voucher is inactive or expired", HttpStatus.BAD_REQUEST),
     VOUCHER_OUT_OF_STOCK(9004, "Voucher is out of stock (claim limit reached)", HttpStatus.BAD_REQUEST),
-    VOUCHER_LIMIT_REACHED(9005, "You have reached the maximum claim limit for this voucher", HttpStatus.BAD_REQUEST)
+    VOUCHER_LIMIT_REACHED(9005, "You have reached the maximum claim limit for this voucher", HttpStatus.BAD_REQUEST),
+
+    // Payment Errors (Series 7500)
+    PAYMENT_NOT_FOUND(7501, "Payment not found", HttpStatus.NOT_FOUND),
+    PAYMENT_FAILED(7502, "Payment creation failed", HttpStatus.BAD_REQUEST),
+    PAYOS_WEBHOOK_INVALID(7503, "Invalid PayOS webhook signature", HttpStatus.BAD_REQUEST),
+    ORDER_NOT_PAYABLE(7504, "Order is not in payable state", HttpStatus.BAD_REQUEST),
+    BATCH_NOT_FOUND(7505, "Checkout batch not found", HttpStatus.NOT_FOUND),
+
+    // Saved Address Errors (Series 9500)
+    ADDRESS_NOT_FOUND(9501, "Saved address not found", HttpStatus.NOT_FOUND),
+    MAX_ADDRESSES_REACHED(9502, "You have reached the maximum limit of 10 saved addresses", HttpStatus.BAD_REQUEST),
+    ADDRESS_UNAUTHORIZED(9503, "You do not have permission to access or modify this address", HttpStatus.FORBIDDEN)
     ;
 
     private final int code;

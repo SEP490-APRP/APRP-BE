@@ -297,11 +297,12 @@ public class CartServiceImpl implements CartService {
     }
 
     private CartItem findExistingItemInCart(Cart cart, String itemType, int itemId) {
-        if (cart.getCartItems() == null) return null;
-        for (CartItem item : cart.getCartItems()) {
-            if ("PRODUCT".equalsIgnoreCase(itemType) && item.getProduct() != null && item.getProduct().getProductId() == itemId) return item;
-            if ("MYSTERY_BOX".equalsIgnoreCase(itemType) && item.getMysteryBox() != null && item.getMysteryBox().getMysteryId() == itemId) return item;
-            if ("BUILD_COMBO".equalsIgnoreCase(itemType) && item.getBuildCombo() != null && item.getBuildCombo().getComboId() == itemId) return item;
+        if ("PRODUCT".equalsIgnoreCase(itemType)) {
+            return cartItemRepository.findByCart_IdAndProduct_ProductId(cart.getId(), itemId).orElse(null);
+        } else if ("MYSTERY_BOX".equalsIgnoreCase(itemType)) {
+            return cartItemRepository.findByCart_IdAndMysteryBox_MysteryId(cart.getId(), itemId).orElse(null);
+        } else if ("BUILD_COMBO".equalsIgnoreCase(itemType)) {
+            return cartItemRepository.findByCart_IdAndBuildCombo_ComboId(cart.getId(), itemId).orElse(null);
         }
         return null;
     }
@@ -312,22 +313,35 @@ public class CartServiceImpl implements CartService {
         
         if ("PRODUCT".equalsIgnoreCase(itemType)) {
             Product p = productRepository.findById(itemId).orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
-            availableStock = p.getStockQuantity();
-            isActive = "ACTIVE".equalsIgnoreCase(p.getStatus()) && p.getShop() != null && p.getShop().getStatus() == UserStatus.ACTIVE && Boolean.TRUE.equals(p.getShop().getShopActive());
+            availableStock = p.getStockQuantity() != null ? p.getStockQuantity() : 0;
+            boolean shopActive = p.getShop() != null && (p.getShop().getShopActive() == null || Boolean.TRUE.equals(p.getShop().getShopActive()));
+            boolean shopStatusOk = p.getShop() != null && (p.getShop().getStatus() == null || p.getShop().getStatus() == UserStatus.ACTIVE);
+            boolean productStatusOk = p.getStatus() == null || "ACTIVE".equalsIgnoreCase(p.getStatus());
+            isActive = productStatusOk && shopActive && shopStatusOk;
         } else if ("MYSTERY_BOX".equalsIgnoreCase(itemType)) {
             MysteryBox m = mysteryBoxRepository.findById(itemId).orElseThrow(() -> new AppException(ErrorCode.MYSTERY_BOX_NOT_FOUND));
-            availableStock = m.getTotalQuantity() - m.getSoldQuantity();
-            isActive = Boolean.TRUE.equals(m.getIsActive()) && m.getShop() != null && m.getShop().getStatus() == UserStatus.ACTIVE && Boolean.TRUE.equals(m.getShop().getShopActive());
+            int total = m.getTotalQuantity() != null ? m.getTotalQuantity() : 0;
+            int sold = m.getSoldQuantity() != null ? m.getSoldQuantity() : 0;
+            availableStock = Math.max(0, total - sold);
+            boolean shopActive = m.getShop() != null && (m.getShop().getShopActive() == null || Boolean.TRUE.equals(m.getShop().getShopActive()));
+            boolean shopStatusOk = m.getShop() != null && (m.getShop().getStatus() == null || m.getShop().getStatus() == UserStatus.ACTIVE);
+            boolean boxActive = m.getIsActive() == null || Boolean.TRUE.equals(m.getIsActive());
+            isActive = boxActive && shopActive && shopStatusOk;
         } else if ("BUILD_COMBO".equalsIgnoreCase(itemType)) {
             BuildCombo b = buildComboRepository.findById(itemId).orElseThrow(() -> new AppException(ErrorCode.COMBO_NOT_FOUND));
-            availableStock = b.getTotalQuantity() - b.getSoldQuantity();
-            isActive = "ACTIVE".equalsIgnoreCase(b.getStatus()) && b.getShop() != null && b.getShop().getStatus() == UserStatus.ACTIVE && Boolean.TRUE.equals(b.getShop().getShopActive());
+            int total = b.getTotalQuantity() != null ? b.getTotalQuantity() : 0;
+            int sold = b.getSoldQuantity() != null ? b.getSoldQuantity() : 0;
+            availableStock = Math.max(0, total - sold);
+            boolean shopActive = b.getShop() != null && (b.getShop().getShopActive() == null || Boolean.TRUE.equals(b.getShop().getShopActive()));
+            boolean shopStatusOk = b.getShop() != null && (b.getShop().getStatus() == null || b.getShop().getStatus() == UserStatus.ACTIVE);
+            boolean comboStatusOk = b.getStatus() == null || "ACTIVE".equalsIgnoreCase(b.getStatus());
+            isActive = comboStatusOk && shopActive && shopStatusOk;
         } else {
             throw new AppException(ErrorCode.INVALID_ITEM_TYPE);
         }
 
         if (!isActive) {
-            throw new AppException(ErrorCode.PRODUCT_NOT_FOUND); // Hoặc tạo mã lỗi PRODUCT_INACTIVE
+            throw new AppException(ErrorCode.PRODUCT_NOT_FOUND);
         }
 
         if (requestedQuantity > availableStock) {
