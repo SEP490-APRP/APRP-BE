@@ -23,14 +23,14 @@ import java.time.Duration;
 @Slf4j
 public class ImageDownloadServiceImpl implements ImageDownloadService {
 
-    @Value("${aws.moderation.max-file-size-bytes:5242880}")
-    long maxFileSizeBytes;
+    @Value("${google.vision.max-file-size-bytes:5242880}")
+    long maxFileSizeBytes = 5242880L;
 
-    @Value("${aws.moderation.connect-timeout-seconds:5}")
-    int connectTimeoutSeconds;
+    @Value("${google.vision.connect-timeout-seconds:5}")
+    int connectTimeoutSeconds = 5;
 
-    @Value("${aws.moderation.read-timeout-seconds:10}")
-    int readTimeoutSeconds;
+    @Value("${google.vision.read-timeout-seconds:10}")
+    int readTimeoutSeconds = 10;
 
     @Override
     public byte[] download(String imageUrl) {
@@ -41,15 +41,18 @@ public class ImageDownloadServiceImpl implements ImageDownloadService {
         URI uri = validateAndParseUri(imageUrl.trim());
         validateHostAndIp(uri.getHost());
 
+        int effectiveConnectTimeout = connectTimeoutSeconds > 0 ? connectTimeoutSeconds : 5;
+        int effectiveReadTimeout = readTimeoutSeconds > 0 ? readTimeoutSeconds : 10;
+
         // Cấu hình HttpClient với Redirect.NEVER để chống triệt để tấn công SSRF qua 301/302 Redirect
         HttpClient httpClient = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(connectTimeoutSeconds))
+                .connectTimeout(Duration.ofSeconds(effectiveConnectTimeout))
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(uri)
-                .timeout(Duration.ofSeconds(readTimeoutSeconds))
+                .timeout(Duration.ofSeconds(effectiveReadTimeout))
                 .GET()
                 .build();
 
@@ -146,7 +149,7 @@ public class ImageDownloadServiceImpl implements ImageDownloadService {
             return true;
         }
 
-        // Kiểm tra bổ sung cho địa chỉ AWS Instance Metadata IPv4 (169.254.169.254) hoặc Carrier-grade NAT (100.64.0.0/10)
+        // Kiểm tra bổ sung cho địa chỉ Cloud Instance Metadata IPv4 (169.254.169.254 - IMDS) hoặc Carrier-grade NAT (100.64.0.0/10)
         String ip = address.getHostAddress();
         if (ip.startsWith("169.254.") || ip.startsWith("127.") || ip.startsWith("10.")
                 || ip.startsWith("192.168.") || ip.startsWith("0.")) {

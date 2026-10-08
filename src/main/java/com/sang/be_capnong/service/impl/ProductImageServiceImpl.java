@@ -14,6 +14,7 @@ import com.sang.be_capnong.mapper.ProductImageMapper;
 import com.sang.be_capnong.repository.ModerationResultRepository;
 import com.sang.be_capnong.repository.ProductImageRepository;
 import com.sang.be_capnong.repository.ProductRepository;
+import com.sang.be_capnong.service.CloudinaryService;
 import com.sang.be_capnong.service.ImageModerationService;
 import com.sang.be_capnong.service.ProductImageService;
 import com.sang.be_capnong.util.SecurityUtils;
@@ -40,6 +41,7 @@ public class ProductImageServiceImpl implements ProductImageService {
     ProductImageMapper productImageMapper;
     ImageModerationService imageModerationService;
     ModerationResultRepository moderationResultRepository;
+    CloudinaryService cloudinaryService;
 
     @Override
     public ProductImageResponse addImage(Integer productId, ProductImageCreationRequest request) {
@@ -53,10 +55,12 @@ public class ProductImageServiceImpl implements ProductImageService {
             throw new AppException(ErrorCode.NOT_PRODUCT_OWNER);
         }
 
-        // 1. Kiểm duyệt ảnh bằng AWS Rekognition
+        // 1. Kiểm duyệt ảnh bằng AI (Google Cloud Vision API)
         ModerationCheckResult checkResult = imageModerationService.checkImageUrl(request.getImageUrl());
         if (!checkResult.isAgricultural()) {
             log.warn("Image rejected for product id {}: {}", productId, checkResult.getRejectionReason());
+            // Tự động dọn dẹp file ảnh vừa upload lên Cloudinary khi bị AI từ chối để tiết kiệm dung lượng
+            cloudinaryService.deleteImageByUrl(request.getImageUrl());
             throw new AppException(ErrorCode.IMAGE_NOT_AGRICULTURAL_PRODUCE);
         }
 
@@ -130,8 +134,13 @@ public class ProductImageServiceImpl implements ProductImageService {
                 ModerationCheckResult checkResult = imageModerationService.checkImageUrl(newUrl);
                 if (!checkResult.isAgricultural()) {
                     log.warn("Updated image rejected for product id {}: {}", productId, checkResult.getRejectionReason());
+                    // Dọn dẹp ảnh mới vừa upload lên Cloudinary nhưng bị AI từ chối
+                    cloudinaryService.deleteImageByUrl(newUrl);
                     throw new AppException(ErrorCode.IMAGE_NOT_AGRICULTURAL_PRODUCE);
                 }
+                // Nếu ảnh mới hợp lệ, dọn dẹp ảnh cũ trên Cloudinary để giải phóng bộ nhớ
+                String oldUrl = image.getImageUrl();
+                cloudinaryService.deleteImageByUrl(oldUrl);
                 saveOrUpdateModerationResult(product, checkResult);
             }
             image.setImageUrl(newUrl);
@@ -190,8 +199,12 @@ public class ProductImageServiceImpl implements ProductImageService {
             throw new AppException(ErrorCode.IMAGE_NOT_BELONG_TO_PRODUCT);
         }
 
+        String imageUrlToDelete = image.getImageUrl();
         boolean wasPrimary = Boolean.TRUE.equals(image.getIsPrimary());
         productImageRepository.delete(image);
+
+        // Tự động xóa file ảnh khỏi Cloudinary để dọn rác
+        cloudinaryService.deleteImageByUrl(imageUrlToDelete);
 
         if (wasPrimary) {
             List<ProductImage> remaining = productImageRepository.findByProduct_ProductIdOrderByDisplayOrderAscIdAsc(productId);

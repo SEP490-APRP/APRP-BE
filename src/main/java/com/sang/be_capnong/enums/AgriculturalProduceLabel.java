@@ -14,6 +14,14 @@ public enum AgriculturalProduceLabel {
     VEGETABLE("VEGETABLE", "Rau củ"),
     FRUIT("FRUIT", "Trái cây / Hoa quả"),
     PRODUCE("PRODUCE", "Nông sản tươi"),
+    FOOD("FOOD", "Thực phẩm / Nông sản"),
+    NATURAL_FOODS("NATURAL FOODS", "Nông sản tươi tự nhiên"),
+    WHOLE_FOOD("WHOLE FOOD", "Nông sản nguyên bản"),
+    LOCAL_FOOD("LOCAL FOOD", "Nông sản địa phương"),
+    SUPERFOOD("SUPERFOOD", "Nông sản dinh dưỡng cao"),
+    VEGETARIAN_FOOD("VEGETARIAN FOOD", "Thực phẩm thực vật"),
+    INGREDIENT("INGREDIENT", "Nguyên liệu tươi"),
+    STAPLE_FOOD("STAPLE FOOD", "Lương thực chính"),
     CROP("CROP", "Mùa vụ nông nghiệp"),
     AGRICULTURE("AGRICULTURE", "Nông nghiệp"),
     FLORA("FLORA", "Thực vật"),
@@ -80,14 +88,14 @@ public enum AgriculturalProduceLabel {
     PEACH("PEACH", "Đào"),
     PLUM("PLUM", "Mận");
 
-    private final String awsLabel;
+    private final String label;
     private final String vietnameseName;
 
-    private static final Map<String, AgriculturalProduceLabel> AWS_LABEL_MAP = new HashMap<>();
+    private static final Map<String, AgriculturalProduceLabel> LABEL_MAP = new HashMap<>();
 
     static {
-        for (AgriculturalProduceLabel label : values()) {
-            AWS_LABEL_MAP.put(label.awsLabel.toUpperCase(), label);
+        for (AgriculturalProduceLabel item : values()) {
+            LABEL_MAP.put(item.label.toUpperCase(), item);
         }
     }
 
@@ -95,18 +103,19 @@ public enum AgriculturalProduceLabel {
         if (labelName == null || labelName.isBlank()) {
             return false;
         }
-        return AWS_LABEL_MAP.containsKey(labelName.trim().toUpperCase());
+        return LABEL_MAP.containsKey(labelName.trim().toUpperCase());
     }
 
-    public static Optional<AgriculturalProduceLabel> findByAwsLabel(String labelName) {
+    public static Optional<AgriculturalProduceLabel> findByLabel(String labelName) {
         if (labelName == null || labelName.isBlank()) {
             return Optional.empty();
         }
-        return Optional.ofNullable(AWS_LABEL_MAP.get(labelName.trim().toUpperCase()));
+        return Optional.ofNullable(LABEL_MAP.get(labelName.trim().toUpperCase()));
     }
 
+
     public static String getVietnameseNameOrDefault(String labelName) {
-        return findByAwsLabel(labelName)
+        return findByLabel(labelName)
                 .map(AgriculturalProduceLabel::getVietnameseName)
                 .orElse(labelName);
     }

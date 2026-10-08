@@ -37,14 +37,14 @@ public enum NonAgriculturalItem {
     COCKTAIL("COCKTAIL", "Cocktail"),
     COFFEE("COFFEE", "Cà phê pha sẵn");
 
-    private final String awsLabel;
+    private final String label;
     private final String vietnameseName;
 
-    private static final Map<String, NonAgriculturalItem> AWS_LABEL_MAP = new HashMap<>();
+    private static final Map<String, NonAgriculturalItem> LABEL_MAP = new HashMap<>();
 
     static {
         for (NonAgriculturalItem item : values()) {
-            AWS_LABEL_MAP.put(item.awsLabel.toUpperCase(), item);
+            LABEL_MAP.put(item.label.toUpperCase(), item);
         }
     }
 
@@ -52,18 +52,19 @@ public enum NonAgriculturalItem {
         if (labelName == null || labelName.isBlank()) {
             return false;
         }
-        return AWS_LABEL_MAP.containsKey(labelName.trim().toUpperCase());
+        return LABEL_MAP.containsKey(labelName.trim().toUpperCase());
     }
 
-    public static Optional<NonAgriculturalItem> findByAwsLabel(String labelName) {
+    public static Optional<NonAgriculturalItem> findByLabel(String labelName) {
         if (labelName == null || labelName.isBlank()) {
             return Optional.empty();
         }
-        return Optional.ofNullable(AWS_LABEL_MAP.get(labelName.trim().toUpperCase()));
+        return Optional.ofNullable(LABEL_MAP.get(labelName.trim().toUpperCase()));
     }
 
+
     public static String getVietnameseNameOrDefault(String labelName) {
-        return findByAwsLabel(labelName)
+        return findByLabel(labelName)
                 .map(NonAgriculturalItem::getVietnameseName)
                 .orElse(labelName);
     }

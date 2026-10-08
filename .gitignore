@@ -57,10 +57,12 @@ build/
 ### Mobile Tools for Java (J2ME) ###
 .mtj.tmp/
 
-# Environment files
+# Environment files & Secrets
 .env
 .env.*
 *.env
+credentials.json
+**/credentials.json
 
 # Tests
 src/test/

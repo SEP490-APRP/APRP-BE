@@ -24,6 +24,9 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import com.sang.be_capnong.dto.ModerationCheckResult;
+import com.sang.be_capnong.repository.ModerationResultRepository;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -46,6 +49,15 @@ class ProductImageServiceTest {
     @Mock
     ProductImageMapper productImageMapper;
 
+    @Mock
+    ImageModerationService imageModerationService;
+
+    @Mock
+    ModerationResultRepository moderationResultRepository;
+
+    @Mock
+    CloudinaryService cloudinaryService;
+
     @InjectMocks
     ProductImageServiceImpl productImageService;
 
@@ -60,6 +72,13 @@ class ProductImageServiceTest {
 
     @BeforeEach
     void setUp() {
+        lenient().when(imageModerationService.checkImageUrl(any()))
+                .thenReturn(ModerationCheckResult.builder()
+                        .isAgricultural(true)
+                        .isFlagged(false)
+                        .overallConfidence(BigDecimal.valueOf(95.0))
+                        .labels(List.of())
+                        .build());
         Role shopRole = Role.builder().id(2).name("SHOP").build();
         shopUser = User.builder().id(1).role(shopRole).build();
         otherShopUser = User.builder().id(2).role(shopRole).build();
@@ -542,5 +561,47 @@ class ProductImageServiceTest {
 
         verify(productImageRepository).delete(sampleImage);
         verify(productImageRepository, never()).save(any(ProductImage.class));
+        verify(cloudinaryService).deleteImageByUrl(sampleImage.getImageUrl());
+    }
+
+    @Test
+    void addImage_rejectedByModeration_cleansUpCloudinaryImage() {
+        mockAuthenticatedUser(1);
+        when(productRepository.findById(10)).thenReturn(Optional.of(sampleProduct));
+        when(imageModerationService.checkImageUrl("https://cdn.capnong.vn/car.jpg"))
+                .thenReturn(ModerationCheckResult.builder()
+                        .isAgricultural(false)
+                        .isFlagged(true)
+                        .rejectionReason("Không phải nông sản")
+                        .build());
+
+        ProductImageCreationRequest req = ProductImageCreationRequest.builder()
+                .imageUrl("https://cdn.capnong.vn/car.jpg")
+                .build();
+
+        assertThatThrownBy(() -> productImageService.addImage(10, req))
+                .isInstanceOf(AppException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.IMAGE_NOT_AGRICULTURAL_PRODUCE);
+
+        verify(cloudinaryService).deleteImageByUrl("https://cdn.capnong.vn/car.jpg");
+        verify(productImageRepository, never()).save(any());
+    }
+
+    @Test
+    void updateImage_successWithNewUrl_cleansUpOldCloudinaryImage() {
+        mockAuthenticatedUser(1);
+        when(productRepository.findById(10)).thenReturn(Optional.of(sampleProduct));
+        when(productImageRepository.findById(100L)).thenReturn(Optional.of(sampleImage));
+        when(productImageRepository.save(any(ProductImage.class))).thenReturn(sampleImage);
+        when(productImageMapper.toProductImageResponse(sampleImage)).thenReturn(sampleResponse);
+
+        ProductImageUpdateRequest req = ProductImageUpdateRequest.builder()
+                .imageUrl("https://cdn.capnong.vn/new-tomato.jpg")
+                .build();
+
+        productImageService.updateImage(10, 100L, req);
+
+        // Ảnh cũ sampleImage có URL "https://cdn.capnong.vn/xoai-1.jpg" phải được dọn dẹp
+        verify(cloudinaryService).deleteImageByUrl("https://cdn.capnong.vn/xoai-1.jpg");
     }
 }

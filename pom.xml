@@ -137,26 +137,12 @@
             <version>2.0.1</version>
         </dependency>
 
-        <!-- AWS SDK v2 Rekognition (AI Image Moderation) -->
+
+        <!-- Google Cloud Vision SDK (AI Image Moderation - Free Tier) -->
         <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>rekognition</artifactId>
-            <version>2.29.51</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>software.amazon.awssdk</groupId>
-                    <artifactId>apache-client</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>software.amazon.awssdk</groupId>
-                    <artifactId>netty-nio-client</artifactId>
-                </exclusion>
-            </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>software.amazon.awssdk</groupId>
-            <artifactId>url-connection-client</artifactId>
-            <version>2.29.51</version>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-vision</artifactId>
+            <version>3.54.0</version>
         </dependency>
 
     </dependencies>

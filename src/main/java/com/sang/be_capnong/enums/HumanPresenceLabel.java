@@ -32,14 +32,14 @@ public enum HumanPresenceLabel {
     // === TRANG PHỤC NHẠY CẢM / ĐỒ LÓT ===
     UNDERWEAR("UNDERWEAR", "Đồ lót");
 
-    private final String awsLabel;
+    private final String label;
     private final String vietnameseName;
 
-    private static final Map<String, HumanPresenceLabel> AWS_LABEL_MAP = new HashMap<>();
+    private static final Map<String, HumanPresenceLabel> LABEL_MAP = new HashMap<>();
 
     static {
         for (HumanPresenceLabel item : values()) {
-            AWS_LABEL_MAP.put(item.awsLabel.toUpperCase(), item);
+            LABEL_MAP.put(item.label.toUpperCase(), item);
         }
     }
 
@@ -47,18 +47,19 @@ public enum HumanPresenceLabel {
         if (labelName == null || labelName.isBlank()) {
             return false;
         }
-        return AWS_LABEL_MAP.containsKey(labelName.trim().toUpperCase());
+        return LABEL_MAP.containsKey(labelName.trim().toUpperCase());
     }
 
-    public static Optional<HumanPresenceLabel> findByAwsLabel(String labelName) {
+    public static Optional<HumanPresenceLabel> findByLabel(String labelName) {
         if (labelName == null || labelName.isBlank()) {
             return Optional.empty();
         }
-        return Optional.ofNullable(AWS_LABEL_MAP.get(labelName.trim().toUpperCase()));
+        return Optional.ofNullable(LABEL_MAP.get(labelName.trim().toUpperCase()));
     }
 
+
     public static String getVietnameseNameOrDefault(String labelName) {
-        return findByAwsLabel(labelName)
+        return findByLabel(labelName)
                 .map(HumanPresenceLabel::getVietnameseName)
                 .orElse(labelName);
     }
