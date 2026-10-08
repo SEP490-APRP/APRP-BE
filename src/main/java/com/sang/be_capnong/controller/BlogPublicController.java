@@ -11,6 +11,7 @@ import jakarta.validation.Valid;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -42,12 +43,14 @@ public class BlogPublicController {
 
     // Toggle Like / Unlike (yêu cầu đăng nhập)
     @PostMapping("/{blogId}/like")
+    @PreAuthorize("isAuthenticated()")
     public ApiResponse<String> toggleLike(@PathVariable int blogId) {
         return blogService.toggleLike(blogId);
     }
 
     // Gửi bình luận (yêu cầu đăng nhập)
     @PostMapping("/{blogId}/comments")
+    @PreAuthorize("isAuthenticated()")
     public ApiResponse<BlogCommentResponse> addComment(@PathVariable int blogId,
                                                        @Valid @RequestBody BlogCommentRequest request) {
         return ApiResponse.<BlogCommentResponse>builder()
@@ -68,6 +71,7 @@ public class BlogPublicController {
 
     // Xóa bình luận (chủ comment hoặc chủ shop bài viết)
     @DeleteMapping("/comments/{commentId}")
+    @PreAuthorize("isAuthenticated()")
     public ApiResponse<Void> deleteComment(@PathVariable int commentId) {
         return blogService.deleteComment(commentId);
     }

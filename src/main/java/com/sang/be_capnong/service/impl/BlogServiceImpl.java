@@ -61,7 +61,7 @@ public class BlogServiceImpl implements BlogService {
                 .updatedAt(LocalDateTime.now())
                 .views(0)
                 .build();
-        return mapToResponse(blogRepository.save(blog), shop);
+        return mapToResponse(blogRepository.save(blog), shop, shop);
     }
 
     @Transactional
@@ -82,7 +82,7 @@ public class BlogServiceImpl implements BlogService {
         if (request.getCategory() != null) blog.setCategory(request.getCategory());
         blog.setUpdatedAt(LocalDateTime.now());
 
-        return mapToResponse(blogRepository.save(blog), shop);
+        return mapToResponse(blogRepository.save(blog), shop, shop);
     }
 
     @Transactional
@@ -106,7 +106,7 @@ public class BlogServiceImpl implements BlogService {
         Pageable pageable = PageRequest.of(page, size, Sort.by("createAt").descending());
         Page<Blog> blogs = blogRepository.findByShop_Id(shop.getId(), pageable);
         return PageResponse.from(blogs, blogs.getContent().stream()
-                .map(b -> mapToResponse(b, shop)).toList());
+                .map(b -> mapToResponse(b, shop, shop)).toList());
     }
 
     // ===================== PUBLIC APIs =====================
@@ -125,7 +125,8 @@ public class BlogServiceImpl implements BlogService {
         blog.setViews(blog.getViews() == null ? 1 : blog.getViews() + 1);
         blogRepository.save(blog);
 
-        return mapToResponse(blog, blog.getShop());
+        User currentUser = getCurrentUserOptionally();
+        return mapToResponse(blog, blog.getShop(), currentUser);
     }
 
     @Override
@@ -137,8 +138,9 @@ public class BlogServiceImpl implements BlogService {
         } else {
             blogs = blogRepository.findByStatus(BlogStatus.PUBLISHED, pageable);
         }
+        User currentUser = getCurrentUserOptionally();
         return PageResponse.from(blogs, blogs.getContent().stream()
-                .map(b -> mapToResponse(b, b.getShop())).toList());
+                .map(b -> mapToResponse(b, b.getShop(), currentUser)).toList());
     }
 
     // ===================== LIKE & COMMENT APIs =====================
@@ -149,6 +151,10 @@ public class BlogServiceImpl implements BlogService {
         User user = getCurrentUser();
         Blog blog = blogRepository.findById(blogId)
                 .orElseThrow(() -> new AppException(ErrorCode.BLOG_NOT_FOUND));
+
+        if (blog.getStatus() != BlogStatus.PUBLISHED) {
+            throw new AppException(ErrorCode.BLOG_NOT_FOUND);
+        }
 
         Optional<BlogLike> existingLike = blogLikeRepository.findByBlog_BlogIdAndUser_Id(blogId, user.getId());
 
@@ -173,6 +179,10 @@ public class BlogServiceImpl implements BlogService {
         Blog blog = blogRepository.findById(blogId)
                 .orElseThrow(() -> new AppException(ErrorCode.BLOG_NOT_FOUND));
 
+        if (blog.getStatus() != BlogStatus.PUBLISHED) {
+            throw new AppException(ErrorCode.BLOG_NOT_FOUND);
+        }
+
         BlogComment comment = BlogComment.builder()
                 .blog(blog)
                 .user(user)
@@ -185,9 +195,13 @@ public class BlogServiceImpl implements BlogService {
 
     @Override
     public PageResponse<BlogCommentResponse> getComments(int blogId, int page, int size) {
-        if (!blogRepository.existsById(blogId)) {
+        Blog blog = blogRepository.findById(blogId)
+                .orElseThrow(() -> new AppException(ErrorCode.BLOG_NOT_FOUND));
+        
+        if (blog.getStatus() != BlogStatus.PUBLISHED) {
             throw new AppException(ErrorCode.BLOG_NOT_FOUND);
         }
+        
         Pageable pageable = PageRequest.of(page, size, Sort.by("createAt").descending());
         Page<BlogComment> comments = blogCommentRepository.findByBlog_BlogId(blogId, pageable);
         return PageResponse.from(comments, comments.getContent().stream()
@@ -215,17 +229,14 @@ public class BlogServiceImpl implements BlogService {
 
     // ===================== HELPER METHODS =====================
 
-    private BlogResponse mapToResponse(Blog blog, User shop) {
+    private BlogResponse mapToResponse(Blog blog, User shop, User currentUser) {
         long likeCount = blogLikeRepository.countByBlog_BlogId(blog.getBlogId());
         long commentCount = blogCommentRepository.countByBlog_BlogId(blog.getBlogId());
 
         // Kiểm tra user hiện tại đã like chưa (nếu đang đăng nhập)
         Boolean isLiked = null;
-        try {
-            User currentUser = getCurrentUser();
+        if (currentUser != null) {
             isLiked = blogLikeRepository.findByBlog_BlogIdAndUser_Id(blog.getBlogId(), currentUser.getId()).isPresent();
-        } catch (Exception ignored) {
-            // User chưa đăng nhập -> isLiked = null
         }
 
         return BlogResponse.builder()
@@ -255,7 +266,7 @@ public class BlogServiceImpl implements BlogService {
                 .createAt(comment.getCreateAt())
                 .userId(user.getId())
                 .userName(user.getFullName())
-                .userAvatar(user.getAvatar())
+                .userAvatar(user.getLogoUrl())
                 .build();
     }
 
@@ -267,6 +278,19 @@ public class BlogServiceImpl implements BlogService {
                     .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
         } catch (NumberFormatException e) {
             throw new AppException(ErrorCode.UNAUTHENTICATED);
+        }
+    }
+
+    private User getCurrentUserOptionally() {
+        String subject = SecurityContextHolder.getContext().getAuthentication().getName();
+        if (subject == null || subject.equals("anonymousUser")) {
+            return null;
+        }
+        try {
+            int userId = Integer.parseInt(subject);
+            return userRepository.findById(userId).orElse(null);
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 }
