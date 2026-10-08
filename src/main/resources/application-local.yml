@@ -145,4 +145,8 @@ google:
   maps:
     api:
       key: ${GOOGLE_MAPS_API_KEY}
+  gemini:
+    api-key: ${GEMINI_API_KEY:}
+    model: ${GEMINI_MODEL:gemini-1.5-flash}
+    timeout-seconds: 8
 
