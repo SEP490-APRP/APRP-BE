@@ -26,7 +26,7 @@ public class MysteryBoxController {
     MysteryBoxService mysteryBoxService;
 
     @PostMapping
-    @PreAuthorize("hasAuthority('SHOP')")
+    @PreAuthorize("hasRole('SHOP')")
     public ApiResponse<MysteryBoxResponse> createMysteryBox(@RequestBody @Valid MysteryBoxCreationRequest request) {
         log.info("REST request to create mystery box: {}", request.getBoxType());
         return ApiResponse.<MysteryBoxResponse>builder()
@@ -61,7 +61,7 @@ public class MysteryBoxController {
     }
 
     @GetMapping("/my-shop")
-    @PreAuthorize("hasAuthority('SHOP')")
+    @PreAuthorize("hasRole('SHOP')")
     public ApiResponse<PageResponse<MysteryBoxResponse>> getMyMysteryBoxes(
             @RequestParam(name = "page", required = false, defaultValue = "1") int page,
             @RequestParam(name = "size", required = false, defaultValue = "10") int size
@@ -73,7 +73,7 @@ public class MysteryBoxController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('SHOP')")
+    @PreAuthorize("hasRole('SHOP')")
     public ApiResponse<MysteryBoxResponse> updateMysteryBox(
             @PathVariable("id") Integer id,
             @RequestBody @Valid MysteryBoxUpdateRequest request
@@ -85,7 +85,7 @@ public class MysteryBoxController {
     }
 
     @PatchMapping("/{id}/status")
-    @PreAuthorize("hasAuthority('SHOP')")
+    @PreAuthorize("hasRole('SHOP')")
     public ApiResponse<MysteryBoxResponse> toggleMysteryBoxStatus(
             @PathVariable("id") Integer id,
             @RequestParam("isActive") Boolean isActive
@@ -97,7 +97,7 @@ public class MysteryBoxController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAuthority('SHOP')")
+    @PreAuthorize("hasRole('SHOP')")
     public ApiResponse<Void> deleteMysteryBox(@PathVariable("id") Integer id) {
         log.info("REST request to delete mystery box id: {}", id);
         mysteryBoxService.deleteMysteryBox(id);
