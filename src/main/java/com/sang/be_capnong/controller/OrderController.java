@@ -38,14 +38,50 @@ public class OrderController {
     }
 
     @Operation(summary = "Buyer places an order",
-            description = "Creates a new order. Status = PENDING (COD) or PAID (TRANSFER). " +
-                    "Splits into multiple orders if items belong to multiple shops. Clears the cart after success.")
+            description = "Creates a new order. Status = PENDING. Splits into multiple orders if items belong to multiple shops. Clears the cart after success.")
     @PostMapping
     @PreAuthorize("hasRole('BUYER')")
     public ApiResponse<List<OrderResponse>> createOrder(@RequestBody @Valid CreateOrderRequest request) {
         return ApiResponse.<List<OrderResponse>>builder()
                 .result(orderService.createOrder(request))
                 .message("Order placed successfully.")
+                .build();
+    }
+
+    @Operation(summary = "Xem chi tiết đơn hàng")
+    @GetMapping("/{id}")
+    public ApiResponse<OrderResponse> getOrderById(@PathVariable("id") int orderId) {
+        return ApiResponse.<OrderResponse>builder()
+                .result(orderService.getOrderById(orderId))
+                .message("Order detail retrieved.")
+                .build();
+    }
+
+    @Operation(summary = "Danh sách đơn hàng của tôi", description = "[BUYER] Lấy danh sách đơn hàng đã đặt")
+    @GetMapping("/my")
+    @PreAuthorize("hasRole('BUYER')")
+    public ApiResponse<org.springframework.data.domain.Page<OrderResponse>> getMyOrders(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) List<com.sang.be_capnong.enums.OrderStatus> statuses
+    ) {
+        return ApiResponse.<org.springframework.data.domain.Page<OrderResponse>>builder()
+                .result(orderService.getMyOrders(page, size, statuses))
+                .message("My orders retrieved.")
+                .build();
+    }
+
+    @Operation(summary = "Danh sách đơn hàng của Shop", description = "[SHOP only] Lấy danh sách đơn hàng cần xử lý (PENDING, PAID...)")
+    @GetMapping("/shop")
+    @PreAuthorize("hasRole('SHOP')")
+    public ApiResponse<org.springframework.data.domain.Page<OrderResponse>> getShopOrders(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) List<com.sang.be_capnong.enums.OrderStatus> statuses
+    ) {
+        return ApiResponse.<org.springframework.data.domain.Page<OrderResponse>>builder()
+                .result(orderService.getShopOrders(page, size, statuses))
+                .message("Shop orders retrieved.")
                 .build();
     }
 

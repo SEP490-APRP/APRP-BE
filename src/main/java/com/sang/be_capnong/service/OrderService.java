@@ -11,6 +11,11 @@ public interface OrderService {
     // === TẠO ĐƠN HÀNG ===
     java.util.List<OrderResponse> createOrder(CreateOrderRequest request);
 
+    // === XEM ĐƠN HÀNG ===
+    OrderResponse getOrderById(int orderId);
+    org.springframework.data.domain.Page<OrderResponse> getMyOrders(int page, int size, java.util.List<com.sang.be_capnong.enums.OrderStatus> statuses);
+    org.springframework.data.domain.Page<OrderResponse> getShopOrders(int page, int size, java.util.List<com.sang.be_capnong.enums.OrderStatus> statuses);
+
     // === STATE MACHINE ===
     OrderResponse markOrderAsConfirmed(int orderId);
     OrderResponse markOrderAsReady(int orderId);

@@ -27,9 +27,16 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.sang.be_capnong.enums.BatchStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 @Service
@@ -50,6 +57,7 @@ public class OrderServiceImpl implements OrderService {
     VoucherUserRepository voucherUserRepository;
     VoucherUsageRepository voucherUsageRepository;
     CartItemRepository cartItemRepository;
+    CheckoutBatchRepository checkoutBatchRepository;
 
     // ============================================================
     //  TẠO ĐƠN HÀNG
@@ -83,6 +91,20 @@ public class OrderServiceImpl implements OrderService {
         List<OrderResponse> responses = new ArrayList<>();
         List<Order> savedOrders = new ArrayList<>();
 
+        CheckoutBatch batch = null;
+        if (previewRes.getShopOrders().size() > 1 || "PAYOS".equalsIgnoreCase(request.getPaymentMethod()) || "TRANSFER".equalsIgnoreCase(request.getPaymentMethod())) {
+            batch = CheckoutBatch.builder()
+                    .buyer(buyer)
+                    .paymentMethod(request.getPaymentMethod().toUpperCase())
+                    .status(BatchStatus.PENDING)
+                    .totalAmount(previewRes.getFinalTotalAmount())
+                    .batchDiscountAmount(previewRes.getTotalVoucherDiscount())
+                    .createdAt(LocalDateTime.now())
+                    .updatedAt(LocalDateTime.now())
+                    .build();
+            batch = checkoutBatchRepository.save(batch);
+        }
+
         // 3. Tạo Order dựa trên preview
         for (ShopOrderPreview sp : previewRes.getShopOrders()) {
             User shop = userRepository.findById(sp.getShopId()).orElseThrow();
@@ -91,6 +113,7 @@ public class OrderServiceImpl implements OrderService {
             Order order = Order.builder()
                     .buyer(buyer)
                     .shop(shop)
+                    .checkoutBatch(batch)
                     .recipientName(request.getRecipientName() != null ? request.getRecipientName() : buyer.getFullName())
                     .recipientPhone(request.getRecipientPhone() != null ? request.getRecipientPhone() : buyer.getPhoneNumber())
                     .shippingAddress(request.getShippingAddress())
@@ -112,6 +135,8 @@ public class OrderServiceImpl implements OrderService {
             
             OrderResponse res = buildOrderResponse(savedOrder, details);
             res.setVoucherDiscountAmount(sp.getVoucherDiscount());
+            res.setBatchId(batch != null ? batch.getId() : null);
+            res.setShopId(shop.getId());
             responses.add(res);
         }
 
@@ -564,14 +589,46 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * COD      => PENDING  (thanh toán khi nhận hàng, chờ Shop xác nhận)
-     * TRANSFER => PAID     (đã thanh toán online, chờ Shop xác nhận)
+     * COD / TRANSFER / PAYOS: Đơn hàng mới tạo đều khởi đầu ở trạng thái PENDING.
+     * Đối với thanh toán online (TRANSFER/PAYOS), đơn sẽ chuyển sang PAID sau khi hoàn tất thanh toán.
+     * Cả PENDING (đơn COD) và PAID (đơn chuyển khoản) sẽ được Farmer/Shop duyệt.
      */
     private OrderStatus resolveInitialStatus(String paymentMethod) {
-        if ("TRANSFER".equalsIgnoreCase(paymentMethod)) {
-            return OrderStatus.PAID;
+        return OrderStatus.PENDING;
+    }
+
+    @Override
+    public OrderResponse getOrderById(int orderId) {
+        Order order = findOrderById(orderId);
+        List<OrderDetail> details = order.getOrderDetails() != null ? order.getOrderDetails() : Collections.emptyList();
+        return buildOrderResponse(order, details);
+    }
+
+    @Override
+    public Page<OrderResponse> getMyOrders(int page, int size, List<OrderStatus> statuses) {
+        User buyer = getCurrentUser();
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<Order> orders = orderRepository.findByBuyer_Id(buyer.getId(), pageable);
+        return orders.map(order -> {
+            List<OrderDetail> details = order.getOrderDetails() != null ? order.getOrderDetails() : Collections.emptyList();
+            return buildOrderResponse(order, details);
+        });
+    }
+
+    @Override
+    public Page<OrderResponse> getShopOrders(int page, int size, List<OrderStatus> statuses) {
+        User shop = getCurrentUser();
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<Order> orders;
+        if (statuses != null && !statuses.isEmpty()) {
+            orders = orderRepository.findByShop_IdAndStatusIn(shop.getId(), statuses, pageable);
+        } else {
+            orders = orderRepository.findByShop_Id(shop.getId(), pageable);
         }
-        return OrderStatus.PENDING; // mặc định COD
+        return orders.map(order -> {
+            List<OrderDetail> details = order.getOrderDetails() != null ? order.getOrderDetails() : Collections.emptyList();
+            return buildOrderResponse(order, details);
+        });
     }
 
     /**
@@ -600,7 +657,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * Thủ công build OrderResponse khi createOrder (vì lúc này các detail chưa được flush vào DB)
+     * Thủ công build OrderResponse khi createOrder hoặc query
      */
     private OrderResponse buildOrderResponse(Order order, List<OrderDetail> details) {
         List<OrderDetailResponse> itemResponses = new ArrayList<>();
@@ -635,8 +692,10 @@ public class OrderServiceImpl implements OrderService {
 
         return OrderResponse.builder()
                 .orderId(order.getOrderId())
+                .batchId(order.getCheckoutBatch() != null ? order.getCheckoutBatch().getId() : null)
+                .shopId(order.getShop() != null ? order.getShop().getId() : null)
                 .buyerName(order.getBuyer() != null ? order.getBuyer().getFullName() : null)
-                .shopName(order.getShop() != null ? order.getShop().getShopName() : null)
+                .shopName(order.getShop() != null ? (order.getShop().getShopName() != null ? order.getShop().getShopName() : order.getShop().getFullName()) : null)
                 .recipientName(order.getRecipientName())
                 .recipientPhone(order.getRecipientPhone())
                 .shippingAddress(order.getShippingAddress())

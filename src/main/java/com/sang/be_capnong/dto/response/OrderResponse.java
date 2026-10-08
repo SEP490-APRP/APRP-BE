@@ -16,6 +16,8 @@ import java.util.List;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class OrderResponse {
     int orderId;
+    Integer batchId;
+    Integer shopId;
     String buyerName;
     String shopName;
     String recipientName;
