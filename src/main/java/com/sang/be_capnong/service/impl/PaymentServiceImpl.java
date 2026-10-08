@@ -3,6 +3,10 @@ package com.sang.be_capnong.service.impl;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.sang.be_capnong.dto.request.CreatePaymentRequest;
 import com.sang.be_capnong.dto.response.PaymentResponse;
+import com.sang.be_capnong.dto.response.ResumePaymentOptionsResponse;
+import com.sang.be_capnong.dto.response.ResumePaymentOrderOption;
+import java.math.BigDecimal;
+import java.text.Normalizer;
 import com.sang.be_capnong.entity.CheckoutBatch;
 import com.sang.be_capnong.entity.Order;
 import com.sang.be_capnong.entity.Payment;
@@ -57,19 +61,37 @@ public class PaymentServiceImpl implements PaymentService {
         String cancelUrl = (request.getCancelUrl() != null && !request.getCancelUrl().isBlank())
                 ? request.getCancelUrl() : defaultCancelUrl;
 
-        // Trường hợp 1: Thanh toán cho một CheckoutBatch (gồm 1 hoặc nhiều order)
+        // Trường hợp 1: Thanh toán cho một CheckoutBatch (gồm nhiều order)
         if (request.getBatchId() != null) {
             CheckoutBatch batch = checkoutBatchRepository.findById(request.getBatchId())
                     .orElseThrow(() -> new AppException(ErrorCode.BATCH_NOT_FOUND));
 
-            long orderCode = System.currentTimeMillis();
-            long amount = batch.getTotalAmount().longValue();
+            if (batch.getStatus() == BatchStatus.COMPLETED) {
+                throw new AppException(ErrorCode.ORDER_NOT_PAYABLE);
+            }
+
+            List<Order> batchOrders = orderRepository.findByCheckoutBatch_Id(batch.getId());
+            List<Order> unpaid = batchOrders.stream()
+                    .filter(o -> o.getStatus() == OrderStatus.AWAITING_PAYMENT || o.getStatus() == OrderStatus.PENDING)
+                    .toList();
+
+            if (unpaid.isEmpty()) {
+                throw new AppException(ErrorCode.ORDER_NOT_PAYABLE);
+            }
+
+            BigDecimal remainingTotal = unpaid.stream()
+                    .map(Order::getTotalAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            long orderCode = System.currentTimeMillis() % 900000000000000L;
+            long amount = Math.max(1000L, remainingTotal.longValue());
+            String desc = truncateDescription("Batch " + batch.getId());
 
             try {
                 CreatePaymentLinkRequest paymentData = CreatePaymentLinkRequest.builder()
                         .orderCode(orderCode)
                         .amount(amount)
-                        .description("Thanh toan batch " + batch.getId())
+                        .description(desc)
                         .returnUrl(returnUrl)
                         .cancelUrl(cancelUrl)
                         .build();
@@ -79,11 +101,12 @@ public class PaymentServiceImpl implements PaymentService {
                 batch.setPayosOrderCode(String.valueOf(orderCode));
                 batch.setCheckoutUrl(checkoutData.getCheckoutUrl());
                 batch.setQrCodeUrl(checkoutData.getQrCode());
+                batch.setTotalAmount(remainingTotal);
                 batch.setUpdatedAt(LocalDateTime.now());
                 checkoutBatchRepository.save(batch);
 
                 Payment payment = Payment.builder()
-                        .amount(batch.getTotalAmount())
+                        .amount(remainingTotal)
                         .paymentGateway("PAYOS")
                         .status(PaymentStatus.PENDING)
                         .payosOrderCode(String.valueOf(orderCode))
@@ -97,7 +120,7 @@ public class PaymentServiceImpl implements PaymentService {
                 return PaymentResponse.builder()
                         .paymentId(savedPayment.getPaymentId())
                         .batchId(batch.getId())
-                        .amount(batch.getTotalAmount())
+                        .amount(remainingTotal)
                         .paymentGateway("PAYOS")
                         .status(PaymentStatus.PENDING)
                         .payosOrderCode(String.valueOf(orderCode))
@@ -112,23 +135,24 @@ public class PaymentServiceImpl implements PaymentService {
             }
         }
 
-        // Trường hợp 2: Thanh toán cho 1 đơn hàng cụ thể
+        // Trường hợp 2: Thanh toán cho 1 đơn hàng cụ thể (dù thuộc batch hay đơn lẻ)
         if (request.getOrderId() != null) {
             Order order = orderRepository.findById(request.getOrderId())
                     .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
 
-            if (order.getStatus() != OrderStatus.PENDING) {
+            if (order.getStatus() != OrderStatus.AWAITING_PAYMENT && order.getStatus() != OrderStatus.PENDING) {
                 throw new AppException(ErrorCode.ORDER_NOT_PAYABLE);
             }
 
-            long orderCode = System.currentTimeMillis();
-            long amount = order.getTotalAmount().longValue();
+            long orderCode = System.currentTimeMillis() % 900000000000000L;
+            long amount = Math.max(1000L, order.getTotalAmount().longValue());
+            String desc = truncateDescription("Don " + order.getOrderId());
 
             try {
                 CreatePaymentLinkRequest paymentData = CreatePaymentLinkRequest.builder()
                         .orderCode(orderCode)
                         .amount(amount)
-                        .description("Thanh toan don " + order.getOrderId())
+                        .description(desc)
                         .returnUrl(returnUrl)
                         .cancelUrl(cancelUrl)
                         .build();
@@ -168,6 +192,82 @@ public class PaymentServiceImpl implements PaymentService {
         }
 
         throw new AppException(ErrorCode.INVALID_KEY);
+    }
+
+    @Override
+    public ResumePaymentOptionsResponse getResumePaymentOptions(int orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
+
+        CheckoutBatch batch = order.getCheckoutBatch();
+        if (batch != null) {
+            List<Order> batchOrders = orderRepository.findByCheckoutBatch_Id(batch.getId());
+            List<Order> unpaid = batchOrders.stream()
+                    .filter(o -> o.getStatus() == OrderStatus.AWAITING_PAYMENT || o.getStatus() == OrderStatus.PENDING)
+                    .toList();
+
+            BigDecimal remainingTotal = unpaid.stream()
+                    .map(Order::getTotalAmount)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+            List<ResumePaymentOrderOption> unpaidOptions = unpaid.stream()
+                    .map(o -> ResumePaymentOrderOption.builder()
+                            .orderId(o.getOrderId())
+                            .shopId(o.getShop() != null ? o.getShop().getId() : 0)
+                            .shopName(o.getShop() != null ? (o.getShop().getShopName() != null ? o.getShop().getShopName() : o.getShop().getFullName()) : "Shop")
+                            .amount(o.getTotalAmount())
+                            .status(o.getStatus() != null ? o.getStatus().name() : null)
+                            .build())
+                    .toList();
+
+            ResumePaymentOptionsResponse.PayAllOption payAll = ResumePaymentOptionsResponse.PayAllOption.builder()
+                    .amount(remainingTotal)
+                    .checkoutUrl(batch.getCheckoutUrl())
+                    .payosOrderCode(batch.getPayosOrderCode())
+                    .qrCodeUrl(batch.getQrCodeUrl())
+                    .build();
+
+            return ResumePaymentOptionsResponse.builder()
+                    .isBatch(batchOrders.size() > 1 && !unpaid.isEmpty())
+                    .batchId(batch.getId())
+                    .triggerOrderId(orderId)
+                    .totalAmount(remainingTotal)
+                    .payosOrderCode(batch.getPayosOrderCode())
+                    .checkoutUrl(batch.getCheckoutUrl())
+                    .qrCodeUrl(batch.getQrCodeUrl())
+                    .unpaidOrders(unpaidOptions)
+                    .payAllOption(payAll)
+                    .build();
+        }
+
+        // Single order
+        return ResumePaymentOptionsResponse.builder()
+                .isBatch(false)
+                .batchId(null)
+                .triggerOrderId(orderId)
+                .totalAmount(order.getTotalAmount())
+                .payosOrderCode(null)
+                .checkoutUrl(null)
+                .qrCodeUrl(null)
+                .unpaidOrders(List.of(ResumePaymentOrderOption.builder()
+                        .orderId(order.getOrderId())
+                        .shopId(order.getShop() != null ? order.getShop().getId() : 0)
+                        .shopName(order.getShop() != null ? (order.getShop().getShopName() != null ? order.getShop().getShopName() : order.getShop().getFullName()) : "Shop")
+                        .amount(order.getTotalAmount())
+                        .status(order.getStatus() != null ? order.getStatus().name() : null)
+                        .build()))
+                .build();
+    }
+
+    private String truncateDescription(String desc) {
+        if (desc == null || desc.isBlank()) return "Thanh toan CapNong";
+        String normalized = Normalizer.normalize(desc, Normalizer.Form.NFD);
+        String nonAccented = normalized.replaceAll("\\p{InCombiningDiacriticalMarks}+", "");
+        String sanitized = nonAccented.replaceAll("[^a-zA-Z0-9 ]", "").trim();
+        if (sanitized.length() > 25) {
+            return sanitized.substring(0, 25);
+        }
+        return sanitized.isEmpty() ? "Thanh toan CapNong" : sanitized;
     }
 
     @Override
@@ -254,6 +354,18 @@ public class PaymentServiceImpl implements PaymentService {
                 order.setStatus(OrderStatus.PAID);
                 orderRepository.save(order);
                 log.info("[PaymentSettle] Single order #{} updated to PAID", order.getOrderId());
+
+                if (order.getCheckoutBatch() != null) {
+                    CheckoutBatch b = order.getCheckoutBatch();
+                    List<Order> batchOrders = orderRepository.findByCheckoutBatch_Id(b.getId());
+                    boolean allPaid = batchOrders.stream()
+                            .allMatch(o -> o.getStatus() == OrderStatus.PAID || o.getStatus() == OrderStatus.COMPLETED);
+                    if (allPaid) {
+                        b.setStatus(BatchStatus.COMPLETED);
+                        checkoutBatchRepository.save(b);
+                        log.info("[PaymentSettle] All orders in batch #{} paid, batch marked COMPLETED", b.getId());
+                    }
+                }
             }
         });
 
@@ -265,9 +377,11 @@ public class PaymentServiceImpl implements PaymentService {
 
             List<Order> batchOrders = orderRepository.findByCheckoutBatch_Id(batch.getId());
             for (Order o : batchOrders) {
-                o.setStatus(OrderStatus.PAID);
-                orderRepository.save(o);
-                log.info("[PaymentSettle] Batch order #{} in batch #{} updated to PAID", o.getOrderId(), batch.getId());
+                if (o.getStatus() == OrderStatus.AWAITING_PAYMENT || o.getStatus() == OrderStatus.PENDING) {
+                    o.setStatus(OrderStatus.PAID);
+                    orderRepository.save(o);
+                    log.info("[PaymentSettle] Batch order #{} in batch #{} updated to PAID", o.getOrderId(), batch.getId());
+                }
             }
         });
     }

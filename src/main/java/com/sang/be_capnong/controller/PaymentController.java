@@ -40,6 +40,14 @@ public class PaymentController {
                 .build();
     }
 
+    @Operation(summary = "Lấy tùy chọn tiếp tục thanh toán cho đơn hàng", description = "Kiểm tra xem đơn thuộc batch hay đơn lẻ và danh sách đơn chưa thanh toán")
+    @GetMapping("/order/{orderId}/resume-options")
+    public ApiResponse<com.sang.be_capnong.dto.response.ResumePaymentOptionsResponse> getResumePaymentOptions(@PathVariable Integer orderId) {
+        return ApiResponse.<com.sang.be_capnong.dto.response.ResumePaymentOptionsResponse>builder()
+                .result(paymentService.getResumePaymentOptions(orderId))
+                .build();
+    }
+
     @Operation(summary = "Xác nhận thanh toán từ Client return", description = "FE gọi khi được redirect về từ PayOS để xác thực giao dịch")
     @PostMapping("/{orderCode}/confirm")
     public ApiResponse<PaymentResponse> confirmPaymentFromClient(@PathVariable String orderCode) {

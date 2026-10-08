@@ -58,6 +58,8 @@ public class GoogleMapServiceImpl implements GoogleMapService {
     private static final String GEOCODING_URL       = "https://maps.googleapis.com/maps/api/geocode/json";
     private static final String DISTANCE_MATRIX_URL = "https://maps.googleapis.com/maps/api/distancematrix/json";
     private static final String AUTOCOMPLETE_URL    = "https://maps.googleapis.com/maps/api/place/autocomplete/json";
+    private static final String PLACES_NEW_URL      = "https://places.googleapis.com/v1/places:autocomplete";
+    private static final String ROUTES_MATRIX_URL   = "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix";
 
     // ═══════════════════════════════════════════════════════════════════════
     // 1. GEOCODING: địa chỉ text → tọa độ lat/lng
@@ -154,8 +156,52 @@ public class GoogleMapServiceImpl implements GoogleMapService {
      */
     @Override
     public java.util.List<AddressSuggestionResponse> getAddressSuggestions(String input) {
+        if (input == null || input.trim().length() < 2) {
+            return java.util.Collections.emptyList();
+        }
+
+        // Ưu tiên 1: Places API (New)
         try {
-            // Bias về VN để gợi ý chuẩn hơn (components=country:vn)
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Content-Type", "application/json");
+            headers.set("X-Goog-Api-Key", googleApiKey);
+
+            java.util.Map<String, Object> reqBody = new java.util.HashMap<>();
+            reqBody.put("input", input.trim());
+            reqBody.put("includedRegionCodes", java.util.List.of("VN"));
+            reqBody.put("languageCode", "vi");
+
+            HttpEntity<String> entity = new HttpEntity<>(objectMapper.writeValueAsString(reqBody), headers);
+            ResponseEntity<String> resp = restTemplate.exchange(PLACES_NEW_URL, HttpMethod.POST, entity, String.class);
+            if (resp.getStatusCode().is2xxSuccessful() && resp.getBody() != null) {
+                com.fasterxml.jackson.databind.JsonNode root = objectMapper.readTree(resp.getBody());
+                com.fasterxml.jackson.databind.JsonNode suggestionsNode = root.get("suggestions");
+                if (suggestionsNode != null && suggestionsNode.isArray()) {
+                    java.util.List<AddressSuggestionResponse> list = new java.util.ArrayList<>();
+                    for (com.fasterxml.jackson.databind.JsonNode s : suggestionsNode) {
+                        com.fasterxml.jackson.databind.JsonNode pred = s.get("placePrediction");
+                        if (pred != null) {
+                            String placeId = pred.has("placeId") ? pred.get("placeId").asText() : "";
+                            String desc = pred.has("text") && pred.get("text").has("text")
+                                    ? pred.get("text").get("text").asText()
+                                    : "";
+                            if (!desc.isBlank()) {
+                                list.add(AddressSuggestionResponse.builder()
+                                        .placeId(placeId)
+                                        .description(desc)
+                                        .build());
+                            }
+                        }
+                    }
+                    if (!list.isEmpty()) return list;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[GoogleMap][Autocomplete-New] Thử Places API (New) không thành công, thử legacy: {}", e.getMessage());
+        }
+
+        // Ưu tiên 2: Legacy Places Autocomplete API
+        try {
             String url = UriComponentsBuilder.fromUriString(AUTOCOMPLETE_URL)
                     .queryParam("input", input)
                     .queryParam("key", googleApiKey)
@@ -191,86 +237,72 @@ public class GoogleMapServiceImpl implements GoogleMapService {
     // ═══════════════════════════════════════════════════════════════════════
 
     /**
-     * Gọi Google Distance Matrix API để lấy khoảng cách thực tế (km).
-     *
-     * Lưu ý: Google Distance Matrix tính ĐƯỜNG ĐI THỰC TẾ (có tính traffic),
-     * không phải khoảng cách đường thẳng (haversine).
-     *
-     * Luồng xử lý:
-     *  1. Format origin và destination theo dạng "lat,lng"
-     *  2. Gọi Distance Matrix API
-     *  3. Parse response → lấy rows[0].elements[0]
-     *  4. Kiểm tra element.status == "OK", lấy distance.value (mét) → chia 1000 → km
-     *
-     * @return Khoảng cách (km), hoặc Double.MAX_VALUE nếu không tính được
+     * Gọi Google Distance Matrix / Routes API để lấy khoảng cách thực tế (km).
      */
     @Override
     public double getDistanceKm(double originLat, double originLng,
                                 double destinationLat, double destinationLng) {
+        // Ưu tiên 1: Routes API Matrix (Hiện đại nhất)
         try {
-            // Format tọa độ: Google yêu cầu dạng "lat,lng"
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Content-Type", "application/json");
+            headers.set("X-Goog-Api-Key", googleApiKey);
+            headers.set("X-Goog-FieldMask", "originIndex,destinationIndex,distanceMeters,duration,status");
+
+            java.util.Map<String, Object> reqBody = new java.util.HashMap<>();
+            reqBody.put("origins", java.util.List.of(java.util.Map.of("waypoint", java.util.Map.of("location", java.util.Map.of("latLng", java.util.Map.of("latitude", originLat, "longitude", originLng))))));
+            reqBody.put("destinations", java.util.List.of(java.util.Map.of("waypoint", java.util.Map.of("location", java.util.Map.of("latLng", java.util.Map.of("latitude", destinationLat, "longitude", destinationLng))))));
+            reqBody.put("travelMode", "DRIVE");
+
+            HttpEntity<String> entity = new HttpEntity<>(objectMapper.writeValueAsString(reqBody), headers);
+            ResponseEntity<String> resp = restTemplate.exchange(ROUTES_MATRIX_URL, HttpMethod.POST, entity, String.class);
+
+            if (resp.getStatusCode().is2xxSuccessful() && resp.getBody() != null) {
+                com.fasterxml.jackson.databind.JsonNode root = objectMapper.readTree(resp.getBody());
+                if (root.isArray() && root.size() > 0) {
+                    com.fasterxml.jackson.databind.JsonNode first = root.get(0);
+                    if (first.has("distanceMeters")) {
+                        long meters = first.get("distanceMeters").asLong();
+                        double km = meters / 1000.0;
+                        log.info("[GoogleMap][RoutesAPI] Khoảng cách: {}m ({}km)", meters, km);
+                        return km;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[GoogleMap][RoutesAPI] Thử Routes API không thành công, thử legacy: {}", e.getMessage());
+        }
+
+        // Ưu tiên 2: Legacy Distance Matrix API
+        try {
             String origins      = originLat + "," + originLng;
             String destinations = destinationLat + "," + destinationLng;
 
-            // Bước 1: Build URL
             String url = UriComponentsBuilder.fromUriString(DISTANCE_MATRIX_URL)
                     .queryParam("origins", origins)
                     .queryParam("destinations", destinations)
                     .queryParam("key", googleApiKey)
-                    .queryParam("mode", "driving")   // đi bằng xe hơi
+                    .queryParam("mode", "driving")
                     .queryParam("language", "vi")
                     .toUriString();
 
-            log.info("[GoogleMap][DistanceMatrix] ({},{}) → ({},{})",
-                    originLat, originLng, destinationLat, destinationLng);
-
-            // Bước 2: Gọi API
             ResponseEntity<GoogleDistanceMatrixResponse> response =
                     restTemplate.exchange(url, HttpMethod.GET, buildHttpEntity(),
                             GoogleDistanceMatrixResponse.class);
 
             GoogleDistanceMatrixResponse body = response.getBody();
-
-            // Bước 3: Kiểm tra response hợp lệ
-            if (body == null) {
-                log.warn("[GoogleMap][DistanceMatrix] Response null");
-                return Double.MAX_VALUE;
+            if (body != null && "OK".equals(body.getStatus()) && body.getRows() != null && !body.getRows().isEmpty()) {
+                GoogleDistanceElement element = body.getRows().get(0).getElements().get(0);
+                if ("OK".equals(element.getStatus())) {
+                    double meters = element.getDistance().getValue();
+                    return meters / 1000.0;
+                }
             }
-
-            if (!"OK".equals(body.getStatus())) {
-                log.warn("[GoogleMap][DistanceMatrix] API trả status='{}' — kiểm tra API key hoặc quota",
-                        body.getStatus());
-                return Double.MAX_VALUE;
-            }
-
-            if (body.getRows() == null || body.getRows().isEmpty()
-                    || body.getRows().get(0).getElements() == null
-                    || body.getRows().get(0).getElements().isEmpty()) {
-                log.warn("[GoogleMap][DistanceMatrix] Response không có rows/elements");
-                return Double.MAX_VALUE;
-            }
-
-            // Bước 4: Lấy element đầu tiên (1 origin × 1 destination = 1 element)
-            GoogleDistanceElement element = body.getRows().get(0).getElements().get(0);
-
-            if (!"OK".equals(element.getStatus())) {
-                log.warn("[GoogleMap][DistanceMatrix] Element status='{}' — không tính được đường đi",
-                        element.getStatus());
-                return Double.MAX_VALUE;
-            }
-
-            // Chuyển từ mét → km
-            double km = element.getDistance().getValue() / 1000.0;
-
-            log.info("[GoogleMap][DistanceMatrix] Kết quả = {} km ({})",
-                    String.format("%.2f", km), element.getDistance().getText());
-
-            return km;
-
         } catch (Exception e) {
-            log.error("[GoogleMap][DistanceMatrix] Lỗi: {}", e.getMessage());
-            return Double.MAX_VALUE;
+            log.error("[GoogleMap][DistanceMatrix] Lỗi legacy Distance Matrix: {}", e.getMessage());
         }
+
+        return Double.MAX_VALUE;
     }
 
     // ═══════════════════════════════════════════════════════════════════════

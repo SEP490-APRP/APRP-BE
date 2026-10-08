@@ -139,7 +139,12 @@ public enum ErrorCode {
     PAYMENT_FAILED(7502, "Payment creation failed", HttpStatus.BAD_REQUEST),
     PAYOS_WEBHOOK_INVALID(7503, "Invalid PayOS webhook signature", HttpStatus.BAD_REQUEST),
     ORDER_NOT_PAYABLE(7504, "Order is not in payable state", HttpStatus.BAD_REQUEST),
-    BATCH_NOT_FOUND(7505, "Checkout batch not found", HttpStatus.NOT_FOUND)
+    BATCH_NOT_FOUND(7505, "Checkout batch not found", HttpStatus.NOT_FOUND),
+
+    // Saved Address Errors (Series 9500)
+    ADDRESS_NOT_FOUND(9501, "Saved address not found", HttpStatus.NOT_FOUND),
+    MAX_ADDRESSES_REACHED(9502, "You have reached the maximum limit of 10 saved addresses", HttpStatus.BAD_REQUEST),
+    ADDRESS_UNAUTHORIZED(9503, "You do not have permission to access or modify this address", HttpStatus.FORBIDDEN)
     ;
 
     private final int code;

@@ -13,6 +13,7 @@ import com.sang.be_capnong.exception.AppException;
 import com.sang.be_capnong.exception.ErrorCode;
 import com.sang.be_capnong.mapper.OrderMapper;
 import com.sang.be_capnong.repository.*;
+import com.sang.be_capnong.service.GoogleMapService;
 import com.sang.be_capnong.service.OrderService;
 import com.sang.be_capnong.service.ShippingFeeService;
 import com.sang.be_capnong.enums.UserStatus;
@@ -58,6 +59,8 @@ public class OrderServiceImpl implements OrderService {
     VoucherUsageRepository voucherUsageRepository;
     CartItemRepository cartItemRepository;
     CheckoutBatchRepository checkoutBatchRepository;
+    SavedAddressRepository savedAddressRepository;
+    GoogleMapService googleMapService;
 
     // ============================================================
     //  TẠO ĐƠN HÀNG
@@ -138,6 +141,64 @@ public class OrderServiceImpl implements OrderService {
             res.setBatchId(batch != null ? batch.getId() : null);
             res.setShopId(shop.getId());
             responses.add(res);
+        }
+
+        // Tự động cập nhật thông tin cá nhân của buyer nếu chưa có
+        boolean needUpdateBuyer = false;
+        if ((buyer.getAddress() == null || buyer.getAddress().isBlank()) && request.getShippingAddress() != null && !request.getShippingAddress().isBlank()) {
+            buyer.setAddress(request.getShippingAddress());
+            needUpdateBuyer = true;
+        }
+        if ((buyer.getPhoneNumber() == null || buyer.getPhoneNumber().isBlank()) && request.getRecipientPhone() != null && !request.getRecipientPhone().isBlank()) {
+            buyer.setPhoneNumber(request.getRecipientPhone());
+            needUpdateBuyer = true;
+        }
+        if ((buyer.getFullName() == null || buyer.getFullName().isBlank()) && request.getRecipientName() != null && !request.getRecipientName().isBlank()) {
+            buyer.setFullName(request.getRecipientName());
+            needUpdateBuyer = true;
+        }
+        if (needUpdateBuyer) {
+            userRepository.save(buyer);
+        }
+
+        // Tự động lưu vào Sổ địa chỉ (SavedAddress) nếu người dùng chọn hoặc nếu là đơn đầu tiên
+        long addressCount = savedAddressRepository.countByUser_IdAndIsActiveTrue(buyer.getId());
+        boolean shouldSaveAddress = Boolean.TRUE.equals(request.getSaveAddressToBook()) || (addressCount == 0);
+        if (shouldSaveAddress && addressCount < 10 && request.getShippingAddress() != null && !request.getShippingAddress().isBlank()) {
+            String targetAddress = request.getShippingAddress().trim();
+            boolean alreadyExists = savedAddressRepository.findByUser_IdAndIsActiveTrue(buyer.getId()).stream()
+                    .anyMatch(a -> a.getAddress().equalsIgnoreCase(targetAddress));
+            if (!alreadyExists) {
+                Double lat = null;
+                Double lng = null;
+                try {
+                    double[] coords = googleMapService.geocodeAddress(targetAddress);
+                    if (coords != null && coords.length == 2) {
+                        lat = coords[0];
+                        lng = coords[1];
+                    }
+                } catch (Exception e) {
+                    log.warn("Geocoding address on order creation failed: {}", e.getMessage());
+                }
+
+                String label = request.getAddressLabel() != null && !request.getAddressLabel().isBlank()
+                        ? request.getAddressLabel().trim()
+                        : (addressCount == 0 ? "Nhà (Mặc định)" : "Địa chỉ mới");
+
+                SavedAddress newSavedAddress = SavedAddress.builder()
+                        .user(buyer)
+                        .label(label)
+                        .recipientName(request.getRecipientName() != null && !request.getRecipientName().isBlank() ? request.getRecipientName().trim() : (buyer.getFullName() != null ? buyer.getFullName() : "Người nhận"))
+                        .phone(request.getRecipientPhone() != null && !request.getRecipientPhone().isBlank() ? request.getRecipientPhone().trim() : (buyer.getPhoneNumber() != null ? buyer.getPhoneNumber() : ""))
+                        .address(targetAddress)
+                        .latitude(lat)
+                        .longitude(lng)
+                        .isDefault(addressCount == 0)
+                        .isActive(true)
+                        .build();
+                savedAddressRepository.save(newSavedAddress);
+                log.info("Auto-saved delivery address to address book for user {}: {}", buyer.getId(), targetAddress);
+            }
         }
 
         // 4. Cập nhật lịch sử dùng Voucher (Lưu discountAmount vào VoucherUsage)
@@ -501,7 +562,8 @@ public class OrderServiceImpl implements OrderService {
         Order order = findOrderById(orderId);
         // Chỉ được huỷ khi đơn đang ở trạng thái có thể huỷ (PENDING, PAID, CONFIRMED, READY)
         // CANCELLED / FAILED / DELIVERED / COMPLETED đều không được huỷ lại (tránh hoàn kho 2 lần)
-        if (order.getStatus() != OrderStatus.PENDING
+        if (order.getStatus() != OrderStatus.AWAITING_PAYMENT
+                && order.getStatus() != OrderStatus.PENDING
                 && order.getStatus() != OrderStatus.PAID
                 && order.getStatus() != OrderStatus.CONFIRMED
                 && order.getStatus() != OrderStatus.READY) {
@@ -594,6 +656,9 @@ public class OrderServiceImpl implements OrderService {
      * Cả PENDING (đơn COD) và PAID (đơn chuyển khoản) sẽ được Farmer/Shop duyệt.
      */
     private OrderStatus resolveInitialStatus(String paymentMethod) {
+        if ("PAYOS".equalsIgnoreCase(paymentMethod) || "TRANSFER".equalsIgnoreCase(paymentMethod)) {
+            return OrderStatus.AWAITING_PAYMENT;
+        }
         return OrderStatus.PENDING;
     }
 
@@ -608,7 +673,12 @@ public class OrderServiceImpl implements OrderService {
     public Page<OrderResponse> getMyOrders(int page, int size, List<OrderStatus> statuses) {
         User buyer = getCurrentUser();
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<Order> orders = orderRepository.findByBuyer_Id(buyer.getId(), pageable);
+        Page<Order> orders;
+        if (statuses != null && !statuses.isEmpty()) {
+            orders = orderRepository.findByBuyer_IdAndStatusIn(buyer.getId(), statuses, pageable);
+        } else {
+            orders = orderRepository.findByBuyer_Id(buyer.getId(), pageable);
+        }
         return orders.map(order -> {
             List<OrderDetail> details = order.getOrderDetails() != null ? order.getOrderDetails() : Collections.emptyList();
             return buildOrderResponse(order, details);
