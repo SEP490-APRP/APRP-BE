@@ -23,4 +23,8 @@ public interface OrderService {
     OrderResponse markOrderAsDelivered(int orderId);
     OrderResponse markOrderAsCancelled(int orderId);
     OrderResponse markOrderAsFailed(int orderId);
+
+    // === SHIPPER ===
+    org.springframework.data.domain.Page<OrderResponse> getReadyOrders(int page, int size);
+    org.springframework.data.domain.Page<OrderResponse> getShipperOrders(int page, int size, java.util.List<com.sang.be_capnong.enums.OrderStatus> statuses);
 }

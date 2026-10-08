@@ -17,5 +17,8 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
     Page<Order> findByShop_IdAndStatusNotIn(int shopId, List<OrderStatus> statuses, Pageable pageable);
     Page<Order> findByBuyer_Id(int buyerId, Pageable pageable);
     Page<Order> findByBuyer_IdAndStatusIn(int buyerId, List<OrderStatus> statuses, Pageable pageable);
+    Page<Order> findByStatus(OrderStatus status, Pageable pageable);
+    Page<Order> findByShipper_Id(int shipperId, Pageable pageable);
+    Page<Order> findByShipper_IdAndStatusIn(int shipperId, List<OrderStatus> statuses, Pageable pageable);
     List<Order> findByCheckoutBatch_Id(int batchId);
 }

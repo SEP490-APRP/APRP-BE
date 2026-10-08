@@ -20,6 +20,8 @@ public class OrderResponse {
     Integer shopId;
     String buyerName;
     String shopName;
+    String shopAddress;
+    String shopPhone;
     String recipientName;
     String recipientPhone;
     String shippingAddress;
@@ -27,7 +29,10 @@ public class OrderResponse {
     String paymentMethod;
     BigDecimal shippingFee;
     BigDecimal totalAmount;
+    BigDecimal codAmount;
     BigDecimal voucherDiscountAmount;
+    Integer shipperId;
+    String shipperName;
     String note;
     @JsonFormat(shape = com.fasterxml.jackson.annotation.JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss")
     LocalDateTime createdAt;

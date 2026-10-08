@@ -109,6 +109,35 @@ public class OrderController {
     }
 
     // ── SHIPPER: Vận chuyển & Giao hàng ──────────────────────────────────
+    @Operation(summary = "Shipper fetches ready orders",
+            description = "[SHIPPER only] Lấy danh sách các đơn READY để shipper nhận đơn.")
+    @GetMapping("/ready")
+    @PreAuthorize("hasRole('SHIPPER')")
+    public ApiResponse<org.springframework.data.domain.Page<OrderResponse>> getReadyOrders(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size
+    ) {
+        return ApiResponse.<org.springframework.data.domain.Page<OrderResponse>>builder()
+                .result(orderService.getReadyOrders(page, size))
+                .message("Ready orders retrieved.")
+                .build();
+    }
+
+    @Operation(summary = "Shipper fetches my orders",
+            description = "[SHIPPER only] Lấy danh sách các đơn mà shipper đang giao hoặc đã giao.")
+    @GetMapping("/shipper/my")
+    @PreAuthorize("hasRole('SHIPPER')")
+    public ApiResponse<org.springframework.data.domain.Page<OrderResponse>> getShipperOrders(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) List<com.sang.be_capnong.enums.OrderStatus> statuses
+    ) {
+        return ApiResponse.<org.springframework.data.domain.Page<OrderResponse>>builder()
+                .result(orderService.getShipperOrders(page, size, statuses))
+                .message("Shipper orders retrieved.")
+                .build();
+    }
+
     @Operation(summary = "Shipper starts delivery",
             description = "[SHIPPER only] Shipper picks up the order. Transitions: READY → SHIPPING.")
     @PutMapping("/{id}/ship")

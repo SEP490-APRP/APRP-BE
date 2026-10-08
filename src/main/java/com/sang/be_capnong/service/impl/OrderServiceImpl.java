@@ -546,11 +546,13 @@ public class OrderServiceImpl implements OrderService {
     @Override
     public OrderResponse markOrderAsShipping(int orderId) {
         Order order = findOrderById(orderId);
+        User currentUser = getCurrentUser();
         // Flow: READY -> SHIPPING
         if (order.getStatus() != OrderStatus.READY) {
             log.error("Invalid state transition to SHIPPING for order id {}. Current status: {}", orderId, order.getStatus());
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
+        order.setShipper(currentUser);
         order.setStatus(OrderStatus.SHIPPING);
         Order saved = orderRepository.save(order);
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
@@ -739,6 +741,32 @@ public class OrderServiceImpl implements OrderService {
         });
     }
 
+    @Override
+    public Page<OrderResponse> getReadyOrders(int page, int size) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<Order> orders = orderRepository.findByStatus(OrderStatus.READY, pageable);
+        return orders.map(order -> {
+            List<OrderDetail> details = order.getOrderDetails() != null ? order.getOrderDetails() : Collections.emptyList();
+            return buildOrderResponse(order, details);
+        });
+    }
+
+    @Override
+    public Page<OrderResponse> getShipperOrders(int page, int size, List<OrderStatus> statuses) {
+        User shipper = getCurrentUser();
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<Order> orders;
+        if (statuses != null && !statuses.isEmpty()) {
+            orders = orderRepository.findByShipper_IdAndStatusIn(shipper.getId(), statuses, pageable);
+        } else {
+            orders = orderRepository.findByShipper_Id(shipper.getId(), pageable);
+        }
+        return orders.map(order -> {
+            List<OrderDetail> details = order.getOrderDetails() != null ? order.getOrderDetails() : Collections.emptyList();
+            return buildOrderResponse(order, details);
+        });
+    }
+
     /**
      * Lấy giá bán thực tế của sản phẩm (tính discount nếu đang còn hiệu lực)
      */
@@ -798,12 +826,19 @@ public class OrderServiceImpl implements OrderService {
                     .build());
         }
 
+        BigDecimal codAmount = BigDecimal.ZERO;
+        if ("COD".equalsIgnoreCase(order.getPaymentMethod())) {
+            codAmount = order.getCodAmount() != null ? order.getCodAmount() : order.getTotalAmount();
+        }
+
         return OrderResponse.builder()
                 .orderId(order.getOrderId())
                 .batchId(order.getCheckoutBatch() != null ? order.getCheckoutBatch().getId() : null)
                 .shopId(order.getShop() != null ? order.getShop().getId() : null)
                 .buyerName(order.getBuyer() != null ? order.getBuyer().getFullName() : null)
                 .shopName(order.getShop() != null ? (order.getShop().getShopName() != null ? order.getShop().getShopName() : order.getShop().getFullName()) : null)
+                .shopAddress(order.getShop() != null ? order.getShop().getAddress() : null)
+                .shopPhone(order.getShop() != null ? order.getShop().getPhoneNumber() : null)
                 .recipientName(order.getRecipientName())
                 .recipientPhone(order.getRecipientPhone())
                 .shippingAddress(order.getShippingAddress())
@@ -812,6 +847,9 @@ public class OrderServiceImpl implements OrderService {
                 .status(order.getStatus())
                 .shippingFee(order.getShippingFee())
                 .totalAmount(order.getTotalAmount())
+                .codAmount(codAmount)
+                .shipperId(order.getShipper() != null ? order.getShipper().getId() : null)
+                .shipperName(order.getShipper() != null ? order.getShipper().getFullName() : null)
                 .createdAt(order.getCreatedAt())
                 .items(itemResponses)
                 .build();
