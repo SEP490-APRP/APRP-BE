@@ -72,7 +72,7 @@ class ProductImageServiceTest {
 
     @BeforeEach
     void setUp() {
-        lenient().when(imageModerationService.checkImageUrl(any()))
+        lenient().when(imageModerationService.checkImageUrl(any(), any()))
                 .thenReturn(ModerationCheckResult.builder()
                         .isAgricultural(true)
                         .isFlagged(false)
@@ -568,7 +568,7 @@ class ProductImageServiceTest {
     void addImage_rejectedByModeration_cleansUpCloudinaryImage() {
         mockAuthenticatedUser(1);
         when(productRepository.findById(10)).thenReturn(Optional.of(sampleProduct));
-        when(imageModerationService.checkImageUrl("https://cdn.capnong.vn/car.jpg"))
+        when(imageModerationService.checkImageUrl(eq("https://cdn.capnong.vn/car.jpg"), any()))
                 .thenReturn(ModerationCheckResult.builder()
                         .isAgricultural(false)
                         .isFlagged(true)
@@ -603,5 +603,39 @@ class ProductImageServiceTest {
 
         // Ảnh cũ sampleImage có URL "https://cdn.capnong.vn/xoai-1.jpg" phải được dọn dẹp
         verify(cloudinaryService).deleteImageByUrl("https://cdn.capnong.vn/xoai-1.jpg");
+    }
+
+    @Test
+    void addImage_level2Flagged_savesImageAndModerationResultWithFlag() {
+        mockAuthenticatedUser(1);
+        when(productRepository.findById(10)).thenReturn(Optional.of(sampleProduct));
+        when(imageModerationService.checkImageUrl(eq("https://cdn.capnong.vn/watermelon-ugly.jpg"), eq("Xoài cát Cần Thơ")))
+                .thenReturn(ModerationCheckResult.builder()
+                        .isAgricultural(true)
+                        .isFlagged(true)
+                        .overallConfidence(BigDecimal.valueOf(55.0))
+                        .rejectionReason("Nông sản có hình thức xấu mã hoặc ảnh chụp góc khuất")
+                        .labels(List.of())
+                        .build());
+
+        when(productImageRepository.countByProduct_ProductId(10)).thenReturn(1L);
+        when(productImageMapper.toProductImage(any())).thenReturn(sampleImage);
+        when(productImageRepository.save(any(ProductImage.class))).thenReturn(sampleImage);
+        when(productImageMapper.toProductImageResponse(sampleImage)).thenReturn(sampleResponse);
+        when(moderationResultRepository.findByProduct_ProductId(10)).thenReturn(Optional.empty());
+
+        ProductImageCreationRequest req = ProductImageCreationRequest.builder()
+                .imageUrl("https://cdn.capnong.vn/watermelon-ugly.jpg")
+                .build();
+
+        ProductImageResponse res = productImageService.addImage(10, req);
+
+        assertThat(res).isNotNull();
+        // Mức 2: Ảnh KHÔNG bị xóa trên Cloudinary
+        verify(cloudinaryService, never()).deleteImageByUrl(any());
+        // Mức 2: Ảnh ĐƯỢC lưu vào database
+        verify(productImageRepository).save(any(ProductImage.class));
+        // Mức 2: Kết quả kiểm duyệt gắn cờ ĐƯỢC lưu vào CSDL
+        verify(moderationResultRepository).save(any());
     }
 }

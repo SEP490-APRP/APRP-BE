@@ -55,10 +55,10 @@ public class ProductImageServiceImpl implements ProductImageService {
             throw new AppException(ErrorCode.NOT_PRODUCT_OWNER);
         }
 
-        // 1. Kiểm duyệt ảnh bằng AI (Google Cloud Vision API)
-        ModerationCheckResult checkResult = imageModerationService.checkImageUrl(request.getImageUrl());
+        // 1. Kiểm duyệt ảnh bằng AI (Google Cloud Vision API) với phân loại 2 mức
+        ModerationCheckResult checkResult = imageModerationService.checkImageUrl(request.getImageUrl(), product.getProductName());
         if (!checkResult.isAgricultural()) {
-            log.warn("Image rejected for product id {}: {}", productId, checkResult.getRejectionReason());
+            log.warn("Image rejected (Level 1) for product id {}: {}", productId, checkResult.getRejectionReason());
             // Tự động dọn dẹp file ảnh vừa upload lên Cloudinary khi bị AI từ chối để tiết kiệm dung lượng
             cloudinaryService.deleteImageByUrl(request.getImageUrl());
             throw new AppException(ErrorCode.IMAGE_NOT_AGRICULTURAL_PRODUCE);
@@ -131,9 +131,9 @@ public class ProductImageServiceImpl implements ProductImageService {
         if (request.getImageUrl() != null && !request.getImageUrl().isBlank()) {
             String newUrl = request.getImageUrl().trim();
             if (!newUrl.equals(image.getImageUrl())) {
-                ModerationCheckResult checkResult = imageModerationService.checkImageUrl(newUrl);
+                ModerationCheckResult checkResult = imageModerationService.checkImageUrl(newUrl, product.getProductName());
                 if (!checkResult.isAgricultural()) {
-                    log.warn("Updated image rejected for product id {}: {}", productId, checkResult.getRejectionReason());
+                    log.warn("Updated image rejected (Level 1) for product id {}: {}", productId, checkResult.getRejectionReason());
                     // Dọn dẹp ảnh mới vừa upload lên Cloudinary nhưng bị AI từ chối
                     cloudinaryService.deleteImageByUrl(newUrl);
                     throw new AppException(ErrorCode.IMAGE_NOT_AGRICULTURAL_PRODUCE);

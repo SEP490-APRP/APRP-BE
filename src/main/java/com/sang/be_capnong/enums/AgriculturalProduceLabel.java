@@ -119,4 +119,86 @@ public enum AgriculturalProduceLabel {
                 .map(AgriculturalProduceLabel::getVietnameseName)
                 .orElse(labelName);
     }
+
+    /**
+     * Xác định xem một nhãn có phải là loại nông sản cụ thể (không phải nhãn nhóm chung).
+     */
+    public boolean isSpecificProduce() {
+        return switch (this) {
+            case PLANT, VEGETABLE, FRUIT, PRODUCE, FOOD, NATURAL_FOODS, WHOLE_FOOD,
+                 LOCAL_FOOD, SUPERFOOD, VEGETARIAN_FOOD, INGREDIENT, STAPLE_FOOD,
+                 CROP, AGRICULTURE, FLORA, HARVEST, HERB, SEED, ROOT_VEGETABLE,
+                 LEAF_VEGETABLE, CITRUS, BERRY, LEGUME, GOURD, SQUASH, GRAIN, TUBER, FUNGUS -> false;
+            default -> true;
+        };
+    }
+
+    /**
+     * Trích xuất loại nông sản cụ thể từ tên sản phẩm tiếng Việt (nếu có).
+     */
+    public static Optional<AgriculturalProduceLabel> detectExpectedProduce(String text) {
+        if (text == null || text.isBlank()) {
+            return Optional.empty();
+        }
+        String lower = text.toLowerCase(Locale.ROOT);
+
+        // Thứ tự ưu tiên từ dài đến ngắn để tránh nhận diện nhầm từ con
+        if (lower.contains("dưa hấu")) return Optional.of(WATERMELON);
+        if (lower.contains("thanh long")) return Optional.of(DRAGON_FRUIT);
+        if (lower.contains("sầu riêng")) return Optional.of(DURIAN);
+        if (lower.contains("khoai lang")) return Optional.of(SWEET_POTATO);
+        if (lower.contains("khoai tây")) return Optional.of(POTATO);
+        if (lower.contains("bắp cải")) return Optional.of(CABBAGE);
+        if (lower.contains("bông cải") || lower.contains("súp lơ xanh")) return Optional.of(BROCCOLI);
+        if (lower.contains("súp lơ")) return Optional.of(CAULIFLOWER);
+        if (lower.contains("chôm chôm")) return Optional.of(RAMBUTAN);
+        if (lower.contains("dâu tây")) return Optional.of(STRAWBERRY);
+        if (lower.contains("dưa leo") || lower.contains("dưa chuột")) return Optional.of(CUCUMBER);
+        if (lower.contains("cà chua")) return Optional.of(TOMATO);
+        if (lower.contains("cà rốt")) return Optional.of(CARROT);
+        if (lower.contains("bí đỏ")) return Optional.of(PUMPKIN);
+        if (lower.contains("xà lách")) return Optional.of(LETTUCE);
+        if (lower.contains("rau chân vịt") || lower.contains("cải bó xôi")) return Optional.of(SPINACH);
+        if (lower.contains("bơ")) return Optional.of(AVOCADO);
+        if (lower.contains("chuối")) return Optional.of(BANANA);
+        if (lower.contains("xoài")) return Optional.of(MANGO);
+        if (lower.contains("dứa") || lower.contains("thơm") || lower.contains("khóm")) return Optional.of(PINEAPPLE);
+        if (lower.contains("đu đủ")) return Optional.of(PAPAYA);
+        if (lower.contains("ổi")) return Optional.of(GUAVA);
+        if (lower.contains("vải")) return Optional.of(LYCHEE);
+        if (lower.contains("nhãn")) return Optional.of(LONGAN);
+        if (lower.contains("mít")) return Optional.of(JACKFRUIT);
+        if (lower.contains("bưởi")) return Optional.of(POMELO);
+        if (lower.contains("chanh")) return Optional.of(LIME);
+        if (lower.contains("táo")) return Optional.of(APPLE);
+        if (lower.contains("cam")) return Optional.of(ORANGE);
+        if (lower.contains("nho")) return Optional.of(GRAPE);
+        if (lower.contains("mận")) return Optional.of(PLUM);
+        if (lower.contains("đào")) return Optional.of(PEACH);
+        if (lower.contains("hành tây") || lower.contains("hành lá") || lower.contains("hành củ")) return Optional.of(ONION);
+        if (lower.contains("tỏi")) return Optional.of(GARLIC);
+        if (lower.contains("ớt")) return Optional.of(CHILI);
+        if (lower.contains("bắp") || lower.contains("ngô")) return Optional.of(CORN);
+        if (lower.contains("nấm")) return Optional.of(MUSHROOM);
+        if (lower.contains("đậu phộng") || lower.contains("lạc")) return Optional.of(PEANUT);
+
+        return Optional.empty();
+    }
+
+    /**
+     * Kiểm tra xem nhãn Google Vision trả về có phải là đồng loại / họ hàng với loại nông sản mong đợi không.
+     */
+    public boolean isFamilyCompatibleWith(AgriculturalProduceLabel detected) {
+        if (this == detected) return true;
+        if (!detected.isSpecificProduce()) return true; // Nhãn nhóm chung luôn tương thích
+
+        // Các nhóm họ hàng gần gũi
+        if ((this == WATERMELON && detected == CUCUMBER) || (this == CUCUMBER && detected == WATERMELON)) return true; // Cùng họ bầu bí Cucurbitaceae
+        if ((this == CORN && detected == MAIZE) || (this == MAIZE && detected == CORN)) return true;
+        if ((this == LIME && detected == LEMON) || (this == LEMON && detected == LIME)) return true;
+        if ((this == POTATO && detected == SWEET_POTATO) || (this == SWEET_POTATO && detected == POTATO)) return true;
+
+        return false;
+    }
 }
+

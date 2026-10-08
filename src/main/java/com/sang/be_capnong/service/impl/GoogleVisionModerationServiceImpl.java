@@ -52,7 +52,12 @@ public class GoogleVisionModerationServiceImpl implements ImageModerationService
 
     @Override
     public ModerationCheckResult checkImageUrl(String imageUrl) {
-        log.info("Starting image moderation via Google Cloud Vision API for URL: {}", imageUrl);
+        return checkImageUrl(imageUrl, null);
+    }
+
+    @Override
+    public ModerationCheckResult checkImageUrl(String imageUrl, String productName) {
+        log.info("Starting image moderation via Google Cloud Vision API for URL: {} (product: {})", imageUrl, productName);
 
         // Trường hợp credentials chưa được cấu hình -> Kích hoạt cơ chế Controlled Fail-Open
         if (imageAnnotatorClient == null) {
@@ -139,7 +144,7 @@ public class GoogleVisionModerationServiceImpl implements ImageModerationService
             log.info("Google Vision labels: count={}, highestAgriConfidence={}%, hasHumanPresence={}",
                     annotateResponse.getLabelAnnotationsList().size(), highestAgriConfidence, hasHumanOrBodyPresence);
 
-            // BƯỚC 2: Kiểm duyệt an toàn nội dung (SAFE_SEARCH_DETECTION)
+            // BƯỚC 2: Kiểm duyệt an toàn nội dung (SAFE_SEARCH_DETECTION) - MỨC 1 (Chặn cứng)
             SafeSearchAnnotation safeSearch = annotateResponse.getSafeSearchAnnotation();
             if (safeSearch != null) {
                 Optional<ModerationCheckResult> unsafeResult = evaluateSafeSearch(safeSearch, highestAgriConfidence);
@@ -148,8 +153,8 @@ public class GoogleVisionModerationServiceImpl implements ImageModerationService
                 }
             }
 
-            // BƯỚC 3: Đánh giá chất lượng nông sản
-            // Nhánh 3.1: Thức ăn nhanh / chế biến sẵn
+            // BƯỚC 3: Đánh giá chất lượng & Phân loại 2 mức
+            // Nhánh 3.1: MỨC 1 - Thức ăn nhanh / chế biến sẵn (Chặn cứng)
             if (highestNonAgriConfidence >= nonAgriThreshold && highestAgriConfidence < minConfidenceThreshold) {
                 String nonAgriVi = NonAgriculturalItem.getVietnameseNameOrDefault(topNonAgriName);
                 return ModerationCheckResult.builder()
@@ -162,17 +167,72 @@ public class GoogleVisionModerationServiceImpl implements ImageModerationService
                         .build();
             }
 
-            // Nhánh 3.2: Đánh giá nông sản
-            boolean isAgricultural = highestAgriConfidence >= minConfidenceThreshold;
-            String rejectionReason = isAgricultural ? null
-                    : "Ảnh sản phẩm không phải là nông sản hoặc không đạt độ rõ nét yêu cầu (Độ tin cậy: "
-                    + String.format("%.1f", highestAgriConfidence) + "% < ngưỡng " + minConfidenceThreshold + "%)";
+            // Nhánh 3.2: MỨC 1 - Không phát hiện bất kỳ dấu hiệu nông sản nào (< 40%) (Chặn cứng)
+            if (highestAgriConfidence < 40.0f) {
+                return ModerationCheckResult.builder()
+                        .isAgricultural(false)
+                        .isFlagged(true)
+                        .overallConfidence(BigDecimal.valueOf(highestAgriConfidence).setScale(2, RoundingMode.HALF_UP))
+                        .rejectionReason("Ảnh sản phẩm không phải là nông sản (không phát hiện dấu hiệu rau, củ, quả, cây trồng).")
+                        .rawResponse(objectMapper.writeValueAsString(rawLabelList))
+                        .labels(matchedLabels)
+                        .build();
+            }
+
+            // Nhánh 3.3: MỨC 2 - Nông sản có độ nét thấp / xấu mã (40% <= confidence < 70%)
+            // Vẫn cho phép lưu ảnh nhưng gắn cờ để Admin kiểm tra mắt thường
+            if (highestAgriConfidence < minConfidenceThreshold) {
+                return ModerationCheckResult.builder()
+                        .isAgricultural(true)
+                        .isFlagged(true)
+                        .overallConfidence(BigDecimal.valueOf(highestAgriConfidence).setScale(2, RoundingMode.HALF_UP))
+                        .rejectionReason("Nông sản có hình thức xấu mã hoặc ảnh chụp góc khuất/độ phân giải thấp (Độ tin cậy: "
+                                + String.format(Locale.US, "%.1f", highestAgriConfidence) + "% < ngưỡng " + minConfidenceThreshold + "%). Đề nghị Admin kiểm tra thủ công.")
+                        .rawResponse(objectMapper.writeValueAsString(rawLabelList))
+                        .labels(matchedLabels)
+                        .build();
+            }
+
+            // Nhánh 3.4: Nông sản đạt chuẩn độ tin cậy (>= 70%) -> Kiểm tra so khớp loại nông sản cụ thể
+            Optional<AgriculturalProduceLabel> expectedProduceOpt = AgriculturalProduceLabel.detectExpectedProduce(productName);
+            boolean isMismatch = false;
+            String mismatchReason = null;
+
+            if (expectedProduceOpt.isPresent()) {
+                AgriculturalProduceLabel expected = expectedProduceOpt.get();
+                AgriculturalProduceLabel topConflictProduce = null;
+                float topConflictScore = 0.0f;
+                boolean hasExpectedProduceFamily = false;
+
+                for (ModerationCheckResult.ModerationLabelItem item : matchedLabels) {
+                    Optional<AgriculturalProduceLabel> detectedOpt = AgriculturalProduceLabel.findByLabel(item.getLabelName());
+                    if (detectedOpt.isPresent()) {
+                        AgriculturalProduceLabel detected = detectedOpt.get();
+                        if (expected.isFamilyCompatibleWith(detected)) {
+                            hasExpectedProduceFamily = true;
+                        } else if (detected.isSpecificProduce() && item.getConfidence().floatValue() >= minConfidenceThreshold) {
+                            if (item.getConfidence().floatValue() > topConflictScore) {
+                                topConflictProduce = detected;
+                                topConflictScore = item.getConfidence().floatValue();
+                            }
+                        }
+                    }
+                }
+
+                // Nếu hoàn toàn không có họ hàng mong đợi, mà lại nhận diện ra loại cụ thể khác >= 70%
+                if (!hasExpectedProduceFamily && topConflictProduce != null) {
+                    isMismatch = true;
+                    mismatchReason = "Nghi ngờ ảnh chưa khớp với tên sản phẩm: Tên sản phẩm là '" + expected.getVietnameseName()
+                            + "' nhưng AI nhận diện có đặc điểm '" + topConflictProduce.getVietnameseName()
+                            + "' (" + String.format(Locale.US, "%.1f", topConflictScore) + "%). Đề nghị Admin kiểm tra mắt thường.";
+                }
+            }
 
             return ModerationCheckResult.builder()
-                    .isAgricultural(isAgricultural)
-                    .isFlagged(!isAgricultural)
+                    .isAgricultural(true)
+                    .isFlagged(isMismatch)
                     .overallConfidence(BigDecimal.valueOf(highestAgriConfidence).setScale(2, RoundingMode.HALF_UP))
-                    .rejectionReason(rejectionReason)
+                    .rejectionReason(mismatchReason)
                     .rawResponse(objectMapper.writeValueAsString(rawLabelList))
                     .labels(matchedLabels)
                     .build();
