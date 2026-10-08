@@ -508,26 +508,38 @@ public class OrderServiceImpl implements OrderService {
     @Override
     public OrderResponse markOrderAsConfirmed(int orderId) {
         Order order = findOrderById(orderId);
+        User currentUser = getCurrentUser();
+        if (order.getShop() != null && order.getShop().getId() != currentUser.getId()) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
         // Flow: PENDING / PAID -> CONFIRMED
         if (order.getStatus() != OrderStatus.PENDING && order.getStatus() != OrderStatus.PAID) {
             log.error("Invalid state transition to CONFIRMED for order id {}. Current status: {}", orderId, order.getStatus());
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
         order.setStatus(OrderStatus.CONFIRMED);
-        return orderMapper.toOrderResponse(orderRepository.save(order));
+        Order saved = orderRepository.save(order);
+        List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
+        return buildOrderResponse(saved, details);
     }
 
     @Transactional
     @Override
     public OrderResponse markOrderAsReady(int orderId) {
         Order order = findOrderById(orderId);
+        User currentUser = getCurrentUser();
+        if (order.getShop() != null && order.getShop().getId() != currentUser.getId()) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
         // Flow: CONFIRMED -> READY
         if (order.getStatus() != OrderStatus.CONFIRMED) {
             log.error("Invalid state transition to READY for order id {}. Current status: {}", orderId, order.getStatus());
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
         order.setStatus(OrderStatus.READY);
-        return orderMapper.toOrderResponse(orderRepository.save(order));
+        Order saved = orderRepository.save(order);
+        List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
+        return buildOrderResponse(saved, details);
     }
 
     @Transactional
@@ -540,7 +552,9 @@ public class OrderServiceImpl implements OrderService {
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
         order.setStatus(OrderStatus.SHIPPING);
-        return orderMapper.toOrderResponse(orderRepository.save(order));
+        Order saved = orderRepository.save(order);
+        List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
+        return buildOrderResponse(saved, details);
     }
 
     @Transactional
@@ -553,13 +567,21 @@ public class OrderServiceImpl implements OrderService {
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
         order.setStatus(OrderStatus.DELIVERED);
-        return orderMapper.toOrderResponse(orderRepository.save(order));
+        Order saved = orderRepository.save(order);
+        List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
+        return buildOrderResponse(saved, details);
     }
 
     @Transactional
     @Override
     public OrderResponse markOrderAsCancelled(int orderId) {
         Order order = findOrderById(orderId);
+        User currentUser = getCurrentUser();
+        boolean isBuyer = order.getBuyer() != null && order.getBuyer().getId() == currentUser.getId();
+        boolean isShop = order.getShop() != null && order.getShop().getId() == currentUser.getId();
+        if (!isBuyer && !isShop) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
         // Chỉ được huỷ khi đơn đang ở trạng thái có thể huỷ (PENDING, PAID, CONFIRMED, READY)
         // CANCELLED / FAILED / DELIVERED / COMPLETED đều không được huỷ lại (tránh hoàn kho 2 lần)
         if (order.getStatus() != OrderStatus.AWAITING_PAYMENT
@@ -575,7 +597,9 @@ public class OrderServiceImpl implements OrderService {
         restoreStock(order);
 
         order.setStatus(OrderStatus.CANCELLED);
-        return orderMapper.toOrderResponse(orderRepository.save(order));
+        Order saved = orderRepository.save(order);
+        List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
+        return buildOrderResponse(saved, details);
     }
 
     @Transactional
@@ -592,7 +616,9 @@ public class OrderServiceImpl implements OrderService {
         restoreStock(order);
         
         order.setStatus(OrderStatus.FAILED);
-        return orderMapper.toOrderResponse(orderRepository.save(order));
+        Order saved = orderRepository.save(order);
+        List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
+        return buildOrderResponse(saved, details);
     }
 
     // ============================================================
@@ -691,9 +717,21 @@ public class OrderServiceImpl implements OrderService {
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
         Page<Order> orders;
         if (statuses != null && !statuses.isEmpty()) {
-            orders = orderRepository.findByShop_IdAndStatusIn(shop.getId(), statuses, pageable);
+            // Loại bỏ hoàn toàn AWAITING_PAYMENT vì trạng thái này chỉ dành cho buyer thanh toán, shop chưa duyệt
+            List<OrderStatus> validStatuses = statuses.stream()
+                    .filter(s -> s != OrderStatus.AWAITING_PAYMENT)
+                    .toList();
+            if (validStatuses.isEmpty()) {
+                return org.springframework.data.domain.Page.empty(pageable);
+            }
+            orders = orderRepository.findByShop_IdAndStatusIn(shop.getId(), validStatuses, pageable);
         } else {
-            orders = orderRepository.findByShop_Id(shop.getId(), pageable);
+            // Khi không truyền statuses (hoặc xem tất cả), loại trừ AWAITING_PAYMENT khỏi phía Shop
+            orders = orderRepository.findByShop_IdAndStatusNotIn(
+                    shop.getId(),
+                    java.util.List.of(OrderStatus.AWAITING_PAYMENT),
+                    pageable
+            );
         }
         return orders.map(order -> {
             List<OrderDetail> details = order.getOrderDetails() != null ? order.getOrderDetails() : Collections.emptyList();
