@@ -56,4 +56,21 @@ class AiDescriptionServiceTest {
         assertThat(response.getSuggestedDescription()).contains("nhà vườn địa phương");
         assertThat(response.getKeyHighlights()).isNotEmpty();
     }
+
+    @Test
+    void suggestDescription_withMultipleFailedKeys_rotatesKeysAndFallsBackGracefully() {
+        // Cung cấp danh sách 3 keys giả lập
+        aiDescriptionService.setActiveApiKeysForTesting(java.util.List.of("dummy_key_1", "dummy_key_2", "dummy_key_3"));
+
+        AiDescriptionSuggestionRequest request = AiDescriptionSuggestionRequest.builder()
+                .productName("Cam sành Hàm Yên")
+                .origin("Tuyên Quang")
+                .build();
+
+        AiDescriptionSuggestionResponse response = aiDescriptionService.suggestDescription(request);
+
+        assertThat(response).isNotNull();
+        assertThat(response.getSuggestedDescription()).contains("Cam sành Hàm Yên");
+        assertThat(response.getGeneratedSource()).isEqualTo("SMART_TEMPLATE_FALLBACK");
+    }
 }

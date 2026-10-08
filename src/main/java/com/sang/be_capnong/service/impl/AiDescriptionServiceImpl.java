@@ -6,11 +6,13 @@ import com.sang.be_capnong.dto.request.AiDescriptionSuggestionRequest;
 import com.sang.be_capnong.dto.response.AiDescriptionSuggestionResponse;
 import com.sang.be_capnong.enums.AgriculturalProduceLabel;
 import com.sang.be_capnong.service.AiDescriptionService;
+import jakarta.annotation.PostConstruct;
 import lombok.AccessLevel;
 import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -19,6 +21,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 @FieldDefaults(level = AccessLevel.PRIVATE)
@@ -27,22 +31,74 @@ public class AiDescriptionServiceImpl implements AiDescriptionService {
 
     final ObjectMapper objectMapper;
     final HttpClient httpClient;
+    final Environment environment;
+    final List<String> activeApiKeys = new CopyOnWriteArrayList<>();
+    final AtomicInteger currentKeyIndex = new AtomicInteger(0);
 
     @Value("${google.gemini.api-key:}")
-    String apiKey;
+    String defaultApiKey;
 
     @Value("${google.gemini.model:gemini-1.5-flash}")
-    String model;
+    String model = "gemini-1.5-flash";
 
     @Value("${google.gemini.timeout-seconds:8}")
-    int timeoutSeconds;
+    int timeoutSeconds = 8;
 
     @Autowired
-    public AiDescriptionServiceImpl(ObjectMapper objectMapper) {
+    public AiDescriptionServiceImpl(ObjectMapper objectMapper, @Autowired(required = false) Environment environment) {
         this.objectMapper = objectMapper;
+        this.environment = environment;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
                 .build();
+    }
+
+    public AiDescriptionServiceImpl(ObjectMapper objectMapper) {
+        this(objectMapper, (Environment) null);
+    }
+
+    public void setActiveApiKeysForTesting(List<String> testApiKeys) {
+        this.activeApiKeys.clear();
+        if (testApiKeys != null) {
+            this.activeApiKeys.addAll(testApiKeys);
+        }
+    }
+
+    @PostConstruct
+    public void initApiKeys() {
+        Set<String> keySet = new LinkedHashSet<>();
+
+        // 1. Quét key từ cấu hình google.gemini.api-key (hỗ trợ phân tách bằng dấu phẩy)
+        if (defaultApiKey != null && !defaultApiKey.isBlank()) {
+            for (String key : defaultApiKey.split(",")) {
+                String trimmed = key.trim();
+                if (!trimmed.isEmpty()) {
+                    keySet.add(trimmed);
+                }
+            }
+        }
+
+        // 2. Quét biến môi trường GEMINI_API_KEY
+        if (environment != null) {
+            String envKey = environment.getProperty("GEMINI_API_KEY");
+            if (envKey != null && !envKey.isBlank()) {
+                keySet.add(envKey.trim());
+            }
+
+            // 3. Quét danh sách GEMINI_KEY_1 -> GEMINI_KEY_50 (cho phép xoay vòng key)
+            for (int i = 1; i <= 50; i++) {
+                String rotatedKey = environment.getProperty("GEMINI_KEY_" + i);
+                if (rotatedKey != null && !rotatedKey.isBlank()) {
+                    keySet.add(rotatedKey.trim());
+                }
+            }
+        }
+
+        activeApiKeys.clear();
+        activeApiKeys.addAll(keySet);
+        if (!activeApiKeys.isEmpty()) {
+            log.info("Initialized Gemini AI Gateway with {} active API keys for auto-rotation", activeApiKeys.size());
+        }
     }
 
     @Override
@@ -50,22 +106,36 @@ public class AiDescriptionServiceImpl implements AiDescriptionService {
         String productName = request.getProductName() != null ? request.getProductName().trim() : "";
         log.info("Generating AI description suggestion for product: '{}'", productName);
 
-        // 1. Nếu có cấu hình Gemini API Key -> Thử gọi Google Gemini 1.5 Flash
-        if (apiKey != null && !apiKey.isBlank()) {
-            try {
-                return callGeminiApi(request);
-            } catch (Exception e) {
-                log.warn("Gemini API call failed: {}. Falling back to smart produce template generator.", e.getMessage());
+        // 1. Nếu có cấu hình danh sách Gemini API Keys -> Thử gọi xoay vòng qua các key
+        if (!activeApiKeys.isEmpty()) {
+            int totalKeys = activeApiKeys.size();
+            int attempts = 0;
+
+            while (attempts < totalKeys) {
+                int index = Math.abs(currentKeyIndex.get()) % totalKeys;
+                String currentKey = activeApiKeys.get(index);
+
+                try {
+                    return callGeminiApi(request, currentKey);
+                } catch (Exception e) {
+                    attempts++;
+                    log.warn("Gemini API call failed with key index {}/{}: {}. Rotating to next key...",
+                            index + 1, totalKeys, e.getMessage());
+                    // Xoay sang key tiếp theo
+                    currentKeyIndex.incrementAndGet();
+                }
             }
+
+            log.warn("All {} Gemini API keys exhausted or failed. Falling back to smart produce template generator.", totalKeys);
         } else {
-            log.info("Gemini API key not configured. Using smart produce template generator.");
+            log.info("No Gemini API keys configured. Using smart produce template generator.");
         }
 
         // 2. Cơ chế Fallback an toàn, gọn gàng, tự động tạo mô tả chuẩn phong vị nông sản giải cứu
         return buildSmartFallback(request);
     }
 
-    private AiDescriptionSuggestionResponse callGeminiApi(AiDescriptionSuggestionRequest request) throws Exception {
+    private AiDescriptionSuggestionResponse callGeminiApi(AiDescriptionSuggestionRequest request, String apiKey) throws Exception {
         String endpoint = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + apiKey.trim();
 
         String prompt = buildPrompt(request);
