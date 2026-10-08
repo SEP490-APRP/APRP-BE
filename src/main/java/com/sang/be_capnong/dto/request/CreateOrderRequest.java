@@ -22,6 +22,10 @@ public class CreateOrderRequest {
     @NotBlank(message = "Shipping address is required")
     String shippingAddress;
 
+    // Tùy chọn lưu vào sổ địa chỉ (Address Book)
+    Boolean saveAddressToBook;
+    String addressLabel;
+
     String note;
 
     /**
