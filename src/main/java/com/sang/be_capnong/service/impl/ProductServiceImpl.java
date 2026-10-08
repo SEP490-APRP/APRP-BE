@@ -33,6 +33,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
+import org.springframework.transaction.annotation.Transactional;
+
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -42,6 +44,7 @@ import com.sang.be_capnong.dto.request.ProductRejectRequest;
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 @Slf4j
+@Transactional(readOnly = true)
 public class ProductServiceImpl implements ProductService {
 
     ProductRepository productRepository;
@@ -54,6 +57,7 @@ public class ProductServiceImpl implements ProductService {
     BuildComboRepository buildComboRepository;
 
     @Override
+    @Transactional
     public ProductResponse createProduct(ProductCreationRequest request) {
         Integer currentUserId = SecurityUtils.getCurrentUserId();
         log.info("Creating product '{}' by shop user id: {}", request.getProductName(), currentUserId);
@@ -133,6 +137,7 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
+    @Transactional
     public ProductResponse updateProduct(Integer productId, ProductUpdateRequest request) {
         Integer currentUserId = SecurityUtils.getCurrentUserId();
         log.info("Updating product id: {} by user id: {}", productId, currentUserId);
@@ -197,6 +202,7 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
+    @Transactional
     public void deleteProduct(Integer productId) {
         Integer currentUserId = SecurityUtils.getCurrentUserId();
         log.info("Deactivating/deleting product id: {} by user id: {}", productId, currentUserId);
@@ -216,6 +222,7 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
+    @Transactional
     public ProductResponse approveProduct(Integer productId) {
         log.info("Admin approving product id: {}", productId);
         Product product = productRepository.findById(productId)
@@ -235,6 +242,7 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
+    @Transactional
     public ProductResponse rejectProduct(Integer productId, ProductRejectRequest request) {
         log.info("Admin rejecting product id: {} with reason: {}", productId, request.getReason());
         Product product = productRepository.findById(productId)

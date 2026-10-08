@@ -193,7 +193,6 @@ public class UserServiceImpl implements UserService {
 
         boolean isShopOrShipper = user.getRole() != null && (
                 "SHOP".equalsIgnoreCase(user.getRole().getName())
-                || "SHOP_OWNER".equalsIgnoreCase(user.getRole().getName())
                 || "SHIPPER".equalsIgnoreCase(user.getRole().getName())
         );
 
@@ -250,7 +249,7 @@ public class UserServiceImpl implements UserService {
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
 
         String folder = "users";
-        if (user.getRole() != null && ("SHOP".equalsIgnoreCase(user.getRole().getName()) || "SHOP_OWNER".equalsIgnoreCase(user.getRole().getName()))) {
+        if (user.getRole() != null && "SHOP".equalsIgnoreCase(user.getRole().getName())) {
             folder = "shops";
         }
 
@@ -299,8 +298,8 @@ public class UserServiceImpl implements UserService {
             if (request.getDietPreference() != null) user.setDietPreference(request.getDietPreference());
         }
 
-        // Cập nhật thông tin đặc thù của SHOP / SHOP_OWNER
-        if ("SHOP".equals(roleName) || "SHOP_OWNER".equals(roleName)) {
+        // Cập nhật thông tin đặc thù của SHOP
+        if ("SHOP".equals(roleName)) {
             if (request.getShopName() != null) user.setShopName(request.getShopName());
             if (request.getDescription() != null) user.setDescription(request.getDescription());
             if (request.getLogoUrl() != null) user.setLogoUrl(request.getLogoUrl());
@@ -405,13 +404,7 @@ public class UserServiceImpl implements UserService {
         if (roles != null && !roles.isEmpty()) {
             for (String r : roles) {
                 if (r == null || r.isBlank()) continue;
-                String roleTrimmed = r.trim().toUpperCase();
-                normalizedRoles.add(roleTrimmed);
-                if ("SHOP_OWNER".equals(roleTrimmed)) {
-                    normalizedRoles.add("SHOP");
-                } else if ("SHOP".equals(roleTrimmed)) {
-                    normalizedRoles.add("SHOP_OWNER");
-                }
+                normalizedRoles.add(r.trim().toUpperCase());
             }
         }
 

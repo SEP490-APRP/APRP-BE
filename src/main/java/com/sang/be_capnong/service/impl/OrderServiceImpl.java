@@ -13,6 +13,7 @@ import com.sang.be_capnong.exception.AppException;
 import com.sang.be_capnong.exception.ErrorCode;
 import com.sang.be_capnong.mapper.OrderMapper;
 import com.sang.be_capnong.repository.*;
+import com.sang.be_capnong.service.GoogleMapService;
 import com.sang.be_capnong.service.OrderService;
 import com.sang.be_capnong.service.ShippingFeeService;
 import com.sang.be_capnong.enums.UserStatus;
@@ -27,9 +28,16 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.sang.be_capnong.enums.BatchStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 @Service
@@ -50,6 +58,9 @@ public class OrderServiceImpl implements OrderService {
     VoucherUserRepository voucherUserRepository;
     VoucherUsageRepository voucherUsageRepository;
     CartItemRepository cartItemRepository;
+    CheckoutBatchRepository checkoutBatchRepository;
+    SavedAddressRepository savedAddressRepository;
+    GoogleMapService googleMapService;
 
     // ============================================================
     //  TẠO ĐƠN HÀNG
@@ -83,6 +94,20 @@ public class OrderServiceImpl implements OrderService {
         List<OrderResponse> responses = new ArrayList<>();
         List<Order> savedOrders = new ArrayList<>();
 
+        CheckoutBatch batch = null;
+        if (previewRes.getShopOrders().size() > 1 || "PAYOS".equalsIgnoreCase(request.getPaymentMethod()) || "TRANSFER".equalsIgnoreCase(request.getPaymentMethod())) {
+            batch = CheckoutBatch.builder()
+                    .buyer(buyer)
+                    .paymentMethod(request.getPaymentMethod().toUpperCase())
+                    .status(BatchStatus.PENDING)
+                    .totalAmount(previewRes.getFinalTotalAmount())
+                    .batchDiscountAmount(previewRes.getTotalVoucherDiscount())
+                    .createdAt(LocalDateTime.now())
+                    .updatedAt(LocalDateTime.now())
+                    .build();
+            batch = checkoutBatchRepository.save(batch);
+        }
+
         // 3. Tạo Order dựa trên preview
         for (ShopOrderPreview sp : previewRes.getShopOrders()) {
             User shop = userRepository.findById(sp.getShopId()).orElseThrow();
@@ -91,6 +116,7 @@ public class OrderServiceImpl implements OrderService {
             Order order = Order.builder()
                     .buyer(buyer)
                     .shop(shop)
+                    .checkoutBatch(batch)
                     .recipientName(request.getRecipientName() != null ? request.getRecipientName() : buyer.getFullName())
                     .recipientPhone(request.getRecipientPhone() != null ? request.getRecipientPhone() : buyer.getPhoneNumber())
                     .shippingAddress(request.getShippingAddress())
@@ -112,7 +138,67 @@ public class OrderServiceImpl implements OrderService {
             
             OrderResponse res = buildOrderResponse(savedOrder, details);
             res.setVoucherDiscountAmount(sp.getVoucherDiscount());
+            res.setBatchId(batch != null ? batch.getId() : null);
+            res.setShopId(shop.getId());
             responses.add(res);
+        }
+
+        // Tự động cập nhật thông tin cá nhân của buyer nếu chưa có
+        boolean needUpdateBuyer = false;
+        if ((buyer.getAddress() == null || buyer.getAddress().isBlank()) && request.getShippingAddress() != null && !request.getShippingAddress().isBlank()) {
+            buyer.setAddress(request.getShippingAddress());
+            needUpdateBuyer = true;
+        }
+        if ((buyer.getPhoneNumber() == null || buyer.getPhoneNumber().isBlank()) && request.getRecipientPhone() != null && !request.getRecipientPhone().isBlank()) {
+            buyer.setPhoneNumber(request.getRecipientPhone());
+            needUpdateBuyer = true;
+        }
+        if ((buyer.getFullName() == null || buyer.getFullName().isBlank()) && request.getRecipientName() != null && !request.getRecipientName().isBlank()) {
+            buyer.setFullName(request.getRecipientName());
+            needUpdateBuyer = true;
+        }
+        if (needUpdateBuyer) {
+            userRepository.save(buyer);
+        }
+
+        // Tự động lưu vào Sổ địa chỉ (SavedAddress) nếu người dùng chọn hoặc nếu là đơn đầu tiên
+        long addressCount = savedAddressRepository.countByUser_IdAndIsActiveTrue(buyer.getId());
+        boolean shouldSaveAddress = Boolean.TRUE.equals(request.getSaveAddressToBook()) || (addressCount == 0);
+        if (shouldSaveAddress && addressCount < 10 && request.getShippingAddress() != null && !request.getShippingAddress().isBlank()) {
+            String targetAddress = request.getShippingAddress().trim();
+            boolean alreadyExists = savedAddressRepository.findByUser_IdAndIsActiveTrue(buyer.getId()).stream()
+                    .anyMatch(a -> a.getAddress().equalsIgnoreCase(targetAddress));
+            if (!alreadyExists) {
+                Double lat = null;
+                Double lng = null;
+                try {
+                    double[] coords = googleMapService.geocodeAddress(targetAddress);
+                    if (coords != null && coords.length == 2) {
+                        lat = coords[0];
+                        lng = coords[1];
+                    }
+                } catch (Exception e) {
+                    log.warn("Geocoding address on order creation failed: {}", e.getMessage());
+                }
+
+                String label = request.getAddressLabel() != null && !request.getAddressLabel().isBlank()
+                        ? request.getAddressLabel().trim()
+                        : (addressCount == 0 ? "Nhà (Mặc định)" : "Địa chỉ mới");
+
+                SavedAddress newSavedAddress = SavedAddress.builder()
+                        .user(buyer)
+                        .label(label)
+                        .recipientName(request.getRecipientName() != null && !request.getRecipientName().isBlank() ? request.getRecipientName().trim() : (buyer.getFullName() != null ? buyer.getFullName() : "Người nhận"))
+                        .phone(request.getRecipientPhone() != null && !request.getRecipientPhone().isBlank() ? request.getRecipientPhone().trim() : (buyer.getPhoneNumber() != null ? buyer.getPhoneNumber() : ""))
+                        .address(targetAddress)
+                        .latitude(lat)
+                        .longitude(lng)
+                        .isDefault(addressCount == 0)
+                        .isActive(true)
+                        .build();
+                savedAddressRepository.save(newSavedAddress);
+                log.info("Auto-saved delivery address to address book for user {}: {}", buyer.getId(), targetAddress);
+            }
         }
 
         // 4. Cập nhật lịch sử dùng Voucher (Lưu discountAmount vào VoucherUsage)
@@ -422,39 +508,55 @@ public class OrderServiceImpl implements OrderService {
     @Override
     public OrderResponse markOrderAsConfirmed(int orderId) {
         Order order = findOrderById(orderId);
+        User currentUser = getCurrentUser();
+        if (order.getShop() != null && order.getShop().getId() != currentUser.getId()) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
         // Flow: PENDING / PAID -> CONFIRMED
         if (order.getStatus() != OrderStatus.PENDING && order.getStatus() != OrderStatus.PAID) {
             log.error("Invalid state transition to CONFIRMED for order id {}. Current status: {}", orderId, order.getStatus());
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
         order.setStatus(OrderStatus.CONFIRMED);
-        return orderMapper.toOrderResponse(orderRepository.save(order));
+        Order saved = orderRepository.save(order);
+        List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
+        return buildOrderResponse(saved, details);
     }
 
     @Transactional
     @Override
     public OrderResponse markOrderAsReady(int orderId) {
         Order order = findOrderById(orderId);
+        User currentUser = getCurrentUser();
+        if (order.getShop() != null && order.getShop().getId() != currentUser.getId()) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
         // Flow: CONFIRMED -> READY
         if (order.getStatus() != OrderStatus.CONFIRMED) {
             log.error("Invalid state transition to READY for order id {}. Current status: {}", orderId, order.getStatus());
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
         order.setStatus(OrderStatus.READY);
-        return orderMapper.toOrderResponse(orderRepository.save(order));
+        Order saved = orderRepository.save(order);
+        List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
+        return buildOrderResponse(saved, details);
     }
 
     @Transactional
     @Override
     public OrderResponse markOrderAsShipping(int orderId) {
         Order order = findOrderById(orderId);
+        User currentUser = getCurrentUser();
         // Flow: READY -> SHIPPING
         if (order.getStatus() != OrderStatus.READY) {
             log.error("Invalid state transition to SHIPPING for order id {}. Current status: {}", orderId, order.getStatus());
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
+        order.setShipper(currentUser);
         order.setStatus(OrderStatus.SHIPPING);
-        return orderMapper.toOrderResponse(orderRepository.save(order));
+        Order saved = orderRepository.save(order);
+        List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
+        return buildOrderResponse(saved, details);
     }
 
     @Transactional
@@ -467,16 +569,25 @@ public class OrderServiceImpl implements OrderService {
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
         order.setStatus(OrderStatus.DELIVERED);
-        return orderMapper.toOrderResponse(orderRepository.save(order));
+        Order saved = orderRepository.save(order);
+        List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
+        return buildOrderResponse(saved, details);
     }
 
     @Transactional
     @Override
     public OrderResponse markOrderAsCancelled(int orderId) {
         Order order = findOrderById(orderId);
+        User currentUser = getCurrentUser();
+        boolean isBuyer = order.getBuyer() != null && order.getBuyer().getId() == currentUser.getId();
+        boolean isShop = order.getShop() != null && order.getShop().getId() == currentUser.getId();
+        if (!isBuyer && !isShop) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
         // Chỉ được huỷ khi đơn đang ở trạng thái có thể huỷ (PENDING, PAID, CONFIRMED, READY)
         // CANCELLED / FAILED / DELIVERED / COMPLETED đều không được huỷ lại (tránh hoàn kho 2 lần)
-        if (order.getStatus() != OrderStatus.PENDING
+        if (order.getStatus() != OrderStatus.AWAITING_PAYMENT
+                && order.getStatus() != OrderStatus.PENDING
                 && order.getStatus() != OrderStatus.PAID
                 && order.getStatus() != OrderStatus.CONFIRMED
                 && order.getStatus() != OrderStatus.READY) {
@@ -488,7 +599,9 @@ public class OrderServiceImpl implements OrderService {
         restoreStock(order);
 
         order.setStatus(OrderStatus.CANCELLED);
-        return orderMapper.toOrderResponse(orderRepository.save(order));
+        Order saved = orderRepository.save(order);
+        List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
+        return buildOrderResponse(saved, details);
     }
 
     @Transactional
@@ -505,7 +618,9 @@ public class OrderServiceImpl implements OrderService {
         restoreStock(order);
         
         order.setStatus(OrderStatus.FAILED);
-        return orderMapper.toOrderResponse(orderRepository.save(order));
+        Order saved = orderRepository.save(order);
+        List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
+        return buildOrderResponse(saved, details);
     }
 
     // ============================================================
@@ -564,14 +679,92 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * COD      => PENDING  (thanh toán khi nhận hàng, chờ Shop xác nhận)
-     * TRANSFER => PAID     (đã thanh toán online, chờ Shop xác nhận)
+     * COD / TRANSFER / PAYOS: Đơn hàng mới tạo đều khởi đầu ở trạng thái PENDING.
+     * Đối với thanh toán online (TRANSFER/PAYOS), đơn sẽ chuyển sang PAID sau khi hoàn tất thanh toán.
+     * Cả PENDING (đơn COD) và PAID (đơn chuyển khoản) sẽ được Farmer/Shop duyệt.
      */
     private OrderStatus resolveInitialStatus(String paymentMethod) {
-        if ("TRANSFER".equalsIgnoreCase(paymentMethod)) {
-            return OrderStatus.PAID;
+        if ("PAYOS".equalsIgnoreCase(paymentMethod) || "TRANSFER".equalsIgnoreCase(paymentMethod)) {
+            return OrderStatus.AWAITING_PAYMENT;
         }
-        return OrderStatus.PENDING; // mặc định COD
+        return OrderStatus.PENDING;
+    }
+
+    @Override
+    public OrderResponse getOrderById(int orderId) {
+        Order order = findOrderById(orderId);
+        List<OrderDetail> details = order.getOrderDetails() != null ? order.getOrderDetails() : Collections.emptyList();
+        return buildOrderResponse(order, details);
+    }
+
+    @Override
+    public Page<OrderResponse> getMyOrders(int page, int size, List<OrderStatus> statuses) {
+        User buyer = getCurrentUser();
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<Order> orders;
+        if (statuses != null && !statuses.isEmpty()) {
+            orders = orderRepository.findByBuyer_IdAndStatusIn(buyer.getId(), statuses, pageable);
+        } else {
+            orders = orderRepository.findByBuyer_Id(buyer.getId(), pageable);
+        }
+        return orders.map(order -> {
+            List<OrderDetail> details = order.getOrderDetails() != null ? order.getOrderDetails() : Collections.emptyList();
+            return buildOrderResponse(order, details);
+        });
+    }
+
+    @Override
+    public Page<OrderResponse> getShopOrders(int page, int size, List<OrderStatus> statuses) {
+        User shop = getCurrentUser();
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<Order> orders;
+        if (statuses != null && !statuses.isEmpty()) {
+            // Loại bỏ hoàn toàn AWAITING_PAYMENT vì trạng thái này chỉ dành cho buyer thanh toán, shop chưa duyệt
+            List<OrderStatus> validStatuses = statuses.stream()
+                    .filter(s -> s != OrderStatus.AWAITING_PAYMENT)
+                    .toList();
+            if (validStatuses.isEmpty()) {
+                return org.springframework.data.domain.Page.empty(pageable);
+            }
+            orders = orderRepository.findByShop_IdAndStatusIn(shop.getId(), validStatuses, pageable);
+        } else {
+            // Khi không truyền statuses (hoặc xem tất cả), loại trừ AWAITING_PAYMENT khỏi phía Shop
+            orders = orderRepository.findByShop_IdAndStatusNotIn(
+                    shop.getId(),
+                    java.util.List.of(OrderStatus.AWAITING_PAYMENT),
+                    pageable
+            );
+        }
+        return orders.map(order -> {
+            List<OrderDetail> details = order.getOrderDetails() != null ? order.getOrderDetails() : Collections.emptyList();
+            return buildOrderResponse(order, details);
+        });
+    }
+
+    @Override
+    public Page<OrderResponse> getReadyOrders(int page, int size) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<Order> orders = orderRepository.findByStatus(OrderStatus.READY, pageable);
+        return orders.map(order -> {
+            List<OrderDetail> details = order.getOrderDetails() != null ? order.getOrderDetails() : Collections.emptyList();
+            return buildOrderResponse(order, details);
+        });
+    }
+
+    @Override
+    public Page<OrderResponse> getShipperOrders(int page, int size, List<OrderStatus> statuses) {
+        User shipper = getCurrentUser();
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<Order> orders;
+        if (statuses != null && !statuses.isEmpty()) {
+            orders = orderRepository.findByShipper_IdAndStatusIn(shipper.getId(), statuses, pageable);
+        } else {
+            orders = orderRepository.findByShipper_Id(shipper.getId(), pageable);
+        }
+        return orders.map(order -> {
+            List<OrderDetail> details = order.getOrderDetails() != null ? order.getOrderDetails() : Collections.emptyList();
+            return buildOrderResponse(order, details);
+        });
     }
 
     /**
@@ -600,7 +793,7 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * Thủ công build OrderResponse khi createOrder (vì lúc này các detail chưa được flush vào DB)
+     * Thủ công build OrderResponse khi createOrder hoặc query
      */
     private OrderResponse buildOrderResponse(Order order, List<OrderDetail> details) {
         List<OrderDetailResponse> itemResponses = new ArrayList<>();
@@ -633,10 +826,19 @@ public class OrderServiceImpl implements OrderService {
                     .build());
         }
 
+        BigDecimal codAmount = BigDecimal.ZERO;
+        if ("COD".equalsIgnoreCase(order.getPaymentMethod())) {
+            codAmount = order.getCodAmount() != null ? order.getCodAmount() : order.getTotalAmount();
+        }
+
         return OrderResponse.builder()
                 .orderId(order.getOrderId())
+                .batchId(order.getCheckoutBatch() != null ? order.getCheckoutBatch().getId() : null)
+                .shopId(order.getShop() != null ? order.getShop().getId() : null)
                 .buyerName(order.getBuyer() != null ? order.getBuyer().getFullName() : null)
-                .shopName(order.getShop() != null ? order.getShop().getShopName() : null)
+                .shopName(order.getShop() != null ? (order.getShop().getShopName() != null ? order.getShop().getShopName() : order.getShop().getFullName()) : null)
+                .shopAddress(order.getShop() != null ? order.getShop().getAddress() : null)
+                .shopPhone(order.getShop() != null ? order.getShop().getPhoneNumber() : null)
                 .recipientName(order.getRecipientName())
                 .recipientPhone(order.getRecipientPhone())
                 .shippingAddress(order.getShippingAddress())
@@ -645,6 +847,9 @@ public class OrderServiceImpl implements OrderService {
                 .status(order.getStatus())
                 .shippingFee(order.getShippingFee())
                 .totalAmount(order.getTotalAmount())
+                .codAmount(codAmount)
+                .shipperId(order.getShipper() != null ? order.getShipper().getId() : null)
+                .shipperName(order.getShipper() != null ? order.getShipper().getFullName() : null)
                 .createdAt(order.getCreatedAt())
                 .items(itemResponses)
                 .build();

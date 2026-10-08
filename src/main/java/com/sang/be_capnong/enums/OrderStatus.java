@@ -1,6 +1,7 @@
 package com.sang.be_capnong.enums;
 
 public enum OrderStatus {
+    AWAITING_PAYMENT,
     PENDING,
     PAID,
     CONFIRMED,

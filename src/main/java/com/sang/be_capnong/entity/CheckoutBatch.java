@@ -28,6 +28,7 @@ public class CheckoutBatch {
     String paymentMethod;
 
     @Enumerated(EnumType.STRING)
+    @Column(length = 32)
     BatchStatus status;
 
     BigDecimal totalAmount;
