@@ -134,6 +134,12 @@ public enum ErrorCode {
     VOUCHER_OUT_OF_STOCK(9004, "Voucher is out of stock (claim limit reached)", HttpStatus.BAD_REQUEST),
     VOUCHER_LIMIT_REACHED(9005, "You have reached the maximum claim limit for this voucher", HttpStatus.BAD_REQUEST),
 
+    // Blog / Forum Errors (Series 10000)
+    BLOG_NOT_FOUND(10001, "Blog post not found", HttpStatus.NOT_FOUND),
+    NOT_BLOG_OWNER(10002, "You do not have permission to modify this blog post", HttpStatus.FORBIDDEN),
+    COMMENT_NOT_FOUND(10003, "Comment not found", HttpStatus.NOT_FOUND),
+    NOT_COMMENT_OWNER(10004, "You do not have permission to delete this comment", HttpStatus.FORBIDDEN),
+
     // Payment Errors (Series 7500)
     PAYMENT_NOT_FOUND(7501, "Payment not found", HttpStatus.NOT_FOUND),
     PAYMENT_FAILED(7502, "Payment creation failed", HttpStatus.BAD_REQUEST),
