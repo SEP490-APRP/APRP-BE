@@ -60,7 +60,9 @@ public class SecurityConfig {
             // Webhook và xác nhận thanh toán PayOS
             "/payments/payos/webhook",
             "/payments/webhook",
-            "/payments/*/confirm"
+            "/payments/*/confirm",
+            "/payments/*/cancel",
+            "/payments/cancel"
     };
 
     /**

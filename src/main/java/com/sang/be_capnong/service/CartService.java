@@ -22,4 +22,7 @@ public interface CartService {
 
     // 5. Xóa toàn bộ giỏ hàng (gọi sau khi đặt hàng thành công)
     void clearCart();
+
+    // 6. Khôi phục các món trong đơn hàng vào giỏ khi thanh toán bị hủy
+    void restoreOrderItemsToCart(com.sang.be_capnong.entity.Order order);
 }

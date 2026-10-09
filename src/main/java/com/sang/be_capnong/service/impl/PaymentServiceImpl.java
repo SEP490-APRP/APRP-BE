@@ -17,7 +17,9 @@ import com.sang.be_capnong.exception.AppException;
 import com.sang.be_capnong.exception.ErrorCode;
 import com.sang.be_capnong.repository.CheckoutBatchRepository;
 import com.sang.be_capnong.repository.OrderRepository;
-import com.sang.be_capnong.repository.PaymentRepository;
+import com.sang.be_capnong.entity.*;
+import com.sang.be_capnong.repository.*;
+import com.sang.be_capnong.service.CartService;
 import com.sang.be_capnong.service.PaymentService;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -46,6 +48,14 @@ public class PaymentServiceImpl implements PaymentService {
     final OrderRepository orderRepository;
     final CheckoutBatchRepository checkoutBatchRepository;
     final PayOS payOS;
+    final CartService cartService;
+    final OrderDetailRepository orderDetailRepository;
+    final ProductRepository productRepository;
+    final MysteryBoxRepository mysteryBoxRepository;
+    final BuildComboRepository buildComboRepository;
+    final VoucherRepository voucherRepository;
+    final VoucherUserRepository voucherUserRepository;
+    final VoucherUsageRepository voucherUsageRepository;
 
     @Value("${payos.return-url:http://localhost:3000/payment/result}")
     String defaultReturnUrl;
@@ -384,6 +394,126 @@ public class PaymentServiceImpl implements PaymentService {
                 }
             }
         });
+    }
+
+    @Override
+    @Transactional
+    public void cancelPaymentByOrderCode(String orderCode) {
+        log.info("[PaymentCancel] Cancelling payment for orderCode: {}", orderCode);
+        if (orderCode == null || orderCode.isBlank()) {
+            return;
+        }
+
+        // 1. Kiểm tra nếu orderCode thuộc về CheckoutBatch
+        var batchOpt = checkoutBatchRepository.findByPayosOrderCode(orderCode);
+        if (batchOpt.isPresent()) {
+            CheckoutBatch batch = batchOpt.get();
+            if (batch.getStatus() == BatchStatus.COMPLETED) {
+                log.warn("[PaymentCancel] Batch #{} already COMPLETED, skip cancel.", batch.getId());
+                return;
+            }
+
+            batch.setStatus(BatchStatus.CANCELLED);
+            batch.setUpdatedAt(LocalDateTime.now());
+            checkoutBatchRepository.save(batch);
+
+            List<Order> orders = orderRepository.findByCheckoutBatch_Id(batch.getId());
+            for (Order o : orders) {
+                if (o.getStatus() == OrderStatus.AWAITING_PAYMENT || o.getStatus() == OrderStatus.PENDING) {
+                    restoreOrderStockAndVouchers(o);
+                    cartService.restoreOrderItemsToCart(o);
+                    o.setStatus(OrderStatus.CANCELLED);
+                    orderRepository.save(o);
+                    log.info("[PaymentCancel] Restored items to cart and marked Order #{} as CANCELLED", o.getOrderId());
+                }
+            }
+
+            paymentRepository.findByPayosOrderCode(orderCode).ifPresent(p -> {
+                p.setStatus(PaymentStatus.CANCELLED);
+                p.setUpdatedAt(LocalDateTime.now());
+                paymentRepository.save(p);
+            });
+            log.info("[PaymentCancel] Cancelled batch #{} successfully", batch.getId());
+            return;
+        }
+
+        // 2. Kiểm tra nếu orderCode thuộc về Payment đơn lẻ
+        paymentRepository.findByPayosOrderCode(orderCode).ifPresent(payment -> {
+            if (payment.getStatus() == PaymentStatus.PAID) {
+                log.warn("[PaymentCancel] Payment #{} already PAID, skip cancel.", payment.getPaymentId());
+                return;
+            }
+
+            payment.setStatus(PaymentStatus.CANCELLED);
+            payment.setUpdatedAt(LocalDateTime.now());
+            paymentRepository.save(payment);
+
+            Order order = payment.getOrder();
+            if (order != null && (order.getStatus() == OrderStatus.AWAITING_PAYMENT || order.getStatus() == OrderStatus.PENDING)) {
+                restoreOrderStockAndVouchers(order);
+                cartService.restoreOrderItemsToCart(order);
+                order.setStatus(OrderStatus.CANCELLED);
+                orderRepository.save(order);
+                log.info("[PaymentCancel] Restored items to cart and marked Order #{} as CANCELLED", order.getOrderId());
+
+                if (order.getCheckoutBatch() != null) {
+                    CheckoutBatch b = order.getCheckoutBatch();
+                    List<Order> batchOrders = orderRepository.findByCheckoutBatch_Id(b.getId());
+                    boolean allUnpaidOrCancelled = batchOrders.stream()
+                            .allMatch(bo -> bo.getStatus() == OrderStatus.CANCELLED);
+                    if (allUnpaidOrCancelled) {
+                        b.setStatus(BatchStatus.CANCELLED);
+                        b.setUpdatedAt(LocalDateTime.now());
+                        checkoutBatchRepository.save(b);
+                    }
+                }
+            }
+        });
+    }
+
+    private void restoreOrderStockAndVouchers(Order order) {
+        if (order == null) return;
+
+        // Hoàn kho tồn kho
+        List<OrderDetail> details = orderDetailRepository.findByOrder_OrderId(order.getOrderId());
+        for (OrderDetail detail : details) {
+            int qty = detail.getQuantity() != null ? detail.getQuantity() : 0;
+            if (qty <= 0) continue;
+
+            if ("PRODUCT".equals(detail.getItemType()) && detail.getProduct() != null) {
+                Product p = detail.getProduct();
+                p.setStockQuantity((p.getStockQuantity() != null ? p.getStockQuantity() : 0) + qty);
+                productRepository.save(p);
+            } else if ("MYSTERY_BOX".equals(detail.getItemType()) && detail.getMysteryBox() != null) {
+                MysteryBox box = detail.getMysteryBox();
+                box.setSoldQuantity(Math.max(0, (box.getSoldQuantity() != null ? box.getSoldQuantity() : 0) - qty));
+                mysteryBoxRepository.save(box);
+            } else if ("BUILD_COMBO".equals(detail.getItemType()) && detail.getBuildCombo() != null) {
+                BuildCombo combo = detail.getBuildCombo();
+                combo.setSoldQuantity(Math.max(0, (combo.getSoldQuantity() != null ? combo.getSoldQuantity() : 0) - qty));
+                buildComboRepository.save(combo);
+            }
+        }
+
+        // Hoàn Voucher
+        List<VoucherUsage> usages = voucherUsageRepository.findByOrder(order);
+        if (usages != null) {
+            for (VoucherUsage usage : usages) {
+                Voucher v = usage.getVoucher();
+                if (v != null) {
+                    v.setUsedCount(Math.max(0, (v.getUsedCount() != null ? v.getUsedCount() : 0) - 1));
+                    voucherRepository.save(v);
+                }
+                if (order.getBuyer() != null && v != null) {
+                    voucherUserRepository.findByUser_IdAndVoucher_VoucherId(order.getBuyer().getId(), v.getVoucherId())
+                            .ifPresent(vu -> {
+                                vu.setQuantityUsed(Math.max(0, (vu.getQuantityUsed() != null ? vu.getQuantityUsed() : 0) - 1));
+                                voucherUserRepository.save(vu);
+                            });
+                }
+                voucherUsageRepository.delete(usage);
+            }
+        }
     }
 
     private PaymentResponse toPaymentResponse(Payment payment) {

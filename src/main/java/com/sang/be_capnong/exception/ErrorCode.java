@@ -121,6 +121,7 @@ public enum ErrorCode {
     ORDER_NOT_FOUND(7001, "Order not found", HttpStatus.NOT_FOUND),
     INVALID_ORDER_STATE(7002, "Invalid order state transition", HttpStatus.BAD_REQUEST),
     SHOP_NOT_FOUND(7003, "Shop not found or is currently inactive", HttpStatus.BAD_REQUEST),
+    SHIPPER_HAS_ACTIVE_ORDER(7004, "Shipper đang có đơn hàng đang giao. Vui lòng hoàn tất đơn hiện tại trước khi nhận thêm đơn mới", HttpStatus.BAD_REQUEST),
 
     // Cart Errors (Series 8000)
     CART_ITEM_NOT_FOUND(8001, "Cart item not found", HttpStatus.NOT_FOUND),

@@ -374,4 +374,56 @@ public class CartServiceImpl implements CartService {
         if (item.getBuildCombo() != null) return item.getBuildCombo().getComboId();
         return 0;
     }
+
+    @Transactional
+    @Override
+    public void restoreOrderItemsToCart(Order order) {
+        if (order == null || order.getBuyer() == null) {
+            return;
+        }
+
+        User buyer = order.getBuyer();
+        Cart cart = cartRepository.findByUser(buyer).orElseGet(() -> {
+            Cart newCart = Cart.builder().user(buyer).build();
+            return cartRepository.save(newCart);
+        });
+
+        if (order.getOrderDetails() != null && !order.getOrderDetails().isEmpty()) {
+            for (OrderDetail detail : order.getOrderDetails()) {
+                if (detail == null || detail.getQuantity() == null || detail.getQuantity() <= 0) {
+                    continue;
+                }
+
+                String itemType = detail.getItemType() != null ? detail.getItemType() : "PRODUCT";
+                Integer itemId = null;
+                if (detail.getProduct() != null) {
+                    itemType = "PRODUCT";
+                    itemId = detail.getProduct().getProductId();
+                } else if (detail.getMysteryBox() != null) {
+                    itemType = "MYSTERY_BOX";
+                    itemId = detail.getMysteryBox().getMysteryId();
+                } else if (detail.getBuildCombo() != null) {
+                    itemType = "BUILD_COMBO";
+                    itemId = detail.getBuildCombo().getComboId();
+                }
+
+                if (itemId == null) {
+                    continue;
+                }
+
+                CartItem existingItem = findExistingItemInCart(cart, itemType, itemId);
+                if (existingItem != null) {
+                    existingItem.setQuantity(existingItem.getQuantity() + detail.getQuantity());
+                    cartItemRepository.save(existingItem);
+                } else {
+                    CartItem newItem = CartItem.builder()
+                            .cart(cart)
+                            .quantity(detail.getQuantity())
+                            .build();
+                    setCartItemReference(newItem, itemType, itemId);
+                    cartItemRepository.save(newItem);
+                }
+            }
+        }
+    }
 }

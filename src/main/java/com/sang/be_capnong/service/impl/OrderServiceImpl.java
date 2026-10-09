@@ -61,6 +61,7 @@ public class OrderServiceImpl implements OrderService {
     CheckoutBatchRepository checkoutBatchRepository;
     SavedAddressRepository savedAddressRepository;
     GoogleMapService googleMapService;
+    com.sang.be_capnong.service.CartService cartService;
 
     // ============================================================
     //  TẠO ĐƠN HÀNG
@@ -552,6 +553,14 @@ public class OrderServiceImpl implements OrderService {
             log.error("Invalid state transition to SHIPPING for order id {}. Current status: {}", orderId, order.getStatus());
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
+
+        // Bắt buộc 1 đơn tại 1 thời điểm: Kiểm tra xem shipper đã có đơn đang giao chưa
+        boolean hasActiveShipping = orderRepository.existsByShipper_IdAndStatus(currentUser.getId(), OrderStatus.SHIPPING);
+        if (hasActiveShipping) {
+            log.warn("Shipper id {} already has an active shipping order", currentUser.getId());
+            throw new AppException(ErrorCode.SHIPPER_HAS_ACTIVE_ORDER);
+        }
+
         order.setShipper(currentUser);
         order.setStatus(OrderStatus.SHIPPING);
         Order saved = orderRepository.save(order);
@@ -597,6 +606,31 @@ public class OrderServiceImpl implements OrderService {
 
         // Trả lại kho (chỉ chạy 1 lần vì status đã được guard ở trên)
         restoreStock(order);
+
+        // Hoàn trả Voucher nếu có
+        List<VoucherUsage> usages = voucherUsageRepository.findByOrder(order);
+        if (usages != null) {
+            for (VoucherUsage usage : usages) {
+                Voucher v = usage.getVoucher();
+                if (v != null) {
+                    v.setUsedCount(Math.max(0, (v.getUsedCount() != null ? v.getUsedCount() : 0) - 1));
+                    voucherRepository.save(v);
+                }
+                if (order.getBuyer() != null && v != null) {
+                    voucherUserRepository.findByUser_IdAndVoucher_VoucherId(order.getBuyer().getId(), v.getVoucherId())
+                            .ifPresent(vu -> {
+                                vu.setQuantityUsed(Math.max(0, (vu.getQuantityUsed() != null ? vu.getQuantityUsed() : 0) - 1));
+                                voucherUserRepository.save(vu);
+                            });
+                }
+                voucherUsageRepository.delete(usage);
+            }
+        }
+
+        // Nếu đơn hàng bị huỷ khi chưa hoàn tất thanh toán (AWAITING_PAYMENT), hoàn trả lại giỏ hàng cho Buyer
+        if (order.getStatus() == OrderStatus.AWAITING_PAYMENT) {
+            cartService.restoreOrderItemsToCart(order);
+        }
 
         order.setStatus(OrderStatus.CANCELLED);
         Order saved = orderRepository.save(order);

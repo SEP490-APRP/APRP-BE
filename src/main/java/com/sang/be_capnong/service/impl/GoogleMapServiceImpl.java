@@ -81,15 +81,15 @@ public class GoogleMapServiceImpl implements GoogleMapService {
     @Override
     public double[] geocodeAddress(String address) {
         try {
-            // Bước 1: Build URL
-            String url = UriComponentsBuilder.fromUriString(GEOCODING_URL)
+            java.net.URI uri = UriComponentsBuilder.fromUriString(GEOCODING_URL)
                     .queryParam("address", address)
                     .queryParam("key", googleApiKey)
                     .queryParam("language", "vi") // ưu tiên kết quả tiếng Việt
-                    .toUriString();
+                    .build()
+                    .toUri();
 
             log.info("[GoogleMap][Geocode] Geocode địa chỉ: '{}'", address);
-            return callGeocodeApi(url);
+            return callGeocodeApi(uri);
         } catch (Exception e) {
             log.error("[GoogleMap][Geocode] Lỗi khi geocode '{}': {}", address, e.getMessage());
             return null;
@@ -99,30 +99,31 @@ public class GoogleMapServiceImpl implements GoogleMapService {
     @Override
     public double[] geocodePlaceId(String placeId) {
         try {
-            String url = UriComponentsBuilder.fromUriString(GEOCODING_URL)
+            java.net.URI uri = UriComponentsBuilder.fromUriString(GEOCODING_URL)
                     .queryParam("place_id", placeId)
                     .queryParam("key", googleApiKey)
                     .queryParam("language", "vi")
-                    .toUriString();
+                    .build()
+                    .toUri();
 
             log.info("[GoogleMap][Geocode] Geocode place_id: '{}'", placeId);
-            return callGeocodeApi(url);
+            return callGeocodeApi(uri);
         } catch (Exception e) {
             log.error("[GoogleMap][Geocode] Lỗi khi geocode placeId '{}': {}", placeId, e.getMessage());
             return null;
         }
     }
 
-    private double[] callGeocodeApi(String url) {
+    private double[] callGeocodeApi(java.net.URI uri) {
         ResponseEntity<String> rawResponse =
-                restTemplate.exchange(url, HttpMethod.GET, buildHttpEntity(), String.class);
+                restTemplate.exchange(uri, HttpMethod.GET, buildHttpEntity(), String.class);
 
         try {
             GoogleGeocodeResponse response =
                     objectMapper.readValue(rawResponse.getBody(), GoogleGeocodeResponse.class);
 
             if (!"OK".equals(response.getStatus())) {
-                log.warn("[GoogleMap][Geocode] API trả status='{}'", response.getStatus());
+                log.warn("[GoogleMap][Geocode] API trả status='{}', body={}", response.getStatus(), rawResponse.getBody());
                 return null;
             }
 
@@ -202,12 +203,13 @@ public class GoogleMapServiceImpl implements GoogleMapService {
 
         // Ưu tiên 2: Legacy Places Autocomplete API
         try {
-            String url = UriComponentsBuilder.fromUriString(AUTOCOMPLETE_URL)
+            java.net.URI url = UriComponentsBuilder.fromUriString(AUTOCOMPLETE_URL)
                     .queryParam("input", input)
                     .queryParam("key", googleApiKey)
                     .queryParam("language", "vi")
                     .queryParam("components", "country:vn")
-                    .toUriString();
+                    .build()
+                    .toUri();
 
             ResponseEntity<String> rawResp =
                     restTemplate.exchange(url, HttpMethod.GET, buildHttpEntity(), String.class);
@@ -215,21 +217,46 @@ public class GoogleMapServiceImpl implements GoogleMapService {
             GoogleAutocompleteResponse response =
                     objectMapper.readValue(rawResp.getBody(), GoogleAutocompleteResponse.class);
 
-            if (!"OK".equals(response.getStatus()) || response.getPredictions() == null) {
-                return java.util.Collections.emptyList();
+            if ("OK".equals(response.getStatus()) && response.getPredictions() != null && !response.getPredictions().isEmpty()) {
+                return response.getPredictions().stream()
+                        .map(p -> AddressSuggestionResponse.builder()
+                                .placeId(p.getPlaceId())
+                                .description(p.getDescription())
+                                .build())
+                        .toList();
             }
-
-            return response.getPredictions().stream()
-                    .map(p -> AddressSuggestionResponse.builder()
-                            .placeId(p.getPlaceId())
-                            .description(p.getDescription())
-                            .build())
-                    .toList();
-
         } catch (Exception e) {
-            log.error("[GoogleMap][Autocomplete] Lỗi cho input='{}': {}", input, e.getMessage());
-            return java.util.Collections.emptyList();
+            log.warn("[GoogleMap][Autocomplete-Legacy] Lỗi legacy: {}", e.getMessage());
         }
+
+        // Ưu tiên 3: Fallback Geocoding API cho suggestions nếu Places API chưa được bật trên Google Cloud Console
+        try {
+            java.net.URI geoUri = UriComponentsBuilder.fromUriString(GEOCODING_URL)
+                    .queryParam("address", input.trim())
+                    .queryParam("key", googleApiKey)
+                    .queryParam("language", "vi")
+                    .build()
+                    .toUri();
+
+            ResponseEntity<String> rawResp =
+                    restTemplate.exchange(geoUri, HttpMethod.GET, buildHttpEntity(), String.class);
+
+            GoogleGeocodeResponse geoResp =
+                    objectMapper.readValue(rawResp.getBody(), GoogleGeocodeResponse.class);
+
+            if ("OK".equals(geoResp.getStatus()) && geoResp.getResults() != null) {
+                return geoResp.getResults().stream()
+                        .<AddressSuggestionResponse>map(r -> AddressSuggestionResponse.builder()
+                                .placeId(r.getPlaceId() != null ? r.getPlaceId() : "")
+                                .description(r.getFormattedAddress())
+                                .build())
+                        .toList();
+            }
+        } catch (Exception e) {
+            log.warn("[GoogleMap][Geocode-Fallback] Lỗi geocode fallback cho input='{}': {}", input, e.getMessage());
+        }
+
+        return java.util.Collections.emptyList();
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -278,13 +305,14 @@ public class GoogleMapServiceImpl implements GoogleMapService {
             String origins      = originLat + "," + originLng;
             String destinations = destinationLat + "," + destinationLng;
 
-            String url = UriComponentsBuilder.fromUriString(DISTANCE_MATRIX_URL)
+            java.net.URI url = UriComponentsBuilder.fromUriString(DISTANCE_MATRIX_URL)
                     .queryParam("origins", origins)
                     .queryParam("destinations", destinations)
                     .queryParam("key", googleApiKey)
                     .queryParam("mode", "driving")
                     .queryParam("language", "vi")
-                    .toUriString();
+                    .build()
+                    .toUri();
 
             ResponseEntity<GoogleDistanceMatrixResponse> response =
                     restTemplate.exchange(url, HttpMethod.GET, buildHttpEntity(),
@@ -299,10 +327,26 @@ public class GoogleMapServiceImpl implements GoogleMapService {
                 }
             }
         } catch (Exception e) {
-            log.error("[GoogleMap][DistanceMatrix] Lỗi legacy Distance Matrix: {}", e.getMessage());
+            log.warn("[GoogleMap][DistanceMatrix] Lỗi legacy Distance Matrix: {}", e.getMessage());
         }
 
-        return Double.MAX_VALUE;
+        // Ưu tiên 3: Haversine Formula Fallback (bảo đảm luôn tính được khoảng cách ngay cả khi API Google bị 403)
+        double haversineKm = calculateHaversineKm(originLat, originLng, destinationLat, destinationLng);
+        log.info("[GoogleMap][HaversineFallback] Sử dụng công thức Haversine (hệ số 1.25): {} km", haversineKm);
+        return haversineKm;
+    }
+
+    private double calculateHaversineKm(double lat1, double lon1, double lat2, double lon2) {
+        final int R = 6371; // Bán kính Trái Đất (km)
+        double latDistance = Math.toRadians(lat2 - lat1);
+        double lonDistance = Math.toRadians(lon2 - lon1);
+        double a = Math.sin(latDistance / 2) * Math.sin(latDistance / 2)
+                + Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2))
+                * Math.sin(lonDistance / 2) * Math.sin(lonDistance / 2);
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        double distance = R * c;
+        // Hệ số 1.25 bù trừ uốn lượn đường phố thực tế so với đường chim bay
+        return Math.round(distance * 1.25 * 100.0) / 100.0;
     }
 
     // ═══════════════════════════════════════════════════════════════════════

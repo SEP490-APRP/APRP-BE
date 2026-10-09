@@ -10,5 +10,7 @@ import java.util.Optional;
 @Repository
 public interface ShipperLocationRepository extends JpaRepository<ShipperLocation, Integer> {
     Optional<ShipperLocation> findByShipper(User shipper);
+    Optional<ShipperLocation> findTopByOrder_OrderIdOrderByUpdatedAtDesc(int orderId);
+    Optional<ShipperLocation> findByShipperAndOrder_OrderId(User shipper, int orderId);
     void deleteByShipper(User shipper);
 }

@@ -49,6 +49,16 @@ public class ShipperController {
                 .build();
     }
 
+    @Operation(summary = "Lấy vị trí thời gian thực của Shipper theo đơn hàng",
+            description = "[BUYER, SHOP, SHIPPER, ADMIN] Lấy tọa độ và thông tin lộ trình hiện tại của đơn hàng.")
+    @GetMapping("/location/order/{orderId}")
+    public ApiResponse<com.sang.be_capnong.dto.response.ShipperLocationResponse> getShipperLocation(@PathVariable Integer orderId) {
+        return ApiResponse.<com.sang.be_capnong.dto.response.ShipperLocationResponse>builder()
+                .result(shipperService.getShipperLocationByOrder(orderId))
+                .message("Shipper location retrieved successfully")
+                .build();
+    }
+
     // Backward compatibility endpoints with path variable
     @PostMapping("/{shipperId}/status/online")
     public ApiResponse<Void> goOnline(@PathVariable Integer shipperId, @RequestBody @Valid ShipperStatusRequest request) {
