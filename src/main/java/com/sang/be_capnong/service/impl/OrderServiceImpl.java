@@ -865,6 +865,53 @@ public class OrderServiceImpl implements OrderService {
             codAmount = order.getCodAmount() != null ? order.getCodAmount() : order.getTotalAmount();
         }
 
+        Double shopLat = order.getShopLatitude();
+        Double shopLng = order.getShopLongitude();
+        if (shopLat == null && order.getShop() != null) {
+            String addr = order.getShop().getAddress();
+            if (addr != null && !addr.isBlank()) {
+                try {
+                    double[] coords = googleMapService.geocodeAddress(addr);
+                    if (coords != null && coords.length == 2) {
+                        shopLat = coords[0];
+                        shopLng = coords[1];
+                        order.setShopLatitude(shopLat);
+                        order.setShopLongitude(shopLng);
+                    }
+                } catch (Exception ignored) {}
+            }
+        }
+        if (shopLat == null) { shopLat = 10.8500; shopLng = 106.7720; }
+
+        Double destLat = order.getShippingLatitude();
+        Double destLng = order.getShippingLongitude();
+        if (destLat == null && order.getShippingAddress() != null && !order.getShippingAddress().isBlank()) {
+            try {
+                double[] coords = googleMapService.geocodeAddress(order.getShippingAddress());
+                if (coords != null && coords.length == 2) {
+                    destLat = coords[0];
+                    destLng = coords[1];
+                    order.setShippingLatitude(destLat);
+                    order.setShippingLongitude(destLng);
+                }
+            } catch (Exception ignored) {}
+        }
+        if (destLat == null) { destLat = 10.7725; destLng = 106.6578; }
+
+        Double distanceKm = null;
+        if (shopLat != null && shopLng != null && destLat != null && destLng != null) {
+            double r = 6371;
+            double dLat = Math.toRadians(destLat - shopLat);
+            double dLon = Math.toRadians(destLng - shopLng);
+            double a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+                    + Math.cos(Math.toRadians(shopLat)) * Math.cos(Math.toRadians(destLat))
+                    * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            double straightKm = r * c;
+            double roadDist = Math.max(0.4, straightKm * 1.25);
+            distanceKm = Math.round(roadDist * 10.0) / 10.0;
+        }
+
         return OrderResponse.builder()
                 .orderId(order.getOrderId())
                 .batchId(order.getCheckoutBatch() != null ? order.getCheckoutBatch().getId() : null)
@@ -885,6 +932,11 @@ public class OrderServiceImpl implements OrderService {
                 .shipperId(order.getShipper() != null ? order.getShipper().getId() : null)
                 .shipperName(order.getShipper() != null ? order.getShipper().getFullName() : null)
                 .createdAt(order.getCreatedAt())
+                .shopLatitude(shopLat)
+                .shopLongitude(shopLng)
+                .shippingLatitude(destLat)
+                .shippingLongitude(destLng)
+                .distanceKm(distanceKm)
                 .items(itemResponses)
                 .build();
     }

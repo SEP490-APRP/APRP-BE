@@ -34,4 +34,5 @@ public class ShipperLocationResponse {
     String orderStatus;
     Boolean isFake;
     Boolean gpsOff;
+    String deliveryPhase;
 }

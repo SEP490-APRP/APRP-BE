@@ -14,4 +14,5 @@ public class ShipperLocationRequest {
     Double longitude;
     Boolean isFake;
     Boolean gpsOff;
+    String deliveryPhase;
 }

@@ -59,10 +59,10 @@ public class ShipperWebSocketController {
         }
 
         // Fallback: nếu không có principal thì lấy shipper được gán cho order
-        if (shipper == null) {
+        if (shipper == null && request.getOrderId() != null) {
             Order order = orderRepository.findById(request.getOrderId()).orElse(null);
             if (order != null && order.getShipper() != null) {
-                shipper = order.getShipper();
+                shipper = userRepository.findById(order.getShipper().getId()).orElse(null);
             }
         }
 

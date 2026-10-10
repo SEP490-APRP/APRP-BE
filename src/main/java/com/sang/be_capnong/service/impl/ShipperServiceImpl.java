@@ -100,28 +100,42 @@ public class ShipperServiceImpl implements ShipperService {
     @Override
     @Transactional
     public com.sang.be_capnong.dto.response.ShipperLocationResponse updateLocationByShipper(User shipper, com.sang.be_capnong.dto.request.ShipperLocationRequest request) {
+        if (shipper != null) {
+            shipper = userRepository.findById(shipper.getId()).orElse(shipper);
+        }
+
         com.sang.be_capnong.entity.Order order = null;
         if (request.getOrderId() != null) {
             order = orderRepository.findById(request.getOrderId()).orElse(null);
         }
 
+        if (shipper == null && order != null && order.getShipper() != null) {
+            shipper = userRepository.findById(order.getShipper().getId()).orElse(null);
+        }
+
         ShipperLocation location = null;
-        if (order != null) {
+        if (order != null && shipper != null) {
             location = shipperLocationRepository.findByShipperAndOrder_OrderId(shipper, order.getOrderId())
                     .orElse(null);
         }
-        if (location == null) {
+        if (location == null && shipper != null) {
             location = shipperLocationRepository.findByShipper(shipper)
                     .orElse(ShipperLocation.builder().shipper(shipper).build());
         }
 
-        location.setOrder(order);
-        location.setLatitude(request.getLatitude());
-        location.setLongitude(request.getLongitude());
-        location.setUpdatedAt(LocalDateTime.now());
-        shipperLocationRepository.save(location);
+        if (location != null) {
+            location.setOrder(order);
+            location.setLatitude(request.getLatitude());
+            location.setLongitude(request.getLongitude());
+            if (request.getDeliveryPhase() != null && !request.getDeliveryPhase().isBlank()) {
+                location.setDeliveryPhase(request.getDeliveryPhase());
+            }
+            location.setUpdatedAt(LocalDateTime.now());
+            shipperLocationRepository.save(location);
+        }
 
-        return buildLocationResponse(order, shipper, location, request.getIsFake(), request.getGpsOff());
+        String phase = location != null ? location.getDeliveryPhase() : request.getDeliveryPhase();
+        return buildLocationResponse(order, shipper, location, request.getIsFake(), request.getGpsOff(), phase);
     }
 
     @Override
@@ -129,7 +143,11 @@ public class ShipperServiceImpl implements ShipperService {
         com.sang.be_capnong.entity.Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
 
-        User shipper = order.getShipper();
+        User shipper = null;
+        if (order.getShipper() != null) {
+            shipper = userRepository.findById(order.getShipper().getId()).orElse(null);
+        }
+
         ShipperLocation location = null;
         if (shipper != null) {
             location = shipperLocationRepository.findByShipperAndOrder_OrderId(shipper, orderId)
@@ -142,7 +160,18 @@ public class ShipperServiceImpl implements ShipperService {
             location = shipperLocationRepository.findTopByOrder_OrderIdOrderByUpdatedAtDesc(orderId).orElse(null);
         }
 
-        return buildLocationResponse(order, shipper, location, false, false);
+        String phase = location != null ? location.getDeliveryPhase() : null;
+        if (phase == null && order.getStatus() != null) {
+            if (order.getStatus() == com.sang.be_capnong.enums.OrderStatus.SHIPPING) {
+                phase = "TO_BUYER";
+            } else if (order.getStatus() == com.sang.be_capnong.enums.OrderStatus.DELIVERED || order.getStatus() == com.sang.be_capnong.enums.OrderStatus.COMPLETED) {
+                phase = "DELIVERED";
+            } else {
+                phase = "TO_SHOP";
+            }
+        }
+
+        return buildLocationResponse(order, shipper, location, false, false, phase);
     }
 
     private com.sang.be_capnong.dto.response.ShipperLocationResponse buildLocationResponse(
@@ -150,18 +179,53 @@ public class ShipperServiceImpl implements ShipperService {
             User shipper,
             ShipperLocation location,
             Boolean isFake,
-            Boolean gpsOff) {
+            Boolean gpsOff,
+            String deliveryPhase) {
 
         Double lat = location != null ? location.getLatitude() : null;
         Double lng = location != null ? location.getLongitude() : null;
         LocalDateTime updatedAt = location != null ? location.getUpdatedAt() : LocalDateTime.now();
 
-        // Shop info
-        User shop = order != null ? order.getShop() : null;
+        // Shipper info (null-safe and lazy-safe)
+        String shipperName = "Tài xế";
+        String shipperPhone = "";
+        String vehicleNumber = "";
+        Integer shipperId = null;
+
+        if (shipper != null) {
+            shipperId = shipper.getId();
+            try {
+                shipperName = shipper.getFullName() != null ? shipper.getFullName() : "Tài xế";
+                shipperPhone = shipper.getPhoneNumber() != null ? shipper.getPhoneNumber() : "";
+                vehicleNumber = shipper.getVehicleNumber() != null ? shipper.getVehicleNumber() : "";
+            } catch (Exception e) {
+                User fullShipper = userRepository.findById(shipperId).orElse(null);
+                if (fullShipper != null) {
+                    shipperName = fullShipper.getFullName() != null ? fullShipper.getFullName() : "Tài xế";
+                    shipperPhone = fullShipper.getPhoneNumber() != null ? fullShipper.getPhoneNumber() : "";
+                    vehicleNumber = fullShipper.getVehicleNumber() != null ? fullShipper.getVehicleNumber() : "";
+                }
+            }
+        }
+
+        // Shop info (null-safe and lazy-safe)
         Double shopLat = order != null ? order.getShopLatitude() : null;
         Double shopLng = order != null ? order.getShopLongitude() : null;
-        String shopAddress = shop != null ? shop.getAddress() : null;
-        String shopName = shop != null ? shop.getShopName() : null;
+        String shopAddress = null;
+        String shopName = null;
+
+        if (order != null && order.getShop() != null) {
+            try {
+                shopAddress = order.getShop().getAddress();
+                shopName = order.getShop().getShopName();
+            } catch (Exception e) {
+                User fullShop = userRepository.findById(order.getShop().getId()).orElse(null);
+                if (fullShop != null) {
+                    shopAddress = fullShop.getAddress();
+                    shopName = fullShop.getShopName();
+                }
+            }
+        }
 
         if ((shopLat == null || shopLng == null) && shopAddress != null && !shopAddress.isBlank()) {
             try {
@@ -214,10 +278,10 @@ public class ShipperServiceImpl implements ShipperService {
 
         return com.sang.be_capnong.dto.response.ShipperLocationResponse.builder()
                 .orderId(order != null ? order.getOrderId() : null)
-                .shipperId(shipper != null ? shipper.getId() : null)
-                .shipperName(shipper != null ? shipper.getFullName() : "Tài xế")
-                .shipperPhone(shipper != null ? shipper.getPhoneNumber() : "")
-                .vehicleNumber(shipper != null ? shipper.getVehicleNumber() : "")
+                .shipperId(shipperId)
+                .shipperName(shipperName)
+                .shipperPhone(shipperPhone)
+                .vehicleNumber(vehicleNumber)
                 .latitude(lat != null ? lat : shopLat)
                 .longitude(lng != null ? lng : shopLng)
                 .updatedAt(updatedAt)
@@ -233,6 +297,7 @@ public class ShipperServiceImpl implements ShipperService {
                 .orderStatus(order != null && order.getStatus() != null ? order.getStatus().name() : "")
                 .isFake(isFake)
                 .gpsOff(gpsOff)
+                .deliveryPhase(deliveryPhase)
                 .build();
     }
 }
