@@ -31,7 +31,8 @@ public class SecurityConfig {
             "/oauth2/**",
             "/login/**",
             "/error",
-            "/ws/**"
+            "/ws/**",
+            "/api/v1/ws/**"
     };
 
     /**
