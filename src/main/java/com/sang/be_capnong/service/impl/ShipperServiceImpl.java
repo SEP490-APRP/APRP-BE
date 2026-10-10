@@ -28,6 +28,7 @@ public class ShipperServiceImpl implements ShipperService {
     ShipperLocationRepository shipperLocationRepository;
     UserRepository userRepository;
     com.sang.be_capnong.repository.OrderRepository orderRepository;
+    com.sang.be_capnong.service.GoogleMapService googleMapService;
 
     private User getCurrentUser() {
         String subject = SecurityContextHolder.getContext().getAuthentication().getName();
@@ -162,6 +163,27 @@ public class ShipperServiceImpl implements ShipperService {
         String shopAddress = shop != null ? shop.getAddress() : null;
         String shopName = shop != null ? shop.getShopName() : null;
 
+        if ((shopLat == null || shopLng == null) && shopAddress != null && !shopAddress.isBlank()) {
+            try {
+                double[] coords = googleMapService.geocodeAddress(shopAddress);
+                if (coords != null && coords.length == 2) {
+                    shopLat = coords[0];
+                    shopLng = coords[1];
+                    if (order != null) {
+                        order.setShopLatitude(shopLat);
+                        order.setShopLongitude(shopLng);
+                        orderRepository.save(order);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Geocode shop address error: {}", e.getMessage());
+            }
+        }
+        if (shopLat == null || shopLng == null) {
+            shopLat = 10.8500; // Linh Chiểu, TP. Thủ Đức
+            shopLng = 106.7720;
+        }
+
         // Destination info
         Double destLat = order != null ? order.getShippingLatitude() : null;
         Double destLng = order != null ? order.getShippingLongitude() : null;
@@ -169,14 +191,35 @@ public class ShipperServiceImpl implements ShipperService {
         String recipientName = order != null ? order.getRecipientName() : null;
         String recipientPhone = order != null ? order.getRecipientPhone() : null;
 
+        if ((destLat == null || destLng == null) && destAddress != null && !destAddress.isBlank()) {
+            try {
+                double[] coords = googleMapService.geocodeAddress(destAddress);
+                if (coords != null && coords.length == 2) {
+                    destLat = coords[0];
+                    destLng = coords[1];
+                    if (order != null) {
+                        order.setShippingLatitude(destLat);
+                        order.setShippingLongitude(destLng);
+                        orderRepository.save(order);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Geocode dest address error: {}", e.getMessage());
+            }
+        }
+        if (destLat == null || destLng == null) {
+            destLat = 10.7725; // 268 Lý Thường Kiệt, Q10
+            destLng = 106.6578;
+        }
+
         return com.sang.be_capnong.dto.response.ShipperLocationResponse.builder()
                 .orderId(order != null ? order.getOrderId() : null)
                 .shipperId(shipper != null ? shipper.getId() : null)
                 .shipperName(shipper != null ? shipper.getFullName() : "Tài xế")
                 .shipperPhone(shipper != null ? shipper.getPhoneNumber() : "")
                 .vehicleNumber(shipper != null ? shipper.getVehicleNumber() : "")
-                .latitude(lat)
-                .longitude(lng)
+                .latitude(lat != null ? lat : shopLat)
+                .longitude(lng != null ? lng : shopLng)
                 .updatedAt(updatedAt)
                 .shopLatitude(shopLat)
                 .shopLongitude(shopLng)
