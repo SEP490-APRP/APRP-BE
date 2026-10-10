@@ -783,7 +783,59 @@ INSERT INTO products (product_id, shop_id, category_id, product_name, unit, sell
 (208, 5, 3, 'Dưa hấu ruột đỏ ngọt lịm', 'kg', 14000, 180, 'Dưa hấu vỏ mỏng ruột đỏ đặc ruột, ngọt lịm giải nhiệt.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 14 DAY), 0)
 ON DUPLICATE KEY UPDATE product_name=VALUES(product_name), selling_price=VALUES(selling_price);
 
--- 3.5 PRODUCT IMAGES
+-- 3.5 MYSTERY BOXES & BUILD COMBOS (REFERENCED FROM EXE.SQL / SWD.SQL)
+-- Dữ liệu này giúp buyer page getMysteryBoxes / getCombos trả về data thực thay vì fallback mock.
+INSERT INTO mystery_boxes (mystery_id, shop_id, box_type, image_url, price, description, note, is_active, total_quantity, sold_quantity) VALUES
+(1, 4, 'Hộp Củ Bí Ẩn Đà Lạt', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774253772/brands/sftnvmjw2mvym1plcpql.jpg', 89000, 'Hộp củ bí ẩn từ vườn organic Đà Lạt, gồm 4-5 loại củ tươi ngon được chọn lọc kỹ càng.', 'Giao hàng trong ngày, bảo đảm tươi sạch', 1, 20, 5),
+(2, 4, 'Hộp Trái Cây Dinh Dưỡng', 'https://images.unsplash.com/photo-1619566636858-adf3ef46400b?w=400&h=300&fit=crop', 129000, 'Hộp trái cây bí ẩn gồm 3-4 loại quả tươi ngon, giàu vitamin và khoáng chất.', 'Giá trị thực tế cao hơn 30% so với giá bán', 1, 15, 3),
+(3, 5, 'Hộp Củ Quả Miền Tây', 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=400&h=300&fit=crop', 75000, 'Hộp củ quả đặc sản miền Tây gồm 4-5 loại tươi xanh mát, phù hợp nấu canh và xào.', 'Thu hoạch buổi sáng, giao ngay trong ngày', 1, 25, 8),
+(4, 5, 'Hộp Trái Cây Nhiệt Đới', 'https://images.unsplash.com/photo-1553279768-865429fa0078?w=400&h=300&fit=crop', 149000, 'Hộp trái cây nhiệt đới gồm 4-5 loại trái cây ngọt ngon, tươi mát cho mùa hè.', 'Phù hợp giải nhiệt mùa hè', 1, 15, 4)
+ON DUPLICATE KEY UPDATE box_type=VALUES(box_type), price=VALUES(price), description=VALUES(description);
+
+SET @box_shop1_1 = (SELECT mystery_id FROM mystery_boxes WHERE box_type='Hộp Củ Bí Ẩn Đà Lạt' AND shop_id=4);
+SET @box_shop1_2 = (SELECT mystery_id FROM mystery_boxes WHERE box_type='Hộp Trái Cây Dinh Dưỡng' AND shop_id=4);
+SET @box_shop2_1 = (SELECT mystery_id FROM mystery_boxes WHERE box_type='Hộp Củ Quả Miền Tây' AND shop_id=5);
+SET @box_shop2_2 = (SELECT mystery_id FROM mystery_boxes WHERE box_type='Hộp Trái Cây Nhiệt Đới' AND shop_id=5);
+
+INSERT INTO product_mystery (product_id, mystery_id, product_quantity) VALUES
+(105, @box_shop1_1, 1), (106, @box_shop1_1, 1), (107, @box_shop1_1, 1), (104, @box_shop1_1, 1),
+(108, @box_shop1_2, 1), (109, @box_shop1_2, 1), (102, @box_shop1_2, 1),
+(203, @box_shop2_1, 1), (204, @box_shop2_1, 1), (206, @box_shop2_1, 1), (207, @box_shop2_1, 1),
+(208, @box_shop2_2, 2), (205, @box_shop2_2, 1), (206, @box_shop2_2, 1)
+ON DUPLICATE KEY UPDATE product_quantity=VALUES(product_quantity);
+
+INSERT INTO build_combos (combo_id, shop_id, combo_name, price, description, type, meal_type, region, total_quantity, sold_quantity, image_url, status) VALUES
+(1, 4, 'Combo Detox Củ Quả Sáng', 70000, 'Bộ củ quả giải độc buổi sáng: cà rốt tươi ngọt, cần tây giòn mát, gừng ấm bụng, dưa leo thanh mát.', 'Available', 'BREAKFAST', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916721/brands/uj1eoinkwvthfjvtpvpq.jpg', 'ACTIVE'),
+(2, 4, 'Combo Salad Eat Clean Đà Lạt', 75000, 'Bộ rau củ cho bữa salad eat clean: dưa leo giòn mát, cà chua đỏ ngọt, ớt chuông nhiều vitamin C, cần tây ít calo.', 'Available', 'BREAKFAST', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917431/brands/yif2icgotbydg5qvzvbf.jpg', 'ACTIVE'),
+(3, 4, 'Combo Hầm Súp Củ Quả', 85000, 'Rau củ đầy đủ để hầm nồi súp bổ dưỡng: cà rốt, khoai tây, bí đỏ, hành tây.', 'Available', 'LUNCH', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916676/brands/bmgnazybi0rro8bnxhwp.jpg', 'ACTIVE'),
+(4, 4, 'Combo Xào Củ Quả Thập Cẩm', 75000, 'Hỗn hợp củ quả để xào nhanh: hành tây, cà chua, mướp, tỏi.', 'Available', 'LUNCH', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917463/brands/xjz74sedvolg7woxywpo.jpg', 'ACTIVE'),
+(5, 4, 'Combo Tráng Miệng Trái Cây Đà Lạt', 175000, 'Bộ trái cây Đà Lạt tươi cho bữa tráng miệng: dâu tây, táo, chuối.', 'Available', 'SNACK', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773943061/brands/qtspypfmdjcxtsbme7xi.jpg', 'ACTIVE'),
+(6, 5, 'Combo Ép Vitamin C Buổi Sáng', 110000, 'Trái cây giàu vitamin C cho buổi sáng: cam, bưởi, ổi.', 'Available', 'BREAKFAST', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916481/brands/s5ld5232nl4s4fwczawr.jpg', 'ACTIVE'),
+(7, 5, 'Combo Xào Cà Tím Sả Ớt', 60000, 'Nguyên liệu xào cà tím đặc sản miền Nam: cà tím, hành tím, sả, ớt đỏ.', 'Available', 'LUNCH', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773943685/brands/sn8j7wqbpp6uhtitk5nf.jpg', 'ACTIVE'),
+(8, 5, 'Combo Giải Nhiệt Mùa Hè', 75000, 'Trái cây giải nhiệt mùa hè: dưa hấu, thanh long, cam.', 'Available', 'SNACK', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917373/brands/h0mivuwgipa6hssaawfi.jpg', 'ACTIVE')
+ON DUPLICATE KEY UPDATE combo_name=VALUES(combo_name), price=VALUES(price), description=VALUES(description), status=VALUES(status);
+
+SET @combo_detox = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Detox Củ Quả Sáng' AND shop_id=4);
+SET @combo_salad = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Salad Eat Clean Đà Lạt' AND shop_id=4);
+SET @combo_sup = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Hầm Súp Củ Quả' AND shop_id=4);
+SET @combo_xao = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Xào Củ Quả Thập Cẩm' AND shop_id=4);
+SET @combo_fruit = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Tráng Miệng Trái Cây Đà Lạt' AND shop_id=4);
+SET @combo_vitamin = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Ép Vitamin C Buổi Sáng' AND shop_id=5);
+SET @combo_ca_tim = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Xào Cà Tím Sả Ớt' AND shop_id=5);
+SET @combo_cool = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Giải Nhiệt Mùa Hè' AND shop_id=5);
+
+INSERT INTO product_combo (combo_id, product_id, product_quantity) VALUES
+(@combo_detox, 105, 1), (@combo_detox, 102, 1), (@combo_detox, 107, 1), (@combo_detox, 103, 1),
+(@combo_salad, 103, 1), (@combo_salad, 108, 1), (@combo_salad, 104, 1), (@combo_salad, 105, 1),
+(@combo_sup, 105, 1), (@combo_sup, 106, 1), (@combo_sup, 107, 1), (@combo_sup, 104, 1),
+(@combo_xao, 104, 1), (@combo_xao, 108, 1), (@combo_xao, 107, 1), (@combo_xao, 109, 1),
+(@combo_fruit, 109, 1), (@combo_fruit, 101, 1), (@combo_fruit, 102, 1),
+(@combo_vitamin, 206, 1), (@combo_vitamin, 205, 1), (@combo_vitamin, 207, 1),
+(@combo_ca_tim, 204, 1), (@combo_ca_tim, 203, 1), (@combo_ca_tim, 202, 1), (@combo_ca_tim, 201, 1),
+(@combo_cool, 208, 2), (@combo_cool, 206, 1), (@combo_cool, 205, 1)
+ON DUPLICATE KEY UPDATE product_quantity=VALUES(product_quantity);
+
+-- 3.6 PRODUCT IMAGES
 INSERT INTO product_images (product_id, image_url, is_primary, display_order) VALUES
 (101, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773943166/brands/ezrip6hvips9nwmyottf.jpg', 1, 1),
 (102, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773943139/brands/mhfnqgigq3xwxivi3r0u.jpg', 1, 1),
