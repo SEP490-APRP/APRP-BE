@@ -16,8 +16,13 @@ public class ModerationCheckResult {
     boolean isFlagged;
     BigDecimal overallConfidence;
     String rejectionReason;
+    String flagReason;
     String rawResponse;
     List<ModerationLabelItem> labels;
+
+    public String getFlagReason() {
+        return flagReason != null ? flagReason : rejectionReason;
+    }
 
     @Data
     @Builder

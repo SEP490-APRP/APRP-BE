@@ -72,7 +72,7 @@ class ProductImageServiceTest {
 
     @BeforeEach
     void setUp() {
-        lenient().when(imageModerationService.checkImageUrl(any(), any()))
+        lenient().when(imageModerationService.checkImageUrl(any(), any(), any()))
                 .thenReturn(ModerationCheckResult.builder()
                         .isAgricultural(true)
                         .isFlagged(false)
@@ -259,7 +259,7 @@ class ProductImageServiceTest {
 
     @Test
     void getProductImages_success() {
-        when(productRepository.existsById(10)).thenReturn(true);
+        when(productRepository.findById(10)).thenReturn(Optional.of(sampleProduct));
         when(productImageRepository.findByProduct_ProductIdOrderByDisplayOrderAscIdAsc(10))
                 .thenReturn(List.of(sampleImage));
         when(productImageMapper.toProductImageResponseList(anyList()))
@@ -273,7 +273,7 @@ class ProductImageServiceTest {
 
     @Test
     void getProductImages_productNotFound_throwsAppException() {
-        when(productRepository.existsById(999)).thenReturn(false);
+        when(productRepository.findById(999)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> productImageService.getProductImages(999))
                 .isInstanceOf(AppException.class)
@@ -568,7 +568,7 @@ class ProductImageServiceTest {
     void addImage_rejectedByModeration_cleansUpCloudinaryImage() {
         mockAuthenticatedUser(1);
         when(productRepository.findById(10)).thenReturn(Optional.of(sampleProduct));
-        when(imageModerationService.checkImageUrl(eq("https://cdn.capnong.vn/car.jpg"), any()))
+        when(imageModerationService.checkImageUrl(eq("https://cdn.capnong.vn/car.jpg"), any(), any()))
                 .thenReturn(ModerationCheckResult.builder()
                         .isAgricultural(false)
                         .isFlagged(true)
@@ -609,7 +609,7 @@ class ProductImageServiceTest {
     void addImage_level2Flagged_savesImageAndModerationResultWithFlag() {
         mockAuthenticatedUser(1);
         when(productRepository.findById(10)).thenReturn(Optional.of(sampleProduct));
-        when(imageModerationService.checkImageUrl(eq("https://cdn.capnong.vn/watermelon-ugly.jpg"), eq("Xoài cát Cần Thơ")))
+        when(imageModerationService.checkImageUrl(eq("https://cdn.capnong.vn/watermelon-ugly.jpg"), any(), any()))
                 .thenReturn(ModerationCheckResult.builder()
                         .isAgricultural(true)
                         .isFlagged(true)
@@ -637,5 +637,120 @@ class ProductImageServiceTest {
         verify(productImageRepository).save(any(ProductImage.class));
         // Mức 2: Kết quả kiểm duyệt gắn cờ ĐƯỢC lưu vào CSDL
         verify(moderationResultRepository).save(any());
+    }
+
+    @Test
+    void addImage_exceedsMaxImagesLimit_throwsAppException() {
+        mockAuthenticatedUser(1);
+        when(productRepository.findById(10)).thenReturn(Optional.of(sampleProduct));
+        when(productImageRepository.countByProduct_ProductId(10)).thenReturn(8L);
+
+        ProductImageCreationRequest req = ProductImageCreationRequest.builder()
+                .imageUrl("https://cdn.capnong.vn/9th-image.jpg")
+                .build();
+
+        assertThatThrownBy(() -> productImageService.addImage(10, req))
+                .isInstanceOf(AppException.class)
+                .hasFieldOrPropertyWithValue("errorCode", ErrorCode.MAX_PRODUCT_IMAGES_EXCEEDED);
+
+        verify(productImageRepository, never()).save(any());
+    }
+
+    @Test
+    void setPrimaryImage_activeProduct_transitionsProductToPending() {
+        mockAuthenticatedUser(1);
+        sampleProduct.setStatus("ACTIVE");
+        when(productRepository.findById(10)).thenReturn(Optional.of(sampleProduct));
+        when(productImageRepository.findById(100L)).thenReturn(Optional.of(sampleImage));
+        when(productImageRepository.findByProduct_ProductIdAndIsPrimaryTrue(10)).thenReturn(List.of());
+        when(productImageRepository.save(any(ProductImage.class))).thenReturn(sampleImage);
+        when(productImageMapper.toProductImageResponse(sampleImage)).thenReturn(sampleResponse);
+
+        productImageService.setPrimaryImage(10, 100L);
+
+        assertThat(sampleProduct.getStatus()).isEqualTo("PENDING");
+        assertThat(sampleProduct.getRejectReason()).isNull();
+        verify(productRepository).save(sampleProduct);
+    }
+
+    @Test
+    void deleteImage_removesAllImages_transitionsProductToInactive() {
+        mockAuthenticatedUser(1);
+        sampleProduct.setStatus("ACTIVE");
+        when(productRepository.findById(10)).thenReturn(Optional.of(sampleProduct));
+        when(productImageRepository.findById(100L)).thenReturn(Optional.of(sampleImage));
+        when(productImageRepository.findByProduct_ProductIdOrderByDisplayOrderAscIdAsc(10))
+                .thenReturn(List.of());
+
+        productImageService.deleteImage(10, 100L);
+
+        verify(productImageRepository).delete(sampleImage);
+        verify(cloudinaryService).deleteImageByUrl(sampleImage.getImageUrl());
+        assertThat(sampleProduct.getStatus()).isEqualTo("INACTIVE");
+        assertThat(sampleProduct.getRejectReason()).contains("không còn hình ảnh nào");
+        verify(productRepository).save(sampleProduct);
+    }
+
+    @Test
+    void deleteImage_removesFlaggedImage_autoUnflagsProductWhenRemainingClean() {
+        mockAuthenticatedUser(1);
+        sampleImage.setIsFlagged(true);
+        ProductImage cleanImage = ProductImage.builder()
+                .id(101L)
+                .imageUrl("https://cdn.capnong.vn/clean.jpg")
+                .isFlagged(false)
+                .isApproved(true)
+                .product(sampleProduct)
+                .build();
+
+        com.sang.be_capnong.entity.ModerationResult mr = com.sang.be_capnong.entity.ModerationResult.builder()
+                .id(1)
+                .product(sampleProduct)
+                .isFlagged(true)
+                .moderationLabels(new ArrayList<>())
+                .build();
+
+        when(productRepository.findById(10)).thenReturn(Optional.of(sampleProduct));
+        when(productImageRepository.findById(100L)).thenReturn(Optional.of(sampleImage));
+        when(productImageRepository.findByProduct_ProductIdOrderByDisplayOrderAscIdAsc(10))
+                .thenReturn(List.of(cleanImage));
+        when(moderationResultRepository.findByProduct_ProductId(10)).thenReturn(Optional.of(mr));
+
+        productImageService.deleteImage(10, 100L);
+
+        verify(productImageRepository).delete(sampleImage);
+        assertThat(mr.getIsFlagged()).isFalse();
+        verify(moderationResultRepository).save(mr);
+    }
+
+    @Test
+    void approveImage_adminApprovesImage_unflagsProductWhenAllClean() {
+        sampleImage.setIsFlagged(true);
+        sampleImage.setIsApproved(false);
+        sampleImage.setFlagReason("Ảnh xấu mã");
+
+        com.sang.be_capnong.entity.ModerationResult mr = com.sang.be_capnong.entity.ModerationResult.builder()
+                .id(1)
+                .product(sampleProduct)
+                .isFlagged(true)
+                .moderationLabels(new ArrayList<>())
+                .build();
+
+        when(productRepository.findById(10)).thenReturn(Optional.of(sampleProduct));
+        when(productImageRepository.findById(100L)).thenReturn(Optional.of(sampleImage));
+        when(productImageRepository.save(any(ProductImage.class))).thenReturn(sampleImage);
+        when(productImageRepository.findByProduct_ProductIdOrderByDisplayOrderAscIdAsc(10))
+                .thenReturn(List.of(sampleImage));
+        when(moderationResultRepository.findByProduct_ProductId(10)).thenReturn(Optional.of(mr));
+        when(productImageMapper.toProductImageResponse(sampleImage)).thenReturn(sampleResponse);
+
+        ProductImageResponse res = productImageService.approveImage(10, 100L);
+
+        assertThat(res).isNotNull();
+        assertThat(sampleImage.getIsApproved()).isTrue();
+        assertThat(sampleImage.getIsFlagged()).isFalse();
+        assertThat(sampleImage.getFlagReason()).isNull();
+        assertThat(mr.getIsFlagged()).isFalse();
+        verify(moderationResultRepository).save(mr);
     }
 }

@@ -17,4 +17,6 @@ public interface ProductImageService {
     ProductImageResponse setPrimaryImage(Integer productId, Long imageId);
 
     void deleteImage(Integer productId, Long imageId);
+ 
+    ProductImageResponse approveImage(Integer productId, Long imageId);
 }

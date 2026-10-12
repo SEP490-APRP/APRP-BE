@@ -282,4 +282,79 @@ class GoogleVisionModerationServiceImplTest {
         assertThat(result.getRejectionReason()).contains("Dưa hấu");
         assertThat(result.getRejectionReason()).contains("Cà chua");
     }
+
+    @Test
+    @DisplayName("Combo: Món ăn thành phẩm (Lẩu, 85%) với categoryId=5 -> Cho phép với cờ Mức 2")
+    void checkImageUrl_comboCookedFood_allowsWithLevel2Flag() {
+        when(imageDownloadService.download(anyString())).thenReturn(new byte[]{1, 2, 3});
+
+        EntityAnnotation hotpot = EntityAnnotation.newBuilder()
+                .setDescription("Hot pot")
+                .setScore(0.85f)
+                .build();
+
+        BatchAnnotateImagesResponse batchRes = BatchAnnotateImagesResponse.newBuilder()
+                .addResponses(buildAnnotateResponse(List.of(hotpot), null))
+                .build();
+
+        when(imageAnnotatorClient.batchAnnotateImages(anyList())).thenReturn(batchRes);
+
+        ModerationCheckResult result = moderationService.checkImageUrl(
+                "https://cdn.capnong.vn/hotpot.jpg", "Combo Lẩu Nấm Gia Đình", 5);
+
+        assertThat(result.isAgricultural()).isTrue();
+        assertThat(result.isFlagged()).isTrue();
+        assertThat(result.getRejectionReason()).contains("Combo");
+        assertThat(result.getRejectionReason()).contains("Món lẩu");
+    }
+
+    @Test
+    @DisplayName("Mystery Box: Bao bì hộp quà (Gift basket, 88%) với categoryId=5 -> Cho phép với cờ Mức 2")
+    void checkImageUrl_mysteryBoxPackaging_allowsWithLevel2Flag() {
+        when(imageDownloadService.download(anyString())).thenReturn(new byte[]{1, 2, 3});
+
+        EntityAnnotation basket = EntityAnnotation.newBuilder()
+                .setDescription("Gift basket")
+                .setScore(0.88f)
+                .build();
+
+        BatchAnnotateImagesResponse batchRes = BatchAnnotateImagesResponse.newBuilder()
+                .addResponses(buildAnnotateResponse(List.of(basket), null))
+                .build();
+
+        when(imageAnnotatorClient.batchAnnotateImages(anyList())).thenReturn(batchRes);
+
+        ModerationCheckResult result = moderationService.checkImageUrl(
+                "https://cdn.capnong.vn/basket.jpg", "Túi mù Nông sản Bí Ẩn", 5);
+
+        assertThat(result.isAgricultural()).isTrue();
+        assertThat(result.isFlagged()).isTrue();
+        assertThat(result.getRejectionReason()).contains("Túi mù");
+        assertThat(result.getRejectionReason()).contains("Giỏ quà tặng");
+    }
+
+    @Test
+    @DisplayName("Combo: Chứa đồ uống có cồn (Bia, 95%) với categoryId=5 -> Vẫn bị chặn cứng Mức 1")
+    void checkImageUrl_comboWithAlcohol_hardBlocked() {
+        when(imageDownloadService.download(anyString())).thenReturn(new byte[]{1, 2, 3});
+
+        EntityAnnotation beer = EntityAnnotation.newBuilder()
+                .setDescription("Beer")
+                .setScore(0.95f)
+                .build();
+
+        BatchAnnotateImagesResponse batchRes = BatchAnnotateImagesResponse.newBuilder()
+                .addResponses(buildAnnotateResponse(List.of(beer), null))
+                .build();
+
+        when(imageAnnotatorClient.batchAnnotateImages(anyList())).thenReturn(batchRes);
+
+        ModerationCheckResult result = moderationService.checkImageUrl(
+                "https://cdn.capnong.vn/beer.jpg", "Combo Tiệc Nướng Nông Trại", 5);
+
+        assertThat(result.isAgricultural()).isFalse();
+        assertThat(result.isFlagged()).isTrue();
+        assertThat(result.getRejectionReason()).contains("đồ uống có cồn");
+        assertThat(result.getRejectionReason()).contains("Bia");
+    }
 }

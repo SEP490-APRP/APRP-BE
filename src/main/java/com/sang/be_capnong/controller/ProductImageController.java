@@ -83,4 +83,16 @@ public class ProductImageController {
                 .message("Product image deleted successfully")
                 .build();
     }
+
+    @PatchMapping("/{imageId}/approve")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<ProductImageResponse> approveImage(
+            @PathVariable("productId") Integer productId,
+            @PathVariable("imageId") Long imageId
+    ) {
+        log.info("REST request to approve image id: {} for product id: {}", imageId, productId);
+        return ApiResponse.<ProductImageResponse>builder()
+                .result(productImageService.approveImage(productId, imageId))
+                .build();
+    }
 }

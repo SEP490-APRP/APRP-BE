@@ -32,4 +32,40 @@ public class SecurityUtils {
             throw new AppException(ErrorCode.UNAUTHENTICATED);
         }
     }
+
+    public static Integer getCurrentUserIdOrNull() {
+        try {
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            if (authentication == null || !authentication.isAuthenticated()) {
+                return null;
+            }
+
+            Object principal = authentication.getPrincipal();
+            if (principal instanceof Jwt jwt) {
+                return Integer.parseInt(jwt.getSubject());
+            }
+
+            return Integer.parseInt(authentication.getName());
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    public static boolean hasRole(String role) {
+        try {
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            if (authentication == null || !authentication.isAuthenticated()) {
+                return false;
+            }
+            String targetRole = role.startsWith("ROLE_") ? role : "ROLE_" + role;
+            return authentication.getAuthorities().stream()
+                    .anyMatch(a -> a.getAuthority().equalsIgnoreCase(targetRole) || a.getAuthority().equalsIgnoreCase(role));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public static boolean isAdmin() {
+        return hasRole("ADMIN");
+    }
 }
