@@ -48,6 +48,14 @@ public enum NonAgriculturalItem {
         }
     }
 
+    public boolean isAlcoholic() {
+        return this == ALCOHOL || this == BEER || this == WINE || this == COCKTAIL;
+    }
+
+    public static boolean isAlcoholLabel(String labelName) {
+        return findByLabel(labelName).map(NonAgriculturalItem::isAlcoholic).orElse(false);
+    }
+
     public static boolean isNonAgricultural(String labelName) {
         if (labelName == null || labelName.isBlank()) {
             return false;

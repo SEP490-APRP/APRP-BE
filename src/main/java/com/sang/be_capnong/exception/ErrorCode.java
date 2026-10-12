@@ -73,6 +73,7 @@ public enum ErrorCode {
     CANNOT_ACTIVATE_DIRECTLY(3021, "Shop cannot activate product directly; requires admin approval", HttpStatus.FORBIDDEN),
     IMAGE_NOT_AGRICULTURAL_PRODUCE(3022, "Ảnh sản phẩm không phải là nông sản hoặc không phù hợp", HttpStatus.BAD_REQUEST),
     IMAGE_MODERATION_FAILED(3023, "Lỗi trong quá trình kiểm duyệt ảnh", HttpStatus.INTERNAL_SERVER_ERROR),
+    MAX_PRODUCT_IMAGES_EXCEEDED(3024, "Mỗi sản phẩm chỉ được tải lên tối đa 8 hình ảnh", HttpStatus.BAD_REQUEST),
 
     // Upload & File errors
     FILE_INVALID(4001, "Invalid image file", HttpStatus.BAD_REQUEST),

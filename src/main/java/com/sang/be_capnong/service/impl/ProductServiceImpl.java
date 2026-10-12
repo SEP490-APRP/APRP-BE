@@ -3,6 +3,7 @@ package com.sang.be_capnong.service.impl;
 import com.sang.be_capnong.dto.request.ProductCreationRequest;
 import com.sang.be_capnong.dto.request.ProductUpdateRequest;
 import com.sang.be_capnong.dto.response.PageResponse;
+import com.sang.be_capnong.dto.response.ProductImageResponse;
 import com.sang.be_capnong.dto.response.ProductResponse;
 import com.sang.be_capnong.entity.BuildCombo;
 import com.sang.be_capnong.entity.Category;
@@ -92,7 +93,8 @@ public class ProductServiceImpl implements ProductService {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-        return productMapper.toProductResponse(product);
+        ProductResponse response = productMapper.toProductResponse(product);
+        return filterImagesForViewer(product, response);
     }
 
     @Override
@@ -118,7 +120,32 @@ public class ProductServiceImpl implements ProductService {
 
         Page<Product> productPage = productRepository.findProducts(effectiveStatus, categoryId, keyword, pageable);
 
-        return PageResponse.from(productPage, productMapper.toProductResponseList(productPage.getContent()));
+        List<ProductResponse> content = productPage.getContent().stream()
+                .map(p -> filterImagesForViewer(p, productMapper.toProductResponse(p)))
+                .toList();
+
+        return PageResponse.from(productPage, content);
+    }
+
+    private ProductResponse filterImagesForViewer(Product product, ProductResponse response) {
+        if (response == null || response.getImages() == null) {
+            return response;
+        }
+
+        Integer currentUserId = SecurityUtils.getCurrentUserIdOrNull();
+        boolean isAdmin = SecurityUtils.isAdmin();
+        boolean isOwner = currentUserId != null && product.getShop() != null && product.getShop().getId() == currentUserId;
+
+        if (isAdmin || isOwner) {
+            return response;
+        }
+
+        // Khách mua hàng / guest chỉ thấy các ảnh đã được duyệt (isApproved != false)
+        List<ProductImageResponse> visibleImages = response.getImages().stream()
+                .filter(img -> !Boolean.FALSE.equals(img.getIsApproved()))
+                .toList();
+        response.setImages(visibleImages);
+        return response;
     }
 
     @Override

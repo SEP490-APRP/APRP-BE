@@ -50,14 +50,52 @@ public class GoogleVisionModerationServiceImpl implements ImageModerationService
         this.imageDownloadService = imageDownloadService;
     }
 
+    private static final Set<String> COOKED_FOOD_LABELS = Set.of(
+            "DISH", "CUISINE", "SOUP", "RECIPE", "MEAL", "FOOD", "SALAD", "STEW",
+            "HOT POT", "COOKING", "INGREDIENT", "COMFORT FOOD", "VEGETARIAN FOOD",
+            "SIDE DISH", "ASIAN FOOD", "VIETNAMESE CUISINE", "DELICACY", "LUNCH", "DINNER",
+            "FRIED FOOD", "NOODLE", "BROTH", "CURRY"
+    );
+
+    private static final Set<String> PACKAGING_LABELS = Set.of(
+            "BOX", "PACKAGING", "CARDBOARD", "PACKAGE", "GIFT", "BASKET", "HAMPER",
+            "PAPER", "BAG", "CONTAINER", "CRATE", "WRAPPING", "PRESENT", "PARCEL",
+            "CARDBOARD BOX", "CARTON", "GIFT BASKET"
+    );
+
+    private boolean isComboOrMysteryBoxContext(String productName, Integer categoryId) {
+        if (categoryId != null && categoryId == 5) {
+            return true;
+        }
+        if (productName != null) {
+            String lower = productName.toLowerCase();
+            return lower.contains("combo")
+                    || lower.contains("túi mù")
+                    || lower.contains("tui mu")
+                    || lower.contains("hộp mù")
+                    || lower.contains("hop mu")
+                    || lower.contains("blind box")
+                    || lower.contains("mystery")
+                    || lower.contains("mâm cơm")
+                    || lower.contains("set rau")
+                    || lower.contains("gói rau");
+        }
+        return false;
+    }
+
     @Override
     public ModerationCheckResult checkImageUrl(String imageUrl) {
-        return checkImageUrl(imageUrl, null);
+        return checkImageUrl(imageUrl, null, null);
     }
 
     @Override
     public ModerationCheckResult checkImageUrl(String imageUrl, String productName) {
-        log.info("Starting image moderation via Google Cloud Vision API for URL: {} (product: {})", imageUrl, productName);
+        return checkImageUrl(imageUrl, productName, null);
+    }
+
+    @Override
+    public ModerationCheckResult checkImageUrl(String imageUrl, String productName, Integer categoryId) {
+        log.info("Starting image moderation via Google Cloud Vision API for URL: {} (product: {}, categoryId: {})", imageUrl, productName, categoryId);
 
         // Trường hợp credentials chưa được cấu hình -> Kích hoạt cơ chế Controlled Fail-Open
         if (imageAnnotatorClient == null) {
@@ -98,9 +136,14 @@ public class GoogleVisionModerationServiceImpl implements ImageModerationService
             }
 
             // BƯỚC 1: Phân tích nhãn nông sản (LABEL_DETECTION)
+            boolean isComboOrMysteryBox = isComboOrMysteryBoxContext(productName, categoryId);
             float highestAgriConfidence = 0.0f;
             float highestNonAgriConfidence = 0.0f;
             String topNonAgriName = null;
+            float highestCookedFoodConfidence = 0.0f;
+            String topCookedFoodName = null;
+            float highestPackagingConfidence = 0.0f;
+            String topPackagingName = null;
             boolean hasHumanOrBodyPresence = false;
 
             List<ModerationCheckResult.ModerationLabelItem> matchedLabels = new ArrayList<>();
@@ -109,6 +152,7 @@ public class GoogleVisionModerationServiceImpl implements ImageModerationService
             for (EntityAnnotation annotation : annotateResponse.getLabelAnnotationsList()) {
                 String description = annotation.getDescription();
                 float scorePercent = annotation.getScore() * 100.0f;
+                String upperDesc = description != null ? description.trim().toUpperCase() : "";
 
                 Map<String, Object> rawItem = new HashMap<>();
                 rawItem.put("name", description);
@@ -139,10 +183,36 @@ public class GoogleVisionModerationServiceImpl implements ImageModerationService
                         topNonAgriName = description;
                     }
                 }
+
+                // 4. Nếu là Combo hoặc Túi mù: Nhận diện nhãn món ăn thành phẩm hoặc bao bì quà tặng
+                if (isComboOrMysteryBox) {
+                    if (COOKED_FOOD_LABELS.contains(upperDesc)) {
+                        if (scorePercent > highestCookedFoodConfidence) {
+                            highestCookedFoodConfidence = scorePercent;
+                            topCookedFoodName = description;
+                        }
+                        matchedLabels.add(ModerationCheckResult.ModerationLabelItem.builder()
+                                .labelName(description)
+                                .parentLabel("CookedDish")
+                                .confidence(BigDecimal.valueOf(scorePercent).setScale(2, RoundingMode.HALF_UP))
+                                .build());
+                    }
+                    if (PACKAGING_LABELS.contains(upperDesc)) {
+                        if (scorePercent > highestPackagingConfidence) {
+                            highestPackagingConfidence = scorePercent;
+                            topPackagingName = description;
+                        }
+                        matchedLabels.add(ModerationCheckResult.ModerationLabelItem.builder()
+                                .labelName(description)
+                                .parentLabel("Packaging")
+                                .confidence(BigDecimal.valueOf(scorePercent).setScale(2, RoundingMode.HALF_UP))
+                                .build());
+                    }
+                }
             }
 
-            log.info("Google Vision labels: count={}, highestAgriConfidence={}%, hasHumanPresence={}",
-                    annotateResponse.getLabelAnnotationsList().size(), highestAgriConfidence, hasHumanOrBodyPresence);
+            log.info("Google Vision labels: count={}, highestAgriConfidence={}%, highestNonAgriConfidence={}%, isComboOrBox={}",
+                    annotateResponse.getLabelAnnotationsList().size(), highestAgriConfidence, highestNonAgriConfidence, isComboOrMysteryBox);
 
             // BƯỚC 2: Kiểm duyệt an toàn nội dung (SAFE_SEARCH_DETECTION) - MỨC 1 (Chặn cứng)
             SafeSearchAnnotation safeSearch = annotateResponse.getSafeSearchAnnotation();
@@ -153,7 +223,47 @@ public class GoogleVisionModerationServiceImpl implements ImageModerationService
                 }
             }
 
-            // BƯỚC 3: Đánh giá chất lượng & Phân loại 2 mức
+            // BƯỚC 2.1: Chặn tuyệt đối đồ uống có cồn (Bia, Rượu, Cocktail) cho mọi trường hợp
+            if (topNonAgriName != null && NonAgriculturalItem.isAlcoholLabel(topNonAgriName)) {
+                return ModerationCheckResult.builder()
+                        .isAgricultural(false)
+                        .isFlagged(true)
+                        .overallConfidence(BigDecimal.valueOf(highestNonAgriConfidence).setScale(2, RoundingMode.HALF_UP))
+                        .rejectionReason("Ảnh sản phẩm chứa đồ uống có cồn (" + NonAgriculturalItem.getVietnameseNameOrDefault(topNonAgriName) + "), vi phạm quy định sàn.")
+                        .rawResponse(objectMapper.writeValueAsString(rawLabelList))
+                        .labels(matchedLabels)
+                        .build();
+            }
+
+            // BƯỚC 2.2: Xử lý ngữ cảnh COMBO & MYSTERY BOX (Nới lỏng vòng 1, gắn cờ Mức 2)
+            if (isComboOrMysteryBox) {
+                if (highestCookedFoodConfidence >= 45.0f) {
+                    log.info("Combo context: detected cooked food '{}' ({}%), allowing with Level 2 flag for Admin review.",
+                            topCookedFoodName, highestCookedFoodConfidence);
+                    return ModerationCheckResult.builder()
+                            .isAgricultural(true)
+                            .isFlagged(true)
+                            .overallConfidence(BigDecimal.valueOf(Math.max(highestCookedFoodConfidence, highestAgriConfidence)).setScale(2, RoundingMode.HALF_UP))
+                            .rejectionReason("Ảnh minh họa món ăn thành phẩm của Combo (Cần Admin kiểm duyệt mắt thường).")
+                            .rawResponse(objectMapper.writeValueAsString(rawLabelList))
+                            .labels(matchedLabels)
+                            .build();
+                }
+                if (highestPackagingConfidence >= 45.0f) {
+                    log.info("MysteryBox context: detected packaging '{}' ({}%), allowing with Level 2 flag for Admin review.",
+                            topPackagingName, highestPackagingConfidence);
+                    return ModerationCheckResult.builder()
+                            .isAgricultural(true)
+                            .isFlagged(true)
+                            .overallConfidence(BigDecimal.valueOf(Math.max(highestPackagingConfidence, highestAgriConfidence)).setScale(2, RoundingMode.HALF_UP))
+                            .rejectionReason("Ảnh bao bì / hộp quà của Túi mù Mystery Box (Cần Admin kiểm duyệt mắt thường).")
+                            .rawResponse(objectMapper.writeValueAsString(rawLabelList))
+                            .labels(matchedLabels)
+                            .build();
+                }
+            }
+
+            // BƯỚC 3: Đánh giá chất lượng & Phân loại 2 mức thông thường
             // Nhánh 3.1: MỨC 1 - Thức ăn nhanh / chế biến sẵn (Chặn cứng)
             if (highestNonAgriConfidence >= nonAgriThreshold && highestAgriConfidence < minConfidenceThreshold) {
                 String nonAgriVi = NonAgriculturalItem.getVietnameseNameOrDefault(topNonAgriName);
@@ -194,37 +304,39 @@ public class GoogleVisionModerationServiceImpl implements ImageModerationService
             }
 
             // Nhánh 3.4: Nông sản đạt chuẩn độ tin cậy (>= 70%) -> Kiểm tra so khớp loại nông sản cụ thể
-            Optional<AgriculturalProduceLabel> expectedProduceOpt = AgriculturalProduceLabel.detectExpectedProduce(productName);
             boolean isMismatch = false;
             String mismatchReason = null;
 
-            if (expectedProduceOpt.isPresent()) {
-                AgriculturalProduceLabel expected = expectedProduceOpt.get();
-                AgriculturalProduceLabel topConflictProduce = null;
-                float topConflictScore = 0.0f;
-                boolean hasExpectedProduceFamily = false;
+            if (!isComboOrMysteryBox) {
+                Optional<AgriculturalProduceLabel> expectedProduceOpt = AgriculturalProduceLabel.detectExpectedProduce(productName);
+                if (expectedProduceOpt.isPresent()) {
+                    AgriculturalProduceLabel expected = expectedProduceOpt.get();
+                    AgriculturalProduceLabel topConflictProduce = null;
+                    float topConflictScore = 0.0f;
+                    boolean hasExpectedProduceFamily = false;
 
-                for (ModerationCheckResult.ModerationLabelItem item : matchedLabels) {
-                    Optional<AgriculturalProduceLabel> detectedOpt = AgriculturalProduceLabel.findByLabel(item.getLabelName());
-                    if (detectedOpt.isPresent()) {
-                        AgriculturalProduceLabel detected = detectedOpt.get();
-                        if (expected.isFamilyCompatibleWith(detected)) {
-                            hasExpectedProduceFamily = true;
-                        } else if (detected.isSpecificProduce() && item.getConfidence().floatValue() >= minConfidenceThreshold) {
-                            if (item.getConfidence().floatValue() > topConflictScore) {
-                                topConflictProduce = detected;
-                                topConflictScore = item.getConfidence().floatValue();
+                    for (ModerationCheckResult.ModerationLabelItem item : matchedLabels) {
+                        Optional<AgriculturalProduceLabel> detectedOpt = AgriculturalProduceLabel.findByLabel(item.getLabelName());
+                        if (detectedOpt.isPresent()) {
+                            AgriculturalProduceLabel detected = detectedOpt.get();
+                            if (expected.isFamilyCompatibleWith(detected)) {
+                                hasExpectedProduceFamily = true;
+                            } else if (detected.isSpecificProduce() && item.getConfidence().floatValue() >= minConfidenceThreshold) {
+                                if (item.getConfidence().floatValue() > topConflictScore) {
+                                    topConflictProduce = detected;
+                                    topConflictScore = item.getConfidence().floatValue();
+                                }
                             }
                         }
                     }
-                }
 
-                // Nếu hoàn toàn không có họ hàng mong đợi, mà lại nhận diện ra loại cụ thể khác >= 70%
-                if (!hasExpectedProduceFamily && topConflictProduce != null) {
-                    isMismatch = true;
-                    mismatchReason = "Nghi ngờ ảnh chưa khớp với tên sản phẩm: Tên sản phẩm là '" + expected.getVietnameseName()
-                            + "' nhưng AI nhận diện có đặc điểm '" + topConflictProduce.getVietnameseName()
-                            + "' (" + String.format(Locale.US, "%.1f", topConflictScore) + "%). Đề nghị Admin kiểm tra mắt thường.";
+                    // Nếu hoàn toàn không có họ hàng mong đợi, mà lại nhận diện ra loại cụ thể khác >= 70%
+                    if (!hasExpectedProduceFamily && topConflictProduce != null) {
+                        isMismatch = true;
+                        mismatchReason = "Nghi ngờ ảnh chưa khớp với tên sản phẩm: Tên sản phẩm là '" + expected.getVietnameseName()
+                                + "' nhưng AI nhận diện có đặc điểm '" + topConflictProduce.getVietnameseName()
+                                + "' (" + String.format(Locale.US, "%.1f", topConflictScore) + "%). Đề nghị Admin kiểm tra mắt thường.";
+                    }
                 }
             }
 
