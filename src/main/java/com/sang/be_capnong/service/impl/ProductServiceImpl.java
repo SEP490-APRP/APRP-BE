@@ -15,10 +15,13 @@ import com.sang.be_capnong.entity.User;
 import com.sang.be_capnong.exception.AppException;
 import com.sang.be_capnong.exception.ErrorCode;
 import com.sang.be_capnong.mapper.ProductMapper;
+import com.sang.be_capnong.entity.ProductImage;
 import com.sang.be_capnong.repository.BuildComboRepository;
 import com.sang.be_capnong.repository.CategoryRepository;
+import com.sang.be_capnong.repository.ModerationResultRepository;
 import com.sang.be_capnong.repository.MysteryBoxRepository;
 import com.sang.be_capnong.repository.ProductComboRepository;
+import com.sang.be_capnong.repository.ProductImageRepository;
 import com.sang.be_capnong.repository.ProductMysteryRepository;
 import com.sang.be_capnong.repository.ProductRepository;
 import com.sang.be_capnong.repository.UserRepository;
@@ -56,6 +59,8 @@ public class ProductServiceImpl implements ProductService {
     MysteryBoxRepository mysteryBoxRepository;
     ProductComboRepository productComboRepository;
     BuildComboRepository buildComboRepository;
+    ProductImageRepository productImageRepository;
+    ModerationResultRepository moderationResultRepository;
 
     @Override
     @Transactional
@@ -262,6 +267,23 @@ public class ProductServiceImpl implements ProductService {
         product.setStatus("ACTIVE");
         product.setRejectReason(null);
         product.setUpdatedAt(LocalDateTime.now());
+
+        // Phê duyệt toàn bộ ảnh và gỡ cờ khi Admin duyệt sản phẩm sang ACTIVE
+        List<ProductImage> images = productImageRepository.findByProduct_ProductIdOrderByDisplayOrderAscIdAsc(productId);
+        for (ProductImage img : images) {
+            img.setIsApproved(true);
+            img.setIsFlagged(false);
+            img.setFlagReason(null);
+        }
+        productImageRepository.saveAll(images);
+
+        moderationResultRepository.findByProduct_ProductId(productId).ifPresent(mr -> {
+            mr.setIsFlagged(false);
+            if (mr.getModerationLabels() != null) {
+                mr.getModerationLabels().clear();
+            }
+            moderationResultRepository.save(mr);
+        });
 
         Product savedProduct = productRepository.save(product);
         log.info("Product id: {} successfully approved to ACTIVE", productId);

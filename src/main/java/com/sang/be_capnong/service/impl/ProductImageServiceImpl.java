@@ -90,9 +90,8 @@ public class ProductImageServiceImpl implements ProductImageService {
         productImage.setDisplayOrder(displayOrder);
         productImage.setIsFlagged(isFlagged);
         productImage.setFlagReason(isFlagged ? checkResult.getFlagReason() : null);
-        // TH1: Nếu sản phẩm đang ACTIVE và ảnh bị gắn cờ -> Tạm ẩn (isApproved = false) chờ Admin duyệt
-        // Nếu không bị gắn cờ, hoặc sản phẩm chưa ACTIVE (DRAFT/PENDING) -> isApproved = true
-        productImage.setIsApproved(!isFlagged || !isActiveProduct);
+        // Nếu ảnh bị gắn cờ -> Tạm ẩn (isApproved = false) chờ Admin duyệt; nếu sạch -> isApproved = true
+        productImage.setIsApproved(!isFlagged);
         productImage.setCreatedAt(LocalDateTime.now());
 
         ProductImage savedImage = productImageRepository.save(productImage);
@@ -187,7 +186,7 @@ public class ProductImageServiceImpl implements ProductImageService {
                 boolean isActiveProduct = "ACTIVE".equalsIgnoreCase(product.getStatus());
                 image.setIsFlagged(isFlagged);
                 image.setFlagReason(isFlagged ? checkResult.getFlagReason() : null);
-                image.setIsApproved(!isFlagged || !isActiveProduct);
+                image.setIsApproved(!isFlagged);
 
                 if (isFlagged) {
                     saveOrUpdateModerationResult(product, checkResult);
