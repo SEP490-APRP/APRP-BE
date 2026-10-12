@@ -17,6 +17,8 @@ import com.sang.be_capnong.service.GoogleMapService;
 import com.sang.be_capnong.service.OrderService;
 import com.sang.be_capnong.service.ShippingFeeService;
 import com.sang.be_capnong.enums.UserStatus;
+import com.sang.be_capnong.enums.VoucherScope;
+import com.sang.be_capnong.enums.VoucherTarget;
 import com.sang.be_capnong.enums.VoucherType;
 import com.sang.be_capnong.dto.request.ShippingFeeRequest;
 import com.sang.be_capnong.dto.response.ShippingFeeResponse;
@@ -207,20 +209,26 @@ public class OrderServiceImpl implements OrderService {
             for (String code : request.getVoucherCodes()) {
                 Voucher v = voucherRepository.findByVoucherCode(code.toUpperCase()).orElse(null);
                 if (v != null) {
+                    VoucherUser voucherUser = voucherUserRepository.findByUser_IdAndVoucher_VoucherId(buyer.getId(), v.getVoucherId()).orElse(null);
+                    if (voucherUser == null) {
+                        continue; // Người mua chưa thu thập/không sở hữu voucher này
+                    }
+                    int qty = voucherUser.getQuantity() == null ? 0 : voucherUser.getQuantity();
+                    int used = voucherUser.getQuantityUsed() == null ? 0 : voucherUser.getQuantityUsed();
+                    if (qty <= used) {
+                        continue;
+                    }
+
                     v.setUsedCount((v.getUsedCount() == null ? 0 : v.getUsedCount()) + 1);
                     voucherRepository.save(v);
                        
-                    voucherUserRepository.findByUser_IdAndVoucher_VoucherId(buyer.getId(), v.getVoucherId())
-                        .ifPresent(vu -> {
-                            vu.setQuantityUsed((vu.getQuantityUsed() == null ? 0 : vu.getQuantityUsed()) + 1);
-                            voucherUserRepository.save(vu);
-                        });
+                    voucherUser.setQuantityUsed(used + 1);
+                    voucherUserRepository.save(voucherUser);
                            
-                    boolean isSystemVoucher = v.getShop() != null && v.getShop().getRole() != null && "ADMIN".equalsIgnoreCase(v.getShop().getRole().getName());
                     for (int i = 0; i < savedOrders.size(); i++) {
                         Order savedOrder = savedOrders.get(i);
                         CheckoutPreviewResponse.ShopOrderPreview sp = previewRes.getShopOrders().get(i);
-                        if (isSystemVoucher || savedOrder.getShop().getId() == v.getShop().getId()) { 
+                        if (voucherAppliesToOrderShop(v, savedOrder)) {
                             BigDecimal discountForThisOrder = sp.getVoucherDiscountsDetail() != null ? sp.getVoucherDiscountsDetail().get(code.toUpperCase()) : null;
                             if (discountForThisOrder != null && discountForThisOrder.compareTo(BigDecimal.ZERO) > 0) {
                                 VoucherUsage vu = VoucherUsage.builder()
@@ -420,14 +428,27 @@ public class OrderServiceImpl implements OrderService {
 
         for (String code : voucherCodes) {
             Voucher voucher = voucherRepository.findByVoucherCode(code.toUpperCase()).orElse(null);
-            if (voucher == null || !Boolean.TRUE.equals(voucher.getActive()) || voucher.getExpiryDate().isBefore(LocalDateTime.now())) {
-                continue; // Skip invalid vouchers
+            if (voucher == null || !Boolean.TRUE.equals(voucher.getActive()) || voucher.getExpiryDate() == null || voucher.getExpiryDate().isBefore(LocalDateTime.now())) {
+                continue;
             }
 
             if (voucher.getUsageLimit() != null) {
                 int used = voucher.getUsedCount() == null ? 0 : voucher.getUsedCount();
                 if (used >= voucher.getUsageLimit()) {
                     continue;
+                }
+            }
+
+            // Kiểm tra quyền sở hữu trong ví VoucherUser của người mua
+            if (buyer != null) {
+                VoucherUser vu = voucherUserRepository.findByUser_IdAndVoucher_VoucherId(buyer.getId(), voucher.getVoucherId()).orElse(null);
+                if (vu == null) {
+                    continue; // Người mua chưa thu thập/không sở hữu voucher này
+                }
+                int qty = vu.getQuantity() == null ? 0 : vu.getQuantity();
+                int used = vu.getQuantityUsed() == null ? 0 : vu.getQuantityUsed();
+                if (qty <= used) {
+                    continue; // Người mua đã sử dụng hết số lượt sở hữu
                 }
             }
 
@@ -438,67 +459,133 @@ public class OrderServiceImpl implements OrderService {
                 }
             }
 
-            boolean isSystemVoucher = voucher.getShop() != null && voucher.getShop().getRole() != null && "ADMIN".equalsIgnoreCase(voucher.getShop().getRole().getName());
-            if (isSystemVoucher) {
+            VoucherScope scope = voucher.getVoucherScope();
+            if (scope == null) {
+                User shopOwner = voucher.getShop();
+                String role = (shopOwner != null && shopOwner.getRole() != null) ? shopOwner.getRole().getName() : "SHOP";
+                scope = "ADMIN".equalsIgnoreCase(role) ? VoucherScope.PLATFORM : VoucherScope.SHOP;
+            }
+
+            VoucherTarget target = voucher.getVoucherTarget();
+            if (target == null) {
+                boolean isShipping = voucher.getVoucherType() == VoucherType.FREE_SHIPPING
+                        || (voucher.getVoucherCode() != null && voucher.getVoucherCode().toUpperCase().contains("FREESHIP"));
+                target = isShipping ? VoucherTarget.SHIPPING : VoucherTarget.ORDER;
+            }
+
+            boolean isPlatformScope = scope == VoucherScope.PLATFORM || scope == VoucherScope.SYSTEM || scope == VoucherScope.WELCOME;
+
+            if (isPlatformScope) {
+                // ĐIỀU KIỆN ĐƠN TỐI THIỂU: Với voucher Toàn sàn (cả Freeship và Giảm giá), đơn tối thiểu luôn so sánh với TỔNG TIỀN HÀNG
                 if (voucher.getMinOrderValue() != null && totalGoodsAmount.compareTo(voucher.getMinOrderValue()) < 0) {
-                     continue; 
+                    continue;
                 }
-                BigDecimal discount = calculateDiscount(voucher, totalGoodsAmount, totalShippingFee);
+
+                BigDecimal discount = calculateVoucherDiscount(voucher, target, totalGoodsAmount, totalShippingFee);
+                if (discount.compareTo(BigDecimal.ZERO) <= 0) {
+                    continue;
+                }
+
                 totalDiscount = totalDiscount.add(discount);
-                
-                boolean isFreeShip = VoucherType.FREE_SHIPPING.equals(voucher.getVoucherType());
-                BigDecimal baseTotal = isFreeShip ? totalShippingFee : totalGoodsAmount;
+                BigDecimal baseTotal = target == VoucherTarget.SHIPPING ? totalShippingFee : totalGoodsAmount;
+                if (shopPreviews.isEmpty() || baseTotal.compareTo(BigDecimal.ZERO) <= 0) {
+                    continue;
+                }
 
                 for (ShopOrderPreview sp : shopPreviews) {
-                    if (baseTotal.compareTo(BigDecimal.ZERO) > 0) {
-                        BigDecimal spBase = isFreeShip ? sp.getShippingFee() : sp.getGoodsAmount();
-                        BigDecimal ratio = spBase.divide(baseTotal, 4, java.math.RoundingMode.HALF_UP);
-                        BigDecimal shopVoucherShare = discount.multiply(ratio);
-                        sp.setVoucherDiscount(sp.getVoucherDiscount().add(shopVoucherShare));
-                        sp.getVoucherDiscountsDetail().put(code.toUpperCase(), shopVoucherShare);
-                    }
+                    BigDecimal spBase = target == VoucherTarget.SHIPPING ? sp.getShippingFee() : sp.getGoodsAmount();
+                    if (spBase.compareTo(BigDecimal.ZERO) <= 0) continue;
+
+                    BigDecimal ratio = spBase.divide(baseTotal, 6, java.math.RoundingMode.HALF_UP);
+                    BigDecimal shopShare = discount.multiply(ratio);
+                    sp.setVoucherDiscount(sp.getVoucherDiscount().add(shopShare));
+                    sp.getVoucherDiscountsDetail().put(code.toUpperCase(), shopShare);
                 }
-            } else {
-                User shopOwner = voucher.getShop();
-                ShopOrderPreview targetShopPreview = shopPreviews.stream()
-                        .filter(sp -> sp.getShopId() == shopOwner.getId())
-                        .findFirst()
-                        .orElse(null);
-                
-                if (targetShopPreview != null) {
-                    if (voucher.getMinOrderValue() != null && targetShopPreview.getGoodsAmount().compareTo(voucher.getMinOrderValue()) < 0) {
-                         continue;
-                    }
-                    BigDecimal discount = calculateDiscount(voucher, targetShopPreview.getGoodsAmount(), targetShopPreview.getShippingFee());
-                    targetShopPreview.setVoucherDiscount(targetShopPreview.getVoucherDiscount().add(discount));
-                    targetShopPreview.getVoucherDiscountsDetail().put(code.toUpperCase(), discount);
-                    totalDiscount = totalDiscount.add(discount);
-                }
+                continue;
             }
+
+            User shopOwner = voucher.getShop();
+            if (shopOwner == null) {
+                continue;
+            }
+
+            ShopOrderPreview targetShopPreview = shopPreviews.stream()
+                    .filter(sp -> sp.getShopId() == shopOwner.getId())
+                    .findFirst()
+                    .orElse(null);
+            if (targetShopPreview == null) {
+                continue;
+            }
+
+            // ĐIỀU KIỆN ĐƠN TỐI THIỂU: Với voucher Của Shop, đơn tối thiểu so sánh với TIỀN HÀNG CỦA CHÍNH SHOP ĐÓ
+            if (voucher.getMinOrderValue() != null && targetShopPreview.getGoodsAmount().compareTo(voucher.getMinOrderValue()) < 0) {
+                continue;
+            }
+
+            BigDecimal discount = calculateVoucherDiscount(voucher, target, targetShopPreview.getGoodsAmount(), targetShopPreview.getShippingFee());
+            if (discount.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+
+            targetShopPreview.setVoucherDiscount(targetShopPreview.getVoucherDiscount().add(discount));
+            targetShopPreview.getVoucherDiscountsDetail().put(code.toUpperCase(), discount);
+            totalDiscount = totalDiscount.add(discount);
         }
         return totalDiscount;
     }
 
-    private BigDecimal calculateDiscount(Voucher voucher, BigDecimal goodsAmount, BigDecimal shippingFee) {
-        BigDecimal discountAmount = BigDecimal.ZERO;
-        if (VoucherType.PERCENTAGE.equals(voucher.getVoucherType())) {
-            BigDecimal percentage = voucher.getDiscountValue().divide(BigDecimal.valueOf(100));
-            discountAmount = goodsAmount.multiply(percentage);
-            if (voucher.getMaxDiscount() != null && discountAmount.compareTo(voucher.getMaxDiscount()) > 0) {
-                discountAmount = voucher.getMaxDiscount();
-            }
-        } else if (VoucherType.FIXED_AMOUNT.equals(voucher.getVoucherType())) {
-            discountAmount = voucher.getDiscountValue();
-            if (discountAmount.compareTo(goodsAmount) > 0) {
-                discountAmount = goodsAmount;
-            }
-        } else if (VoucherType.FREE_SHIPPING.equals(voucher.getVoucherType())) {
-            discountAmount = voucher.getDiscountValue();
-            if (discountAmount.compareTo(shippingFee) > 0) {
-                discountAmount = shippingFee;
+    private BigDecimal calculateVoucherDiscount(Voucher voucher, VoucherTarget target, BigDecimal goodsAmount, BigDecimal shippingFee) {
+        if (voucher == null) {
+            return BigDecimal.ZERO;
+        }
+
+        BigDecimal discountValue = voucher.getDiscountValue() == null ? BigDecimal.ZERO : voucher.getDiscountValue();
+        boolean isShipping = target == VoucherTarget.SHIPPING || voucher.getVoucherType() == VoucherType.FREE_SHIPPING;
+
+        if (isShipping) {
+            BigDecimal maxShippingFee = shippingFee == null ? BigDecimal.ZERO : shippingFee;
+            if (voucher.getVoucherType() == VoucherType.PERCENTAGE) {
+                BigDecimal percent = discountValue.divide(BigDecimal.valueOf(100), 6, java.math.RoundingMode.HALF_UP);
+                BigDecimal disc = maxShippingFee.multiply(percent);
+                if (voucher.getMaxDiscount() != null && disc.compareTo(voucher.getMaxDiscount()) > 0) {
+                    disc = voucher.getMaxDiscount();
+                }
+                return disc.min(maxShippingFee).max(BigDecimal.ZERO);
+            } else {
+                return discountValue.min(maxShippingFee).max(BigDecimal.ZERO);
             }
         }
-        return discountAmount;
+
+        BigDecimal maxGoods = goodsAmount == null ? BigDecimal.ZERO : goodsAmount;
+        if (voucher.getVoucherType() == VoucherType.PERCENTAGE) {
+            BigDecimal percent = discountValue.divide(BigDecimal.valueOf(100), 6, java.math.RoundingMode.HALF_UP);
+            BigDecimal disc = maxGoods.multiply(percent);
+            if (voucher.getMaxDiscount() != null && disc.compareTo(voucher.getMaxDiscount()) > 0) {
+                disc = voucher.getMaxDiscount();
+            }
+            return disc.min(maxGoods).max(BigDecimal.ZERO);
+        } else {
+            return discountValue.min(maxGoods).max(BigDecimal.ZERO);
+        }
+    }
+
+    private boolean voucherAppliesToOrderShop(Voucher voucher, Order order) {
+        if (voucher == null || order == null || order.getShop() == null) {
+            return false;
+        }
+
+        VoucherScope scope = voucher.getVoucherScope();
+        if (scope == null) {
+            User shopOwner = voucher.getShop();
+            String role = (shopOwner != null && shopOwner.getRole() != null) ? shopOwner.getRole().getName() : "SHOP";
+            scope = "ADMIN".equalsIgnoreCase(role) ? VoucherScope.PLATFORM : VoucherScope.SHOP;
+        }
+
+        if (scope == VoucherScope.PLATFORM || scope == VoucherScope.SYSTEM || scope == VoucherScope.WELCOME) {
+            return true;
+        }
+
+        return voucher.getShop() != null && voucher.getShop().getId() == order.getShop().getId();
     }
 
     // ============================================================

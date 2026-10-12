@@ -1,9 +1,12 @@
 package com.sang.be_capnong.dto.response;
 
+import com.sang.be_capnong.enums.VoucherScope;
+import com.sang.be_capnong.enums.VoucherTarget;
 import com.sang.be_capnong.enums.VoucherType;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
@@ -16,6 +19,8 @@ public class VoucherResponse {
     int voucherId;
     String voucherCode;
     VoucherType voucherType;
+    VoucherScope voucherScope;
+    VoucherTarget voucherTarget;
     BigDecimal discountValue;
     BigDecimal maxDiscount;
     BigDecimal minOrderValue;
@@ -24,7 +29,11 @@ public class VoucherResponse {
     Integer usedCount;
     Integer perUserLimit;
     Boolean active;
+
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     LocalDateTime expiryDate;
+
+    @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss")
     LocalDateTime createAt;
     
     // Thuộc tính mở rộng để UI tiện hiển thị

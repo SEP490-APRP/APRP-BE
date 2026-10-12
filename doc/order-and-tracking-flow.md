@@ -41,13 +41,75 @@ Tài liệu này đặc tả chi tiết toàn bộ quy trình đơn hàng và h�
 
 ## 2. Chi Tiết Từng Giai Đoạn (Step-by-Step Flow)
 
-### Giai Đoạn 1: Buyer Thêm Sản Phẩm & Thanh Toán (Checkout)
+### Giai Đoạn 1: Buyer Thêm Sản Phẩm, Áp Mã Khuyến Mãi & Thanh Toán (Checkout)
 
-#### 1. Thêm vào giỏ hàng:
-* Buyer chọn sản phẩm nông sản từ các cửa hàng, hệ thống lưu vào Cart (`POST /carts/items`).
-* Hệ thống tính toán khoảng cách và cước vận chuyển tự động bằng **Google Maps Distance Matrix API** (với thuật toán fallback Haversine factor 1.25 nếu API bận).
+#### 1. Thêm vào giỏ hàng (Cart Management):
+* Buyer chọn các mặt hàng (Nông sản tươi lẻ, Túi mù nông sản `MysteryBox`, hoặc Combo nông sản `BuildCombo`) từ nhiều nhà vườn/shop khác nhau.
+* Hệ thống lưu trữ vào bảng `cart_items` theo từng `cart_id` của Buyer (`POST /api/v1/carts/items`).
+* Khi mở trang thanh toán (`/checkout`), hệ thống tự động phân loại danh sách mặt hàng gom nhóm theo từng Shop (`shopCarts`).
 
-#### 2. Lựa chọn phương thức thanh toán:
+#### 2. Cơ chế Xem trước Đơn hàng Realtime (Checkout Preview API - `POST /api/v1/orders/preview`):
+* Mỗi khi Buyer thay đổi địa chỉ nhận hàng hoặc chọn/bỏ chọn mã giảm giá, Frontend tự động gọi API `previewCheckout`:
+  ```json
+  {
+    "shippingAddress": "268 Lý Thường Kiệt, P.14, Q.10, TP. Hồ Chí Minh",
+    "voucherCodes": ["FREESHIPALL", "CAPNONG10K"],
+    "cartItemIds": [1, 2, 5],
+    "items": [
+      { "productId": 105, "quantity": 1 },
+      { "buildComboId": 1, "quantity": 1 }
+    ]
+  }
+  ```
+* **Quy trình xử lý tại Backend (`OrderServiceImpl.buildCheckoutPreview`):**
+  1. **Tính cước vận chuyển từng Shop:** Dựa trên tọa độ GPS của Shop và địa chỉ người nhận qua **Google Maps Distance Matrix API** (fallback Haversine $15.000đ/shop$ nếu API bận).
+  2. **Kiểm tra tính hợp lệ & quyền sở hữu Voucher:** Đảm bảo Buyer thực sự sở hữu voucher trong ví (`voucher_users`), còn hạn sử dụng, chưa vượt giới hạn dùng.
+  3. **Tính toán chiết khấu & phân bổ theo chuẩn sàn TMĐT:** Trả về đối tượng `CheckoutPreviewResponse` gồm tổng tiền hàng, tổng phí ship, tổng tiền giảm, tổng thanh toán và chi tiết giảm giá theo từng shop.
+
+#### 3. Cơ Chế Khuyến Mãi & Voucher Stacking Chuẩn Sàn TMĐT (Shopee / Lazada Architecture):
+Để giải quyết bài toán sàn nhiều nhà bán (Multi-vendor Marketplace), hệ thống áp dụng cơ chế Stacking (kết hợp đồng thời nhiều mã) với các phân định chặt chẽ:
+
+* **A. Phân loại Voucher theo Phạm vi (`VoucherScope`) & Mục tiêu (`VoucherTarget`):**
+  * `VoucherScope`:
+    * `PLATFORM` / `SYSTEM`: Voucher do **Admin Sàn phát hành** (áp dụng toàn sàn).
+    * `SHOP`: Voucher do **Từng Nhà vườn/Shop tự phát hành** (chỉ áp dụng cho sản phẩm của shop đó).
+  * `VoucherTarget`:
+    * `SHIPPING`: Giảm cước phí vận chuyển (Freeship).
+    * `ORDER`: Giảm trực tiếp vào tiền mua nông sản.
+  * `VoucherType`:
+    * `FIXED_AMOUNT`: Giảm số tiền cố định (Ví dụ: Giảm 10.000đ).
+    * `PERCENTAGE`: Giảm theo tỷ lệ phần trăm kèm mức giảm tối đa (Ví dụ: Giảm 10%, tối đa 25.000đ).
+    * `FREE_SHIPPING`: Miễn phí vận chuyển (Ví dụ: Giảm tối đa 30.000đ phí ship).
+
+* **B. Quy tắc Stacking trên 1 lần Đặt hàng:**
+  Khách hàng được áp dụng đồng thời:
+  $$\text{Mã Khuyến Mãi Hợp Lệ} = \text{1 Voucher Freeship Sàn} + \text{1 Voucher Đơn Hàng Sàn} + \text{1 Voucher Riêng Của Từng Shop}$$
+  *(Nếu chọn mã cùng nhóm, mã mới sẽ tự động thay thế mã cũ tương ứng).*
+
+* **C. Quy tắc Kiểm tra Giá trị Đơn tối thiểu (`minOrderValue`):**
+  * **Với Voucher Toàn Sàn (`PLATFORM` / `FREESHIP`):** Điều kiện `minOrderValue` được so sánh với **Tổng Tiền Hàng Của Toàn Bộ Giỏ Hàng (`totalGoodsAmount`)**.  
+    *Ví dụ: Mã `FREESHIPALL` yêu cầu đơn 100k $\rightarrow$ Chỉ cần tổng tiền rau củ của cả Shop 1 + Shop 2 $\ge$ 100k là đủ điều kiện, không ép từng shop riêng lẻ phải đủ 100k.*
+  * **Với Voucher Của Shop (`SHOP`):** Điều kiện `minOrderValue` được so sánh với **Tiền Hàng Của Chính Shop Đó (`shopGoodsAmount`)**.
+
+* **D. Công thức Tính Giảm Giá & Phân Bổ Chiết Khấu (Discount Allocation):**
+  * **Voucher Freeship:**
+    $$\text{Discount} = \min(\text{discountValue}, \text{totalShippingFee})$$
+    *(Tiền giảm freeship không bao giờ vượt quá phí ship thực tế).*
+  * **Voucher Giảm Tiền Hàng Sàn:** Khi giảm toàn sàn, mức giảm được chia sẻ (pro-rata) cho từng đơn của shop theo tỷ lệ doanh thu:
+    $$\text{ShopShare} = \text{PlatformDiscount} \times \frac{\text{GoodsAmount}_{\text{shop}}}{\text{TotalGoodsAmount}}$$
+
+#### 4. Phân Định Trách Nhiệm Tài Chính & Dòng Tiền Ví (Wallet & Settlement Model Giữa 4 Roles):
+Hệ thống thiết kế theo kiến trúc 2 tầng độc lập: **Tầng Đơn Hàng (Order Checkout)** và **Tầng Quyết Toán Ví (Settlement - Khi đơn `COMPLETED`)**:
+
+| Loại Khuyến Mãi | Nguồn Tài Trợ (Ai chịu chi phí?) | Tác Động Khi Checkout (Buyer) | Dòng Tiền Khi Quyết Toán Ví (Sau khi Giao Hàng Thành Công) |
+| :--- | :--- | :--- | :--- |
+| **Voucher của Shop** *(VD: CAPNONG10K)* | **Shop tự chịu** | Giảm trực tiếp tiền thanh toán của đơn Shop đó. | Shop chỉ nhận về: `Tiền hàng - Voucher Shop - Phí hoa hồng sàn`. Ví Admin không phải bù. |
+| **Voucher Đơn hàng Sàn** *(VD: PLATFORM15K)* | **Admin (Sàn) tài trợ** | Giảm vào tổng tiền đơn hàng của Buyer. | Sàn trích từ **Quỹ Marketing / Ví Admin** bù lại cho Shop, đảm bảo Shop vẫn nhận đủ 100% doanh thu tiền hàng. |
+| **Voucher Freeship** *(VD: FREESHIPALL)* | **Admin (Sàn) tài trợ** | Giảm cước vận chuyển Buyer phải trả. | **Shipper vẫn nhận đủ 100% cước phí giao hàng** (Phần Buyer trả + Phần Sàn bù từ Ví Admin vào Ví Shipper). |
+
+> **Lưu ý kiến trúc:** Nhờ lưu độc lập các cột `shop_discount_amount`, `batch_discount_amount`, `shipping_discount_amount` vào bảng `orders`, luồng Checkout Đơn hàng hoàn toàn độc lập với luồng Ví tiền. Khi module Wallet hoàn thành, chỉ cần gọi hàm quyết toán đọc lại các số liệu này để cộng/trừ ví.
+
+#### 5. Lựa chọn phương thức thanh toán (Payment Method Execution):
 * **Phương thức 1: COD (Thanh toán khi nhận hàng)**:
   * Đơn hàng được tạo thành công ngay lập tức ở trạng thái **`PENDING`**.
   * Cửa hàng nhận được thông báo đơn hàng mới để xác nhận.
@@ -233,7 +295,11 @@ stateDiagram-v2
 ### REST APIs:
 | Phương thức | Đường dẫn | Quyền | Mục đích |
 | :--- | :--- | :--- | :--- |
+| `POST` | `/api/v1/orders/preview` | BUYER | Xem trước đơn hàng, tính phí ship từng shop & tiền giảm voucher realtime |
 | `POST` | `/api/v1/orders/checkout` | BUYER | Tạo đơn hàng mới & lấy link thanh toán PayOS (nếu chọn QR) |
+| `GET` | `/api/v1/vouchers/my-vouchers` | BUYER | Lấy danh sách voucher Buyer đang sở hữu trong ví |
+| `GET` | `/api/v1/vouchers/public` | BUYER / Public | Lấy danh sách voucher công khai để thu thập |
+| `POST` | `/api/v1/vouchers/{id}/claim` | BUYER | Thu thập / lưu voucher vào ví của Buyer |
 | `POST` | `/api/v1/payments/{orderCode}/cancel` | BUYER / Public | Hủy thanh toán PayOS (hoàn tồn kho cho Shop và khôi phục hàng về Giỏ cho Buyer) |
 | `GET` | `/api/v1/payments/order/{orderId}/resume-options` | BUYER | Lấy tùy chọn tiếp tục thanh toán (thanh toán gộp hoặc chia nhỏ mã QR từng đơn) |
 | `POST` | `/api/v1/payments/{orderCode}/confirm` | BUYER / Public | Xác thực thanh toán sau khi PayOS chuyển hướng về |
