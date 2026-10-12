@@ -5,8 +5,10 @@ import com.google.cloud.vision.v1.*;
 import com.google.protobuf.ByteString;
 import com.sang.be_capnong.dto.ModerationCheckResult;
 import com.sang.be_capnong.enums.AgriculturalProduceLabel;
+import com.sang.be_capnong.enums.CookedFoodLabel;
 import com.sang.be_capnong.enums.HumanPresenceLabel;
 import com.sang.be_capnong.enums.NonAgriculturalItem;
+import com.sang.be_capnong.enums.PackagingLabel;
 import com.sang.be_capnong.exception.AppException;
 import com.sang.be_capnong.service.ImageDownloadService;
 import com.sang.be_capnong.service.ImageModerationService;
@@ -49,19 +51,6 @@ public class GoogleVisionModerationServiceImpl implements ImageModerationService
         this.objectMapper = objectMapper;
         this.imageDownloadService = imageDownloadService;
     }
-
-    private static final Set<String> COOKED_FOOD_LABELS = Set.of(
-            "DISH", "CUISINE", "SOUP", "RECIPE", "MEAL", "FOOD", "SALAD", "STEW",
-            "HOT POT", "COOKING", "INGREDIENT", "COMFORT FOOD", "VEGETARIAN FOOD",
-            "SIDE DISH", "ASIAN FOOD", "VIETNAMESE CUISINE", "DELICACY", "LUNCH", "DINNER",
-            "FRIED FOOD", "NOODLE", "BROTH", "CURRY"
-    );
-
-    private static final Set<String> PACKAGING_LABELS = Set.of(
-            "BOX", "PACKAGING", "CARDBOARD", "PACKAGE", "GIFT", "BASKET", "HAMPER",
-            "PAPER", "BAG", "CONTAINER", "CRATE", "WRAPPING", "PRESENT", "PARCEL",
-            "CARDBOARD BOX", "CARTON", "GIFT BASKET"
-    );
 
     private boolean isComboOrMysteryBoxContext(String productName, Integer categoryId) {
         if (categoryId != null && categoryId == 5) {
@@ -186,7 +175,7 @@ public class GoogleVisionModerationServiceImpl implements ImageModerationService
 
                 // 4. Nếu là Combo hoặc Túi mù: Nhận diện nhãn món ăn thành phẩm hoặc bao bì quà tặng
                 if (isComboOrMysteryBox) {
-                    if (COOKED_FOOD_LABELS.contains(upperDesc)) {
+                    if (CookedFoodLabel.isCookedFood(description)) {
                         if (scorePercent > highestCookedFoodConfidence) {
                             highestCookedFoodConfidence = scorePercent;
                             topCookedFoodName = description;
@@ -197,7 +186,7 @@ public class GoogleVisionModerationServiceImpl implements ImageModerationService
                                 .confidence(BigDecimal.valueOf(scorePercent).setScale(2, RoundingMode.HALF_UP))
                                 .build());
                     }
-                    if (PACKAGING_LABELS.contains(upperDesc)) {
+                    if (PackagingLabel.isPackaging(description)) {
                         if (scorePercent > highestPackagingConfidence) {
                             highestPackagingConfidence = scorePercent;
                             topPackagingName = description;
@@ -238,25 +227,27 @@ public class GoogleVisionModerationServiceImpl implements ImageModerationService
             // BƯỚC 2.2: Xử lý ngữ cảnh COMBO & MYSTERY BOX (Nới lỏng vòng 1, gắn cờ Mức 2)
             if (isComboOrMysteryBox) {
                 if (highestCookedFoodConfidence >= 45.0f) {
-                    log.info("Combo context: detected cooked food '{}' ({}%), allowing with Level 2 flag for Admin review.",
-                            topCookedFoodName, highestCookedFoodConfidence);
+                    String foodVi = CookedFoodLabel.getVietnameseNameOrDefault(topCookedFoodName);
+                    log.info("Combo context: detected cooked food '{}' ({}) ({}%), allowing with Level 2 flag for Admin review.",
+                            topCookedFoodName, foodVi, highestCookedFoodConfidence);
                     return ModerationCheckResult.builder()
                             .isAgricultural(true)
                             .isFlagged(true)
                             .overallConfidence(BigDecimal.valueOf(Math.max(highestCookedFoodConfidence, highestAgriConfidence)).setScale(2, RoundingMode.HALF_UP))
-                            .rejectionReason("Ảnh minh họa món ăn thành phẩm của Combo (Cần Admin kiểm duyệt mắt thường).")
+                            .rejectionReason("Ảnh minh họa món ăn thành phẩm của Combo (" + foodVi + "), cần Admin kiểm duyệt mắt thường.")
                             .rawResponse(objectMapper.writeValueAsString(rawLabelList))
                             .labels(matchedLabels)
                             .build();
                 }
                 if (highestPackagingConfidence >= 45.0f) {
-                    log.info("MysteryBox context: detected packaging '{}' ({}%), allowing with Level 2 flag for Admin review.",
-                            topPackagingName, highestPackagingConfidence);
+                    String pkgVi = PackagingLabel.getVietnameseNameOrDefault(topPackagingName);
+                    log.info("MysteryBox context: detected packaging '{}' ({}) ({}%), allowing with Level 2 flag for Admin review.",
+                            topPackagingName, pkgVi, highestPackagingConfidence);
                     return ModerationCheckResult.builder()
                             .isAgricultural(true)
                             .isFlagged(true)
                             .overallConfidence(BigDecimal.valueOf(Math.max(highestPackagingConfidence, highestAgriConfidence)).setScale(2, RoundingMode.HALF_UP))
-                            .rejectionReason("Ảnh bao bì / hộp quà của Túi mù Mystery Box (Cần Admin kiểm duyệt mắt thường).")
+                            .rejectionReason("Ảnh bao bì / hộp quà của Túi mù Mystery Box (" + pkgVi + "), cần Admin kiểm duyệt mắt thường.")
                             .rawResponse(objectMapper.writeValueAsString(rawLabelList))
                             .labels(matchedLabels)
                             .build();
