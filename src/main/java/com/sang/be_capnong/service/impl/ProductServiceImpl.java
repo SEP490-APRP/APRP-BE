@@ -42,6 +42,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import com.sang.be_capnong.dto.request.ProductRejectRequest;
 
 @Service
@@ -139,7 +140,7 @@ public class ProductServiceImpl implements ProductService {
 
         Integer currentUserId = SecurityUtils.getCurrentUserIdOrNull();
         boolean isAdmin = SecurityUtils.isAdmin();
-        boolean isOwner = currentUserId != null && product.getShop() != null && product.getShop().getId() == currentUserId;
+        boolean isOwner = currentUserId != null && product.getShop() != null && Objects.equals(product.getShop().getId(), currentUserId);
 
         if (isAdmin || isOwner) {
             return response;
@@ -177,7 +178,7 @@ public class ProductServiceImpl implements ProductService {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-        if (product.getShop().getId() != currentUserId) {
+        if (product.getShop() == null || !Objects.equals(product.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_PRODUCT_OWNER);
         }
 
@@ -242,7 +243,7 @@ public class ProductServiceImpl implements ProductService {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-        if (product.getShop() == null || product.getShop().getId() != currentUserId) {
+        if (product.getShop() == null || !Objects.equals(product.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_PRODUCT_OWNER);
         }
 
