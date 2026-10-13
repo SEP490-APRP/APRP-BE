@@ -812,8 +812,11 @@ public class OrderServiceImpl implements OrderService {
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
 
-        // Bắt buộc 1 đơn tại 1 thời điểm: Kiểm tra xem shipper đã có đơn đang giao chưa
-        boolean hasActiveShipping = orderRepository.existsByShipper_IdAndStatus(currentUser.getId(), OrderStatus.SHIPPING);
+        // Bắt buộc 1 đơn tại 1 thời điểm: Kiểm tra xem shipper đã có đơn đang giao hoặc đang lấy hàng chưa
+        boolean hasActiveShipping = orderRepository.existsByShipper_IdAndStatusIn(
+                currentUser.getId(), 
+                List.of(OrderStatus.SHIPPING, OrderStatus.PICKED_UP)
+        );
         if (hasActiveShipping) {
             log.warn("Shipper id {} already has an active shipping order", currentUser.getId());
             throw new AppException(ErrorCode.SHIPPER_HAS_ACTIVE_ORDER);
@@ -828,10 +831,34 @@ public class OrderServiceImpl implements OrderService {
 
     @Transactional
     @Override
+    public OrderResponse markOrderAsPickedUp(int orderId) {
+        Order order = findOrderById(orderId);
+        User currentUser = getCurrentUser();
+        if (order.getShipper() != null && !Objects.equals(order.getShipper().getId(), currentUser.getId())) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
+        // Flow: SHIPPING -> PICKED_UP
+        if (order.getStatus() != OrderStatus.SHIPPING) {
+            log.error("Invalid state transition to PICKED_UP for order id {}. Current status: {}", orderId, order.getStatus());
+            throw new AppException(ErrorCode.INVALID_ORDER_STATE);
+        }
+        order.setStatus(OrderStatus.PICKED_UP);
+        order.setPickedUpAt(LocalDateTime.now());
+        Order saved = orderRepository.save(order);
+        List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
+        return buildOrderResponse(saved, details);
+    }
+
+    @Transactional
+    @Override
     public OrderResponse markOrderAsDelivered(int orderId) {
         Order order = findOrderById(orderId);
-        // Flow: SHIPPING -> DELIVERED
-        if (order.getStatus() != OrderStatus.SHIPPING) {
+        User currentUser = getCurrentUser();
+        if (order.getShipper() != null && !Objects.equals(order.getShipper().getId(), currentUser.getId())) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
+        // Flow: PICKED_UP / SHIPPING -> DELIVERED
+        if (order.getStatus() != OrderStatus.PICKED_UP && order.getStatus() != OrderStatus.SHIPPING) {
             log.error("Invalid state transition to DELIVERED for order id {}. Current status: {}", orderId, order.getStatus());
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
@@ -900,8 +927,12 @@ public class OrderServiceImpl implements OrderService {
     @Override
     public OrderResponse markOrderAsFailed(int orderId) {
         Order order = findOrderById(orderId);
-        // Chỉ đơn đang SHIPPING mới có thể báo giao thất bại
-        if (order.getStatus() != OrderStatus.SHIPPING) {
+        User currentUser = getCurrentUser();
+        if (order.getShipper() != null && !Objects.equals(order.getShipper().getId(), currentUser.getId())) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
+        // Đơn đang SHIPPING hoặc PICKED_UP mới có thể báo giao thất bại
+        if (order.getStatus() != OrderStatus.SHIPPING && order.getStatus() != OrderStatus.PICKED_UP) {
             log.error("Invalid state transition to FAILED for order id {}. Current status: {}", orderId, order.getStatus());
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
@@ -1186,6 +1217,7 @@ public class OrderServiceImpl implements OrderService {
                 .shipperId(order.getShipper() != null ? order.getShipper().getId() : null)
                 .shipperName(order.getShipper() != null ? order.getShipper().getFullName() : null)
                 .createdAt(order.getCreatedAt())
+                .pickedUpAt(order.getPickedUpAt())
                 .shopLatitude(shopLat)
                 .shopLongitude(shopLng)
                 .shippingLatitude(destLat)

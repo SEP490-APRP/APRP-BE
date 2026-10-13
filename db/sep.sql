@@ -382,6 +382,7 @@ CREATE TABLE orders (
     cod_prepaid_amount DECIMAL(18,2) DEFAULT 0.00,
     cod_refunded_at DATETIME,
     shipper_paid_at DATETIME,
+    picked_up_at DATETIME,
     CONSTRAINT fk_orders_buyer FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_orders_shop FOREIGN KEY (shop_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_orders_shipper FOREIGN KEY (shipper_id) REFERENCES users(id) ON DELETE SET NULL,

@@ -36,6 +36,8 @@ public class OrderResponse {
     String note;
     @JsonFormat(shape = com.fasterxml.jackson.annotation.JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss")
     LocalDateTime createdAt;
+    @JsonFormat(shape = com.fasterxml.jackson.annotation.JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    LocalDateTime pickedUpAt;
     Double shippingLatitude;
     Double shippingLongitude;
     Double shopLatitude;

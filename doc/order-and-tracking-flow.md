@@ -17,11 +17,15 @@ Tài liệu này đặc tả chi tiết toàn bộ quy trình đơn hàng và h�
    │
    │  2. Shop xác nhận & chuẩn bị hàng
    ▼
-[🏪 SHOP OWNER] ── Trạng thái: CONFIRMED ──> READY_FOR_PICKUP
+[🏪 SHOP OWNER] ── Trạng thái: CONFIRMED ──> READY
    │
    │  3. Shipper nhận đơn (Ràng buộc: 1 đơn active)
    ▼
-[🚚 SHIPPER] ── Trạng thái: SHIPPING
+[🚚 SHIPPER] ── Trạng thái: SHIPPING (Chặng 1: Di chuyển đến Shop)
+   │
+   │  4. Shipper tới Shop nhận hàng & bấm [📦 Đã lấy hàng tại Shop]
+   ▼
+[📦 PICKED_UP] ── Trạng thái: PICKED_UP (Chặng 2: Di chuyển giao cho Buyer)
    │
    ├─► GPS Ngầm (watchPosition) HOẶC FakeGPS Demo (1.5s - 2s/lần)
    │     │
@@ -31,9 +35,9 @@ Tài liệu này đặc tả chi tiết toàn bộ quy trình đơn hàng và h�
    │     ▼ Broadcast Topic: /topic/order/{orderId}/location
    │
    └──► [Google Maps Realtime Tracking Modal]
-         ├─ 🛒 Buyer xem lộ trình shipper giao đến nhà
-         ├─ 🏪 Shop xem shipper đến kho lấy hàng
-         └─ 🚚 Shipper xem lộ trình của chính mình
+         ├─ 🛒 Buyer xem lộ trình shipper giao đến nhà (hiển thị khi PICKED_UP)
+         ├─ 🏪 Shop xem shipper đến kho lấy hàng (SHIPPING) & rời kho (PICKED_UP)
+         └─ 🚚 Shipper xem lộ trình 2 chặng của chính mình
          (Bộ máy Lerp Animation 60fps + Xoay góc xe + Smart Camera)
 ```
 
@@ -241,24 +245,43 @@ Màn hình điều khiển Shipper: [`Dashboard.tsx`](file:///d:/SEP/APRP-FE/src
 * Chỉ khi Shipper bật **Trực tuyến**, hệ thống mới phân bổ và cho phép nhận các đơn hàng mới trong khu vực.
 
 #### 2. Quy tắc cốt lõi: Ràng buộc 1 đơn active duy nhất (Single Active Order):
-* **Lý do nghiệp vụ:** Trong thực tế vận chuyển nông sản tươi sống và để trải nghiệm tracking GPS chuẩn xác (không bị lẫn lộn vị trí giữa 3 shop và 3 buyer khác nhau), Shipper **bắt buộc chỉ được nhận 1 đơn hàng tại một thời điểm**.
-* **Xử lý Backend:** Trong [`OrderServiceImpl.java`](file:///d:/SEP/APRP-BE/src/main/java/com/sang/be_capnong/service/impl/OrderServiceImpl.java), hàm nhận đơn kiểm tra nếu shipper đã có đơn ở trạng thái `SHIPPING`, lập tức chặn với mã lỗi:
+* **Lý do nghiệp vụ:** Trong thực tế vận chuyển nông sản tươi sống và để trải nghiệm tracking GPS chuẩn xác (không bị lẫn lộn vị trí giữa 3 shop và 3 buyer khác nhau), Shipper **bắt buộc chỉ được nhận 1 đơn hàng tại một thời điểm** (trạng thái `SHIPPING` hoặc `PICKED_UP`).
+* **Xử lý Backend:** Trong [`OrderServiceImpl.java`](file:///d:/SEP/APRP-BE/src/main/java/com/sang/be_capnong/service/impl/OrderServiceImpl.java), hàm nhận đơn kiểm tra nếu shipper đã có đơn ở trạng thái `SHIPPING` hoặc `PICKED_UP`, lập tức chặn với mã lỗi:
   ```java
-  throw new AppException(ErrorCode.SHIPPER_HAS_ACTIVE_ORDER); // 400 Bad Request
+  boolean hasActiveShipping = orderRepository.existsByShipper_IdAndStatusIn(
+          shipper.getId(), List.of(OrderStatus.SHIPPING, OrderStatus.PICKED_UP));
+  if (hasActiveShipping) {
+      throw new AppException(ErrorCode.SHIPPER_HAS_ACTIVE_ORDER); // 400 Bad Request
+  }
   ```
 * **Xử lý Frontend:** Tại tab "Đơn hàng mới", nếu `myOrders.length > 0`:
   * Nút "Nhận đơn" bị vô hiệu hóa (disabled).
-  * Hiển thị thông báo màu vàng: *"Bạn đang có đơn hàng đang giao. Hãy hoàn thành hoặc hủy đơn hiện tại trước khi nhận đơn mới."*
+  * Hiển thị thông báo màu vàng: *"Bạn đang có 1 đơn đang giao. Vui lòng hoàn thành đơn hiện tại trước khi nhận thêm đơn mới!"*
 
-#### 3. Chuyển đổi mượt mà khi nhận đơn (Optimistic UI):
-* Khi Shipper bấm **[ Nhận đơn ]**:
-  * Đơn hàng ngay lập tức biến mất khỏi danh sách "Đơn hàng mới" và tự động xuất hiện ở tab "Đang giao".
-  * Trạng thái đơn chuyển sang **`SHIPPING`**.
+#### 3. Quy trình Vận chuyển 2 Chặng Chuẩn Sàn Vận Chuyển Lớn (Grab / ShopeeFood):
+Nhằm giải quyết triệt để vấn đề "không biết khi nào shipper lấy hàng tại shop" và phân định trách nhiệm rõ ràng trước hội đồng chấm:
 
-#### 4. Giao diện xử lý tại tab "Đang giao":
-* Được thiết kế chuẩn sàn giao hàng hiện đại với **2 nút tác vụ ngang hàng cân xứng**:
-  * `[ ✅ Giao thành công ]` *(Nền xanh lá lá)*: Mở popup xác nhận thành công $\rightarrow$ Chuyển trạng thái đơn sang **`DELIVERED`**.
-  * `[ ❌ Giao thất bại ]` *(Nền đỏ)*: Mở popup yêu cầu nhập lý do giao thất bại (Khách không nhận, sai địa chỉ, không liên lạc được...) $\rightarrow$ Chuyển trạng thái sang **`FAILED`** hoặc hoàn kho.
+* **Chặng 1 (First-Mile) — Đến Shop nhận hàng (`SHIPPING`):**
+  * Khi Shipper bấm **`[ Nhận đơn này ]`**, đơn hàng chuyển từ `READY` $\rightarrow$ **`SHIPPING`**.
+  * Shipper di chuyển từ vị trí hiện tại đến kho/vườn của Shop.
+  * **Trải nghiệm trên Map:** Shop nhìn thấy xe tài xế đang tiến về phía mình. Buyer nhận thông báo: *"Tài xế đang đến quán lấy hàng"*.
+  * **Giao diện tác vụ của Shipper:**
+    * Nút chính nổi bật: **`[ 📦 Xác nhận đã lấy hàng tại Shop ]`** (Màu hổ phách cam).
+    * Nút phụ: **`[ Không lấy được ]`** (Nếu shop đóng cửa, hàng bị hỏng...).
+
+* **Thời điểm bàn giao (Handover Timestamp) — Đã Lấy Hàng (`PICKED_UP`):**
+  * Khi tài xế tới shop, kiểm tra đủ quy cách nông sản tươi sống và bấm **`[ 📦 Xác nhận đã lấy hàng tại Shop ]`** (`PUT /api/v1/orders/{id}/pickup`):
+    * Trạng thái đơn chuyển sang **`PICKED_UP`**.
+    * Backend tự động lưu mốc thời gian: `picked_up_at = LocalDateTime.now()`.
+    * Dữ liệu thời gian này phục vụ đo lường KPI: Thời gian Shop chuẩn bị hàng & Thời gian Shipper đến kho.
+
+* **Chặng 2 (Last-Mile) — Giao đến tay người mua (`PICKED_UP`):**
+  * Shipper rời shop và bắt đầu di chuyển về nhà của Buyer.
+  * **Trải nghiệm trên Map:** Buyer lập tức thấy xe của shipper xuất hiện trên bản đồ và di chuyển về nhà mình (*"🚀 Tài xế đã lấy món và đang trên đường giao đến bạn"*). Shop thấy thông báo xe đã rời quán.
+  * **Giao diện tác vụ của Shipper:**
+    * `[ ✅ Giao thành công ]` *(Nền xanh lá)*: Mở popup xác nhận thành công $\rightarrow$ Chuyển trạng thái đơn sang **`DELIVERED`**.
+    * `[ ❌ Giao thất bại ]` *(Nền đỏ)*: Mở popup nhập lý do (Khách không nhận, sai địa chỉ, không liên lạc được...) $\rightarrow$ Chuyển trạng thái sang **`FAILED`** và hoàn kho.
+
 * **2 Nút tiện ích phụ trợ:**
   * `[ 🗺️ Xem Bản Đồ Map ]`: Mở trực tiếp Google Maps Tracking Modal để tài xế xem tuyến đường dẫn đường.
   * `[ 🎭 Mở Demo GPS ]`: Bật công cụ mô phỏng GPS xe chạy tự động (phục vụ thuyết trình/bảo vệ đồ án).
@@ -353,9 +376,11 @@ stateDiagram-v2
     PENDING --> CANCELLED: Đơn đã đặt và Buyer chủ động bấm Hủy trước khi shop làm
     CONFIRMED --> CANCELLED: Shop chủ động bấm Hủy (kèm lý do hết hàng/chất lượng)
     CONFIRMED --> READY: Shop gom & đóng gói xong
-    READY --> SHIPPING: Shipper bấm Nhận đơn (Bật Live GPS 60fps)
-    SHIPPING --> DELIVERED: Shipper giao thành công (Tắt GPS)
-    SHIPPING --> FAILED: Shipper báo giao thất bại (Nhập lý do)
+    READY --> SHIPPING: Shipper bấm Nhận đơn (Chặng 1: Đến Shop)
+    SHIPPING --> PICKED_UP: Shipper xác nhận đã lấy hàng tại Shop (Chặng 2: Đến Buyer)
+    SHIPPING --> FAILED: Không thể lấy hàng (Shop đóng cửa / hư hỏng)
+    PICKED_UP --> DELIVERED: Shipper giao thành công (Tắt GPS)
+    PICKED_UP --> FAILED: Shipper báo giao thất bại (Nhập lý do)
 ```
 
 ---
@@ -374,6 +399,10 @@ stateDiagram-v2
 | `GET` | `/api/v1/payments/order/{orderId}/resume-options` | BUYER | Lấy tùy chọn tiếp tục thanh toán (thanh toán gộp hoặc chia nhỏ mã QR từng đơn) |
 | `POST` | `/api/v1/payments/{orderCode}/confirm` | BUYER / Public | Xác thực thanh toán sau khi PayOS chuyển hướng về |
 | `POST` | `/api/v1/payments/payos/webhook` | Hệ thống (PayOS) | Nhận callback thanh toán tự động |
+| `PUT` | `/api/v1/orders/{orderId}/ship` | SHIPPER | Shipper nhận đơn & bắt đầu chặng 1 đến Shop (`READY` $\rightarrow$ `SHIPPING`) |
+| `PUT` | `/api/v1/orders/{orderId}/pickup` | SHIPPER | Shipper xác nhận đã lấy hàng tại Shop (`SHIPPING` $\rightarrow$ `PICKED_UP`) |
+| `PUT` | `/api/v1/orders/{orderId}/deliver` | SHIPPER | Shipper xác nhận giao hàng thành công (`PICKED_UP` $\rightarrow$ `DELIVERED`) |
+| `PUT` | `/api/v1/orders/{orderId}/fail` | SHIPPER | Shipper báo giao thất bại (`SHIPPING`/`PICKED_UP` $\rightarrow$ `FAILED`) |
 | `PUT` | `/api/v1/orders/{orderId}/cancel` | BUYER / SHOP | Hủy đơn hàng đã tạo trước khi giao hàng (hoàn kho và khôi phục giỏ nếu chưa trả tiền) |
 | `GET` | `/api/v1/shippers/location/order/{orderId}` | BUYER / SHOP / SHIPPER | REST fallback lấy vị trí gần nhất của shipper khi vừa mở modal |
 

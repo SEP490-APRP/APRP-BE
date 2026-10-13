@@ -20,6 +20,7 @@ public interface OrderService {
     OrderResponse markOrderAsConfirmed(int orderId);
     OrderResponse markOrderAsReady(int orderId);
     OrderResponse markOrderAsShipping(int orderId);
+    OrderResponse markOrderAsPickedUp(int orderId);
     OrderResponse markOrderAsDelivered(int orderId);
     OrderResponse markOrderAsCancelled(int orderId);
     OrderResponse markOrderAsFailed(int orderId);
