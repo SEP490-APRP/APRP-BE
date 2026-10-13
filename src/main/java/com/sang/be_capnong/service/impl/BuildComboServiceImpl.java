@@ -42,6 +42,7 @@ import java.util.*;
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 @Slf4j
+@Transactional(readOnly = true)
 public class BuildComboServiceImpl implements BuildComboService {
 
     BuildComboRepository buildComboRepository;

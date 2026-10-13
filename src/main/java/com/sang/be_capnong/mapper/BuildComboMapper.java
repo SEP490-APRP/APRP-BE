@@ -28,7 +28,7 @@ public interface BuildComboMapper {
     @Mapping(target = "productCombos", ignore = true)
     BuildCombo toBuildCombo(BuildComboCreationRequest request);
 
-    @Mapping(target = "items", source = "productCombos")
+    @Mapping(target = "items", ignore = true)
     BuildComboResponse toBuildComboResponse(BuildCombo buildCombo);
 
     List<BuildComboResponse> toBuildComboResponseList(List<BuildCombo> buildCombos);
