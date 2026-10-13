@@ -27,7 +27,7 @@ public class BuildComboController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    @PreAuthorize("hasAuthority('SHOP')")
+    @PreAuthorize("hasRole('SHOP')")
     public ApiResponse<BuildComboResponse> createCombo(@RequestBody @Valid BuildComboCreationRequest request) {
         log.info("REST request to create build combo: {}", request.getComboName());
         return ApiResponse.<BuildComboResponse>builder()
@@ -62,7 +62,7 @@ public class BuildComboController {
     }
 
     @GetMapping("/my-shop")
-    @PreAuthorize("hasAuthority('SHOP')")
+    @PreAuthorize("hasRole('SHOP')")
     public ApiResponse<PageResponse<BuildComboResponse>> getMyCombos(
             @RequestParam(value = "status", required = false) String status,
             @RequestParam(value = "mealType", required = false) MealType mealType,
@@ -76,7 +76,7 @@ public class BuildComboController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('SHOP')")
+    @PreAuthorize("hasRole('SHOP')")
     public ApiResponse<BuildComboResponse> updateCombo(
             @PathVariable("id") Integer id,
             @RequestBody @Valid BuildComboUpdateRequest request
@@ -88,7 +88,7 @@ public class BuildComboController {
     }
 
     @PatchMapping("/{id}/status")
-    @PreAuthorize("hasAuthority('SHOP')")
+    @PreAuthorize("hasRole('SHOP')")
     public ApiResponse<BuildComboResponse> updateStatus(
             @PathVariable("id") Integer id,
             @RequestParam("status") String status
@@ -100,7 +100,7 @@ public class BuildComboController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAuthority('SHOP')")
+    @PreAuthorize("hasRole('SHOP')")
     public ApiResponse<String> deleteCombo(@PathVariable("id") Integer id) {
         log.info("REST request to delete build combo id: {}", id);
         buildComboService.deleteCombo(id);

@@ -74,4 +74,72 @@ public class CloudinaryServiceImpl implements CloudinaryService {
             log.warn("Failed to delete image from Cloudinary with publicId: {}", publicId, e);
         }
     }
+
+    @Override
+    public void deleteImageByUrl(String imageUrl) {
+        if (imageUrl == null || imageUrl.isBlank()) {
+            return;
+        }
+        String publicId = extractPublicId(imageUrl);
+        if (publicId != null && !publicId.isBlank()) {
+            deleteImage(publicId);
+        } else {
+            log.debug("Skipping Cloudinary deletion: URL is not a recognized Cloudinary resource: {}", imageUrl);
+        }
+    }
+
+    @Override
+    public String extractPublicId(String imageUrl) {
+        if (imageUrl == null || imageUrl.isBlank() || !imageUrl.contains("cloudinary.com")) {
+            return null;
+        }
+
+        try {
+            int uploadIndex = imageUrl.indexOf("/upload/");
+            if (uploadIndex == -1) {
+                return null;
+            }
+
+            String pathAfterUpload = imageUrl.substring(uploadIndex + "/upload/".length());
+            int queryIndex = pathAfterUpload.indexOf('?');
+            if (queryIndex != -1) {
+                pathAfterUpload = pathAfterUpload.substring(0, queryIndex);
+            }
+
+            String[] segments = pathAfterUpload.split("/");
+            int startIndex = 0;
+            for (int i = 0; i < segments.length; i++) {
+                String seg = segments[i];
+                if (seg.matches("^v\\d+$")) {
+                    startIndex = i + 1;
+                    break;
+                } else if (seg.contains(",") || seg.startsWith("c_") || seg.startsWith("w_") || seg.startsWith("h_") || seg.startsWith("q_")) {
+                    startIndex = i + 1;
+                }
+            }
+
+            if (startIndex >= segments.length) {
+                return null;
+            }
+
+            StringBuilder publicIdBuilder = new StringBuilder();
+            for (int i = startIndex; i < segments.length; i++) {
+                if (publicIdBuilder.length() > 0) {
+                    publicIdBuilder.append("/");
+                }
+                publicIdBuilder.append(segments[i]);
+            }
+
+            String fullPublicId = publicIdBuilder.toString();
+            int lastDot = fullPublicId.lastIndexOf('.');
+            if (lastDot != -1) {
+                fullPublicId = fullPublicId.substring(0, lastDot);
+            }
+
+            return fullPublicId.isBlank() ? null : fullPublicId;
+        } catch (Exception e) {
+            log.warn("Failed to extract Cloudinary publicId from URL: {}", imageUrl, e);
+            return null;
+        }
+    }
 }

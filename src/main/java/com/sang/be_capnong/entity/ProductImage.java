@@ -28,6 +28,17 @@ public class ProductImage {
     Integer displayOrder;
     LocalDateTime createdAt;
 
+    @Column(name = "is_approved", nullable = false)
+    @Builder.Default
+    Boolean isApproved = true;
+
+    @Column(name = "is_flagged", nullable = false)
+    @Builder.Default
+    Boolean isFlagged = false;
+
+    @Column(name = "flag_reason", length = 500)
+    String flagReason;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "product_id", nullable = false)
     @JsonIgnore

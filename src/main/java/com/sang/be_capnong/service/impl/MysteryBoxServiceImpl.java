@@ -19,6 +19,8 @@ import com.sang.be_capnong.repository.ProductMysteryRepository;
 import com.sang.be_capnong.repository.ProductRepository;
 import com.sang.be_capnong.repository.UserRepository;
 import com.sang.be_capnong.repository.specification.MysteryBoxSpecification;
+import com.sang.be_capnong.service.CloudinaryService;
+import com.sang.be_capnong.service.ImageModerationService;
 import com.sang.be_capnong.service.MysteryBoxService;
 import com.sang.be_capnong.util.SecurityUtils;
 import org.springframework.data.jpa.domain.Specification;
@@ -47,6 +49,8 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
     ProductRepository productRepository;
     UserRepository userRepository;
     MysteryBoxMapper mysteryBoxMapper;
+    ImageModerationService imageModerationService;
+    CloudinaryService cloudinaryService;
 
     @Override
     @Transactional
@@ -65,6 +69,17 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
             throw new AppException(ErrorCode.SHOP_NOT_ACTIVE);
         }
 
+        // Kiểm duyệt ảnh túi mù bằng AI (với categoryId = 5 cho phép hình ảnh hộp quà, giỏ hàng, bao bì đóng gói)
+        if (request.getImageUrl() != null && !request.getImageUrl().isBlank()) {
+            com.sang.be_capnong.dto.ModerationCheckResult checkResult = 
+                    imageModerationService.checkImageUrl(request.getImageUrl(), request.getBoxType(), 5);
+            if (!checkResult.isAgricultural()) {
+                log.warn("Mystery box image rejected (Level 1) for boxType '{}': {}", request.getBoxType(), checkResult.getRejectionReason());
+                cloudinaryService.deleteImageByUrl(request.getImageUrl());
+                throw new AppException(ErrorCode.IMAGE_NOT_AGRICULTURAL_PRODUCE);
+            }
+        }
+
         // Validate duplicates in items list
         Set<Integer> seenProductIds = new HashSet<>();
         for (ProductMysteryItemRequest item : request.getItems()) {
@@ -81,7 +96,7 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
             Product product = productRepository.findById(item.getProductId())
                     .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-            if (product.getShop() == null || product.getShop().getId() != currentUserId) {
+            if (product.getShop() == null || !Objects.equals(product.getShop().getId(), currentUserId)) {
                 throw new AppException(ErrorCode.PRODUCT_NOT_BELONG_TO_SHOP);
             }
 
@@ -148,7 +163,7 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
             // Unauthenticated caller
         }
 
-        boolean isOwner = (currentUserId != null && box.getShop() != null && box.getShop().getId() == currentUserId);
+        boolean isOwner = (currentUserId != null && box.getShop() != null && Objects.equals(box.getShop().getId(), currentUserId));
         if (isOwner) {
             List<ProductMystery> items = productMysteryRepository.findByMysteryBox_MysteryId(id);
             response.setItems(mysteryBoxMapper.toProductMysteryResponseList(items));
@@ -234,7 +249,7 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
         MysteryBox box = mysteryBoxRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.MYSTERY_BOX_NOT_FOUND));
 
-        if (box.getShop() == null || box.getShop().getId() != currentUserId) {
+        if (box.getShop() == null || !Objects.equals(box.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_MYSTERY_BOX_OWNER);
         }
 
@@ -269,6 +284,23 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
             }
         }
 
+        if (request.getImageUrl() != null && !request.getImageUrl().isBlank()) {
+            String newUrl = request.getImageUrl().trim();
+            if (!newUrl.equals(box.getImageUrl())) {
+                String boxType = request.getBoxType() != null ? request.getBoxType() : box.getBoxType();
+                com.sang.be_capnong.dto.ModerationCheckResult checkResult = 
+                        imageModerationService.checkImageUrl(newUrl, boxType, 5);
+                if (!checkResult.isAgricultural()) {
+                    log.warn("Updated mystery box image rejected (Level 1) for boxType '{}': {}", boxType, checkResult.getRejectionReason());
+                    cloudinaryService.deleteImageByUrl(newUrl);
+                    throw new AppException(ErrorCode.IMAGE_NOT_AGRICULTURAL_PRODUCE);
+                }
+                if (box.getImageUrl() != null && !box.getImageUrl().isBlank()) {
+                    cloudinaryService.deleteImageByUrl(box.getImageUrl());
+                }
+            }
+        }
+
         mysteryBoxMapper.updateMysteryBox(box, request);
         MysteryBox savedBox = mysteryBoxRepository.save(box);
 
@@ -287,7 +319,7 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
         MysteryBox box = mysteryBoxRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.MYSTERY_BOX_NOT_FOUND));
 
-        if (box.getShop() == null || box.getShop().getId() != currentUserId) {
+        if (box.getShop() == null || !Objects.equals(box.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_MYSTERY_BOX_OWNER);
         }
 
@@ -309,7 +341,7 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
         MysteryBox box = mysteryBoxRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.MYSTERY_BOX_NOT_FOUND));
 
-        if (box.getShop() == null || box.getShop().getId() != currentUserId) {
+        if (box.getShop() == null || !Objects.equals(box.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_MYSTERY_BOX_OWNER);
         }
 

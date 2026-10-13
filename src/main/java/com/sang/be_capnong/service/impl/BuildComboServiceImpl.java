@@ -21,6 +21,8 @@ import com.sang.be_capnong.repository.ProductRepository;
 import com.sang.be_capnong.repository.UserRepository;
 import com.sang.be_capnong.repository.specification.BuildComboSpecification;
 import com.sang.be_capnong.service.BuildComboService;
+import com.sang.be_capnong.service.CloudinaryService;
+import com.sang.be_capnong.service.ImageModerationService;
 import com.sang.be_capnong.util.SecurityUtils;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -47,6 +49,8 @@ public class BuildComboServiceImpl implements BuildComboService {
     ProductRepository productRepository;
     UserRepository userRepository;
     BuildComboMapper buildComboMapper;
+    ImageModerationService imageModerationService;
+    CloudinaryService cloudinaryService;
 
     @Override
     @Transactional
@@ -55,6 +59,17 @@ public class BuildComboServiceImpl implements BuildComboService {
         log.info("Creating build combo '{}' by shop user id: {}", request.getComboName(), currentUserId);
 
         User shop = getAndValidateShopUser(currentUserId);
+
+        // Kiểm duyệt ảnh combo bằng AI (với categoryId = 5 cho phép hình ảnh mâm đồ ăn nấu chín / combo rau củ)
+        if (request.getImageUrl() != null && !request.getImageUrl().isBlank()) {
+            com.sang.be_capnong.dto.ModerationCheckResult checkResult = 
+                    imageModerationService.checkImageUrl(request.getImageUrl(), request.getComboName(), 5);
+            if (!checkResult.isAgricultural()) {
+                log.warn("Build combo image rejected (Level 1) for combo '{}': {}", request.getComboName(), checkResult.getRejectionReason());
+                cloudinaryService.deleteImageByUrl(request.getImageUrl());
+                throw new AppException(ErrorCode.IMAGE_NOT_AGRICULTURAL_PRODUCE);
+            }
+        }
 
         // Validate duplicates in items list
         Set<Integer> seenProductIds = new HashSet<>();
@@ -79,7 +94,7 @@ public class BuildComboServiceImpl implements BuildComboService {
             Product product = productRepository.findById(itemReq.getProductId())
                     .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-            if (product.getShop().getId() != currentUserId) {
+            if (product.getShop() == null || !Objects.equals(product.getShop().getId(), currentUserId)) {
                 throw new AppException(ErrorCode.PRODUCT_NOT_BELONG_TO_SHOP);
             }
 
@@ -197,7 +212,7 @@ public class BuildComboServiceImpl implements BuildComboService {
         BuildCombo buildCombo = buildComboRepository.findById(comboId)
                 .orElseThrow(() -> new AppException(ErrorCode.COMBO_NOT_FOUND));
 
-        if (buildCombo.getShop().getId() != currentUserId) {
+        if (buildCombo.getShop() == null || !Objects.equals(buildCombo.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_COMBO_OWNER);
         }
 
@@ -239,7 +254,7 @@ public class BuildComboServiceImpl implements BuildComboService {
             Product product = productRepository.findById(itemReq.getProductId())
                     .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-            if (product.getShop().getId() != currentUserId) {
+            if (product.getShop() == null || !Objects.equals(product.getShop().getId(), currentUserId)) {
                 throw new AppException(ErrorCode.PRODUCT_NOT_BELONG_TO_SHOP);
             }
 
@@ -267,6 +282,22 @@ public class BuildComboServiceImpl implements BuildComboService {
         List<ProductCombo> savedItems = productComboRepository.saveAll(newItemsToSave);
 
         // 4. Update BuildCombo entity fields
+        if (request.getImageUrl() != null && !request.getImageUrl().isBlank()) {
+            String newUrl = request.getImageUrl().trim();
+            if (!newUrl.equals(buildCombo.getImageUrl())) {
+                com.sang.be_capnong.dto.ModerationCheckResult checkResult = 
+                        imageModerationService.checkImageUrl(newUrl, request.getComboName(), 5);
+                if (!checkResult.isAgricultural()) {
+                    log.warn("Updated combo image rejected (Level 1) for combo '{}': {}", request.getComboName(), checkResult.getRejectionReason());
+                    cloudinaryService.deleteImageByUrl(newUrl);
+                    throw new AppException(ErrorCode.IMAGE_NOT_AGRICULTURAL_PRODUCE);
+                }
+                if (buildCombo.getImageUrl() != null && !buildCombo.getImageUrl().isBlank()) {
+                    cloudinaryService.deleteImageByUrl(buildCombo.getImageUrl());
+                }
+            }
+        }
+
         buildComboMapper.updateBuildCombo(buildCombo, request);
         if (request.getStatus() != null && !request.getStatus().isBlank()) {
             buildCombo.setStatus(request.getStatus().trim().toUpperCase());
@@ -287,7 +318,7 @@ public class BuildComboServiceImpl implements BuildComboService {
         BuildCombo buildCombo = buildComboRepository.findById(comboId)
                 .orElseThrow(() -> new AppException(ErrorCode.COMBO_NOT_FOUND));
 
-        if (buildCombo.getShop().getId() != currentUserId) {
+        if (buildCombo.getShop() == null || !Objects.equals(buildCombo.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_COMBO_OWNER);
         }
 
@@ -310,7 +341,7 @@ public class BuildComboServiceImpl implements BuildComboService {
         BuildCombo buildCombo = buildComboRepository.findById(comboId)
                 .orElseThrow(() -> new AppException(ErrorCode.COMBO_NOT_FOUND));
 
-        if (buildCombo.getShop().getId() != currentUserId) {
+        if (buildCombo.getShop() == null || !Objects.equals(buildCombo.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_COMBO_OWNER);
         }
 

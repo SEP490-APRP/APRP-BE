@@ -30,6 +30,18 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(apiResponse);
     }
 
+    @ExceptionHandler(value = org.springframework.web.multipart.MaxUploadSizeExceededException.class)
+    ResponseEntity<ApiResponse> handleMaxUploadSizeExceededException(org.springframework.web.multipart.MaxUploadSizeExceededException ex) {
+        log.warn("Max upload size exceeded: {}", ex.getMessage());
+        ErrorCode errorCode = ErrorCode.FILE_TOO_LARGE;
+        return ResponseEntity.status(errorCode.getStatusCode()).body(
+                ApiResponse.builder()
+                        .code(errorCode.getCode())
+                        .message(errorCode.getMessage())
+                        .build()
+        );
+    }
+
     @ExceptionHandler(value = Exception.class)
     ResponseEntity<ApiResponse> handleException(Exception ex) {
         log.error("Unhandled Exception: ", ex);

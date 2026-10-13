@@ -16,4 +16,7 @@ public class ProductImageResponse {
     Boolean isPrimary;
     Integer displayOrder;
     LocalDateTime createdAt;
+    Boolean isApproved;
+    Boolean isFlagged;
+    String flagReason;
 }
