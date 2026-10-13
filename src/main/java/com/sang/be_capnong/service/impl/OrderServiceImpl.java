@@ -22,6 +22,7 @@ import com.sang.be_capnong.enums.VoucherTarget;
 import com.sang.be_capnong.enums.VoucherType;
 import com.sang.be_capnong.dto.request.ShippingFeeRequest;
 import com.sang.be_capnong.dto.response.ShippingFeeResponse;
+import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -255,29 +256,175 @@ public class OrderServiceImpl implements OrderService {
         return responses;
     }
 
+    @lombok.Data
+    @lombok.Builder
+    @lombok.NoArgsConstructor
+    @lombok.AllArgsConstructor
+    public static class StockShortage {
+        String itemType; // "PRODUCT", "MYSTERY_BOX", "BUILD_COMBO"
+        Integer id;
+        String itemName;
+        String imageUrl;
+        int requestedQuantity;
+        int availableQuantity;
+    }
+
     private java.util.Map<User, List<OrderDetail>> groupItemsByShop(List<OrderItemRequest> items, boolean deductStock) {
-        java.util.Map<User, List<OrderDetail>> mapShopToDetails = new java.util.HashMap<>();
+        // BƯỚC 1: Thu thập tổng số lượng requested theo từng món và kiểm tra toàn bộ danh sách
+        java.util.Map<Integer, Integer> productQtyMap = new java.util.LinkedHashMap<>();
+        java.util.Map<Integer, Integer> boxQtyMap = new java.util.LinkedHashMap<>();
+        java.util.Map<Integer, Integer> comboQtyMap = new java.util.LinkedHashMap<>();
+
         for (OrderItemRequest itemReq : items) {
             validateItemHasExactlyOneId(itemReq);
+            int qty = itemReq.getQuantity() != null ? itemReq.getQuantity() : 0;
+            if (itemReq.getProductId() != null) {
+                productQtyMap.merge(itemReq.getProductId(), qty, Integer::sum);
+            } else if (itemReq.getMysteryBoxId() != null) {
+                boxQtyMap.merge(itemReq.getMysteryBoxId(), qty, Integer::sum);
+            } else if (itemReq.getBuildComboId() != null) {
+                comboQtyMap.merge(itemReq.getBuildComboId(), qty, Integer::sum);
+            }
+        }
+
+        List<StockShortage> shortages = new ArrayList<>();
+
+        // 1. Kiểm tra tồn kho của tất cả Product
+        for (java.util.Map.Entry<Integer, Integer> entry : productQtyMap.entrySet()) {
+            Integer prodId = entry.getKey();
+            int requested = entry.getValue();
+            Product product = productRepository.findById(prodId)
+                    .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+            if (!"ACTIVE".equalsIgnoreCase(product.getStatus())) throw new AppException(ErrorCode.PRODUCT_NOT_FOUND);
+            User productShop = product.getShop();
+            if (productShop == null || productShop.getStatus() != UserStatus.ACTIVE) {
+                throw new AppException(ErrorCode.SHOP_NOT_FOUND);
+            }
+            int available = product.getStockQuantity() != null ? product.getStockQuantity() : 0;
+            if (available < requested) {
+                String img = (product.getImages() != null && !product.getImages().isEmpty())
+                        ? product.getImages().get(0).getImageUrl()
+                        : null;
+                shortages.add(StockShortage.builder()
+                        .itemType("PRODUCT")
+                        .id(product.getProductId())
+                        .itemName(product.getProductName())
+                        .imageUrl(img)
+                        .requestedQuantity(requested)
+                        .availableQuantity(available)
+                        .build());
+            }
+        }
+
+        // 2. Kiểm tra tồn kho của tất cả Mystery Box
+        for (java.util.Map.Entry<Integer, Integer> entry : boxQtyMap.entrySet()) {
+            Integer boxId = entry.getKey();
+            int requested = entry.getValue();
+            MysteryBox box = mysteryBoxRepository.findById(boxId)
+                    .orElseThrow(() -> new AppException(ErrorCode.MYSTERY_BOX_NOT_FOUND));
+            if (!Boolean.TRUE.equals(box.getIsActive())) throw new AppException(ErrorCode.MYSTERY_BOX_NOT_FOUND);
+            User boxShop = box.getShop();
+            if (boxShop == null || boxShop.getStatus() != UserStatus.ACTIVE) {
+                throw new AppException(ErrorCode.SHOP_NOT_FOUND);
+            }
+            int sold = box.getSoldQuantity() == null ? 0 : box.getSoldQuantity();
+            int remaining = Math.max(0, (box.getTotalQuantity() == null ? 0 : box.getTotalQuantity()) - sold);
+            if (remaining < requested) {
+                shortages.add(StockShortage.builder()
+                        .itemType("MYSTERY_BOX")
+                        .id(box.getMysteryId())
+                        .itemName(box.getBoxType())
+                        .imageUrl(box.getImageUrl())
+                        .requestedQuantity(requested)
+                        .availableQuantity(remaining)
+                        .build());
+            }
+        }
+
+        // 3. Kiểm tra tồn kho của tất cả Build Combo
+        for (java.util.Map.Entry<Integer, Integer> entry : comboQtyMap.entrySet()) {
+            Integer comboId = entry.getKey();
+            int requested = entry.getValue();
+            BuildCombo combo = buildComboRepository.findById(comboId)
+                    .orElseThrow(() -> new AppException(ErrorCode.COMBO_NOT_FOUND));
+            if (!"ACTIVE".equalsIgnoreCase(combo.getStatus())) throw new AppException(ErrorCode.COMBO_NOT_FOUND);
+            User comboShop = combo.getShop();
+            if (comboShop == null || comboShop.getStatus() != UserStatus.ACTIVE) {
+                throw new AppException(ErrorCode.SHOP_NOT_FOUND);
+            }
+            int sold = combo.getSoldQuantity() == null ? 0 : combo.getSoldQuantity();
+            int remaining = Math.max(0, (combo.getTotalQuantity() == null ? 0 : combo.getTotalQuantity()) - sold);
+            if (remaining < requested) {
+                shortages.add(StockShortage.builder()
+                        .itemType("BUILD_COMBO")
+                        .id(combo.getComboId())
+                        .itemName(combo.getComboName())
+                        .imageUrl(combo.getImageUrl())
+                        .requestedQuantity(requested)
+                        .availableQuantity(remaining)
+                        .build());
+            }
+        }
+
+        // Nếu có bất kỳ mặt hàng nào thiếu kho, thông báo TỔNG HỢP toàn bộ danh sách thiếu
+        if (!shortages.isEmpty()) {
+            StringBuilder sb = new StringBuilder();
+            if (shortages.size() == 1) {
+                StockShortage s = shortages.get(0);
+                String typeLabel = switch (s.getItemType()) {
+                    case "MYSTERY_BOX" -> "Hộp bí ẩn";
+                    case "BUILD_COMBO" -> "Gói Combo";
+                    default -> "Sản phẩm";
+                };
+                sb.append(typeLabel).append(" \"").append(s.getItemName())
+                  .append("\" trong kho chỉ còn ").append(s.getAvailableQuantity())
+                  .append(" (bạn đặt ").append(s.getRequestedQuantity()).append("). Vui lòng cập nhật lại giỏ hàng!");
+            } else {
+                sb.append("Có ").append(shortages.size()).append(" mặt hàng không đủ số lượng trong kho:\n");
+                for (StockShortage s : shortages) {
+                    String tag = switch (s.getItemType()) {
+                        case "MYSTERY_BOX" -> "[Hộp bí ẩn]";
+                        case "BUILD_COMBO" -> "[Gói Combo]";
+                        default -> "[Sản phẩm]";
+                    };
+                    sb.append("• ").append(tag).append(" \"").append(s.getItemName())
+                      .append("\": Kho còn ").append(s.getAvailableQuantity())
+                      .append(", bạn đặt ").append(s.getRequestedQuantity()).append("\n");
+                }
+                sb.append("Vui lòng cập nhật lại số lượng trong giỏ hàng!");
+            }
+            throw new AppException(ErrorCode.STOCK_INSUFFICIENT, sb.toString().trim(), shortages);
+        }
+
+        // BƯỚC 2: Thực hiện trừ kho nguyên tử (Atomic Conditional Update) và đóng gói OrderDetail
+        java.util.Map<User, List<OrderDetail>> mapShopToDetails = new java.util.HashMap<>();
+        List<StockShortage> raceShortages = new ArrayList<>();
+
+        for (OrderItemRequest itemReq : items) {
             User shopOwner;
             OrderDetail detail;
 
             if (itemReq.getProductId() != null) {
-                Product product = productRepository.findById(itemReq.getProductId())
-                        .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
-                if (!"ACTIVE".equalsIgnoreCase(product.getStatus())) throw new AppException(ErrorCode.PRODUCT_NOT_FOUND);
-                User productShop = product.getShop();
-                if (productShop == null || productShop.getStatus() != UserStatus.ACTIVE) {
-                    throw new AppException(ErrorCode.SHOP_NOT_FOUND);
-                }
-                if (product.getStockQuantity() == null || product.getStockQuantity() < itemReq.getQuantity()) {
-                    throw new AppException(ErrorCode.STOCK_INSUFFICIENT);
-                }
+                Product product = productRepository.findById(itemReq.getProductId()).orElseThrow();
                 if (deductStock) {
-                    product.setStockQuantity(product.getStockQuantity() - itemReq.getQuantity());
-                    productRepository.save(product);
+                    int updated = productRepository.decreaseStockAtomic(product.getProductId(), itemReq.getQuantity());
+                    if (updated == 0) {
+                        String img = (product.getImages() != null && !product.getImages().isEmpty())
+                                ? product.getImages().get(0).getImageUrl()
+                                : null;
+                        raceShortages.add(StockShortage.builder()
+                                .itemType("PRODUCT")
+                                .id(product.getProductId())
+                                .itemName(product.getProductName())
+                                .imageUrl(img)
+                                .requestedQuantity(itemReq.getQuantity())
+                                .availableQuantity(product.getStockQuantity() != null ? product.getStockQuantity() : 0)
+                                .build());
+                    } else {
+                        product.setStockQuantity(product.getStockQuantity() - itemReq.getQuantity());
+                    }
                 }
-                shopOwner = productShop;
+                shopOwner = product.getShop();
                 detail = OrderDetail.builder()
                         .product(product)
                         .quantity(itemReq.getQuantity())
@@ -286,21 +433,25 @@ public class OrderServiceImpl implements OrderService {
                         .isRequestedReturn(false)
                         .build();
             } else if (itemReq.getMysteryBoxId() != null) {
-                MysteryBox box = mysteryBoxRepository.findById(itemReq.getMysteryBoxId())
-                        .orElseThrow(() -> new AppException(ErrorCode.MYSTERY_BOX_NOT_FOUND));
-                if (!Boolean.TRUE.equals(box.getIsActive())) throw new AppException(ErrorCode.MYSTERY_BOX_NOT_FOUND);
-                User boxShop = box.getShop();
-                if (boxShop == null || boxShop.getStatus() != UserStatus.ACTIVE) {
-                    throw new AppException(ErrorCode.SHOP_NOT_FOUND);
-                }
-                int sold = box.getSoldQuantity() == null ? 0 : box.getSoldQuantity();
-                int remaining = (box.getTotalQuantity() == null ? 0 : box.getTotalQuantity()) - sold;
-                if (remaining < itemReq.getQuantity()) throw new AppException(ErrorCode.STOCK_INSUFFICIENT);
+                MysteryBox box = mysteryBoxRepository.findById(itemReq.getMysteryBoxId()).orElseThrow();
                 if (deductStock) {
-                    box.setSoldQuantity(sold + itemReq.getQuantity());
-                    mysteryBoxRepository.save(box);
+                    int updated = mysteryBoxRepository.decreaseStockAtomic(box.getMysteryId(), itemReq.getQuantity());
+                    if (updated == 0) {
+                        int sold = box.getSoldQuantity() == null ? 0 : box.getSoldQuantity();
+                        int remaining = Math.max(0, (box.getTotalQuantity() == null ? 0 : box.getTotalQuantity()) - sold);
+                        raceShortages.add(StockShortage.builder()
+                                .itemType("MYSTERY_BOX")
+                                .id(box.getMysteryId())
+                                .itemName(box.getBoxType())
+                                .imageUrl(box.getImageUrl())
+                                .requestedQuantity(itemReq.getQuantity())
+                                .availableQuantity(remaining)
+                                .build());
+                    } else {
+                        box.setSoldQuantity((box.getSoldQuantity() == null ? 0 : box.getSoldQuantity()) + itemReq.getQuantity());
+                    }
                 }
-                shopOwner = boxShop;
+                shopOwner = box.getShop();
                 detail = OrderDetail.builder()
                         .mysteryBox(box)
                         .quantity(itemReq.getQuantity())
@@ -309,21 +460,25 @@ public class OrderServiceImpl implements OrderService {
                         .isRequestedReturn(false)
                         .build();
             } else {
-                BuildCombo combo = buildComboRepository.findById(itemReq.getBuildComboId())
-                        .orElseThrow(() -> new AppException(ErrorCode.COMBO_NOT_FOUND));
-                if (!"ACTIVE".equalsIgnoreCase(combo.getStatus())) throw new AppException(ErrorCode.COMBO_NOT_FOUND);
-                User comboShop = combo.getShop();
-                if (comboShop == null || comboShop.getStatus() != UserStatus.ACTIVE) {
-                    throw new AppException(ErrorCode.SHOP_NOT_FOUND);
-                }
-                int sold = combo.getSoldQuantity() == null ? 0 : combo.getSoldQuantity();
-                int remaining = (combo.getTotalQuantity() == null ? 0 : combo.getTotalQuantity()) - sold;
-                if (remaining < itemReq.getQuantity()) throw new AppException(ErrorCode.STOCK_INSUFFICIENT);
+                BuildCombo combo = buildComboRepository.findById(itemReq.getBuildComboId()).orElseThrow();
                 if (deductStock) {
-                    combo.setSoldQuantity(sold + itemReq.getQuantity());
-                    buildComboRepository.save(combo);
+                    int updated = buildComboRepository.decreaseStockAtomic(combo.getComboId(), itemReq.getQuantity());
+                    if (updated == 0) {
+                        int sold = combo.getSoldQuantity() == null ? 0 : combo.getSoldQuantity();
+                        int remaining = Math.max(0, (combo.getTotalQuantity() == null ? 0 : combo.getTotalQuantity()) - sold);
+                        raceShortages.add(StockShortage.builder()
+                                .itemType("BUILD_COMBO")
+                                .id(combo.getComboId())
+                                .itemName(combo.getComboName())
+                                .imageUrl(combo.getImageUrl())
+                                .requestedQuantity(itemReq.getQuantity())
+                                .availableQuantity(remaining)
+                                .build());
+                    } else {
+                        combo.setSoldQuantity((combo.getSoldQuantity() == null ? 0 : combo.getSoldQuantity()) + itemReq.getQuantity());
+                    }
                 }
-                shopOwner = comboShop;
+                shopOwner = combo.getShop();
                 detail = OrderDetail.builder()
                         .buildCombo(combo)
                         .quantity(itemReq.getQuantity())
@@ -334,6 +489,22 @@ public class OrderServiceImpl implements OrderService {
             }
             mapShopToDetails.computeIfAbsent(shopOwner, k -> new ArrayList<>()).add(detail);
         }
+
+        if (!raceShortages.isEmpty()) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("Các mặt hàng sau vừa có khách hàng khác đặt mua trước, hiện không còn đủ số lượng:\n");
+            for (StockShortage s : raceShortages) {
+                String tag = switch (s.getItemType()) {
+                    case "MYSTERY_BOX" -> "[Hộp bí ẩn]";
+                    case "BUILD_COMBO" -> "[Gói Combo]";
+                    default -> "[Sản phẩm]";
+                };
+                sb.append("• ").append(tag).append(" \"").append(s.getItemName()).append("\"\n");
+            }
+            sb.append("Vui lòng cập nhật lại giỏ hàng!");
+            throw new AppException(ErrorCode.STOCK_INSUFFICIENT, sb.toString().trim(), raceShortages);
+        }
+
         return mapShopToDetails;
     }
 
@@ -510,7 +681,7 @@ public class OrderServiceImpl implements OrderService {
             }
 
             ShopOrderPreview targetShopPreview = shopPreviews.stream()
-                    .filter(sp -> sp.getShopId() == shopOwner.getId())
+                    .filter(sp -> Objects.equals(sp.getShopId(), shopOwner.getId()))
                     .findFirst()
                     .orElse(null);
             if (targetShopPreview == null) {
@@ -585,7 +756,7 @@ public class OrderServiceImpl implements OrderService {
             return true;
         }
 
-        return voucher.getShop() != null && voucher.getShop().getId() == order.getShop().getId();
+        return voucher.getShop() != null && order.getShop() != null && Objects.equals(voucher.getShop().getId(), order.getShop().getId());
     }
 
     // ============================================================
@@ -597,7 +768,7 @@ public class OrderServiceImpl implements OrderService {
     public OrderResponse markOrderAsConfirmed(int orderId) {
         Order order = findOrderById(orderId);
         User currentUser = getCurrentUser();
-        if (order.getShop() != null && order.getShop().getId() != currentUser.getId()) {
+        if (order.getShop() != null && !Objects.equals(order.getShop().getId(), currentUser.getId())) {
             throw new AppException(ErrorCode.UNAUTHORIZED);
         }
         // Flow: PENDING / PAID -> CONFIRMED
@@ -616,7 +787,7 @@ public class OrderServiceImpl implements OrderService {
     public OrderResponse markOrderAsReady(int orderId) {
         Order order = findOrderById(orderId);
         User currentUser = getCurrentUser();
-        if (order.getShop() != null && order.getShop().getId() != currentUser.getId()) {
+        if (order.getShop() != null && !Objects.equals(order.getShop().getId(), currentUser.getId())) {
             throw new AppException(ErrorCode.UNAUTHORIZED);
         }
         // Flow: CONFIRMED -> READY
@@ -675,8 +846,8 @@ public class OrderServiceImpl implements OrderService {
     public OrderResponse markOrderAsCancelled(int orderId) {
         Order order = findOrderById(orderId);
         User currentUser = getCurrentUser();
-        boolean isBuyer = order.getBuyer() != null && order.getBuyer().getId() == currentUser.getId();
-        boolean isShop = order.getShop() != null && order.getShop().getId() == currentUser.getId();
+        boolean isBuyer = order.getBuyer() != null && Objects.equals(order.getBuyer().getId(), currentUser.getId());
+        boolean isShop = order.getShop() != null && Objects.equals(order.getShop().getId(), currentUser.getId());
         if (!isBuyer && !isShop) {
             throw new AppException(ErrorCode.UNAUTHORIZED);
         }
@@ -751,19 +922,15 @@ public class OrderServiceImpl implements OrderService {
     private void restoreStock(Order order) {
         List<OrderDetail> details = orderDetailRepository.findByOrder_OrderId(order.getOrderId());
         for (OrderDetail detail : details) {
-            int qty = detail.getQuantity();
+            int qty = detail.getQuantity() != null ? detail.getQuantity() : 0;
+            if (qty <= 0) continue;
+
             if ("PRODUCT".equals(detail.getItemType()) && detail.getProduct() != null) {
-                Product product = detail.getProduct();
-                product.setStockQuantity(product.getStockQuantity() + qty);
-                productRepository.save(product);
+                productRepository.increaseStockAtomic(detail.getProduct().getProductId(), qty);
             } else if ("MYSTERY_BOX".equals(detail.getItemType()) && detail.getMysteryBox() != null) {
-                MysteryBox box = detail.getMysteryBox();
-                box.setSoldQuantity(Math.max(0, box.getSoldQuantity() - qty));
-                mysteryBoxRepository.save(box);
+                mysteryBoxRepository.increaseStockAtomic(detail.getMysteryBox().getMysteryId(), qty);
             } else if ("BUILD_COMBO".equals(detail.getItemType()) && detail.getBuildCombo() != null) {
-                BuildCombo combo = detail.getBuildCombo();
-                combo.setSoldQuantity(Math.max(0, combo.getSoldQuantity() - qty));
-                buildComboRepository.save(combo);
+                buildComboRepository.increaseStockAtomic(detail.getBuildCombo().getComboId(), qty);
             }
         }
     }

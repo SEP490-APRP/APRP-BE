@@ -20,6 +20,7 @@ import com.sang.be_capnong.repository.OrderRepository;
 import com.sang.be_capnong.entity.*;
 import com.sang.be_capnong.repository.*;
 import com.sang.be_capnong.service.CartService;
+import com.sang.be_capnong.service.EmailService;
 import com.sang.be_capnong.service.PaymentService;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -49,6 +50,7 @@ public class PaymentServiceImpl implements PaymentService {
     final CheckoutBatchRepository checkoutBatchRepository;
     final PayOS payOS;
     final CartService cartService;
+    final EmailService emailService;
     final OrderDetailRepository orderDetailRepository;
     final ProductRepository productRepository;
     final MysteryBoxRepository mysteryBoxRepository;
@@ -310,11 +312,17 @@ public class PaymentServiceImpl implements PaymentService {
     public PaymentResponse confirmPaymentFromClient(String orderCode) {
         log.info("[PaymentConfirm] Client requesting confirm for orderCode: {}", orderCode);
 
-        // 1. Kiểm tra xem đã xử lý PAID trước đó chưa (idempotent)
+        // 1. Kiểm tra xem đã xử lý PAID hoặc COMPLETED trước đó chưa (idempotent guard)
         var paymentOpt = paymentRepository.findByPayosOrderCode(orderCode);
         if (paymentOpt.isPresent() && paymentOpt.get().getStatus() == PaymentStatus.PAID) {
             log.info("[PaymentConfirm] Payment already settled as PAID: {}", orderCode);
             return toPaymentResponse(paymentOpt.get());
+        }
+
+        var batchOpt = checkoutBatchRepository.findByPayosOrderCode(orderCode);
+        if (batchOpt.isPresent() && batchOpt.get().getStatus() == BatchStatus.COMPLETED) {
+            log.info("[PaymentConfirm] Batch already settled as COMPLETED: {}", orderCode);
+            return getPaymentByOrderCode(orderCode);
         }
 
         // 2. Xác thực với PayOS API để đảm bảo tiền thực sự đã thanh toán
@@ -350,50 +358,92 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     private void settlePaidOrderCode(String orderCode) {
-        log.info("[PaymentSettle] Settling orderCode to PAID: {}", orderCode);
+        if (orderCode == null || orderCode.isBlank()) {
+            return;
+        }
 
-        // Settle Payment nếu có
-        paymentRepository.findByPayosOrderCode(orderCode).ifPresent(payment -> {
-            payment.setStatus(PaymentStatus.PAID);
-            payment.setPaymentDate(LocalDateTime.now());
-            payment.setUpdatedAt(LocalDateTime.now());
-            paymentRepository.save(payment);
+        // Khóa đồng bộ theo orderCode để tránh Webhook và Client confirm chạy song song cùng lúc
+        synchronized (orderCode.intern()) {
+            log.info("[PaymentSettle] Settling orderCode to PAID: {}", orderCode);
 
-            if (payment.getOrder() != null) {
-                Order order = payment.getOrder();
-                order.setStatus(OrderStatus.PAID);
-                orderRepository.save(order);
-                log.info("[PaymentSettle] Single order #{} updated to PAID", order.getOrderId());
+            List<Order> newlyPaidOrders = new java.util.ArrayList<>();
+            BigDecimal totalPaidAmount = BigDecimal.ZERO;
+            User buyer = null;
 
-                if (order.getCheckoutBatch() != null) {
-                    CheckoutBatch b = order.getCheckoutBatch();
-                    List<Order> batchOrders = orderRepository.findByCheckoutBatch_Id(b.getId());
-                    boolean allPaid = batchOrders.stream()
-                            .allMatch(o -> o.getStatus() == OrderStatus.PAID || o.getStatus() == OrderStatus.COMPLETED);
-                    if (allPaid) {
-                        b.setStatus(BatchStatus.COMPLETED);
-                        checkoutBatchRepository.save(b);
-                        log.info("[PaymentSettle] All orders in batch #{} paid, batch marked COMPLETED", b.getId());
+            // 1. Settle Payment đơn lẻ nếu có
+            var paymentOpt = paymentRepository.findByPayosOrderCode(orderCode);
+            if (paymentOpt.isPresent()) {
+                Payment payment = paymentOpt.get();
+                if (payment.getStatus() == PaymentStatus.PAID) {
+                    log.info("[PaymentSettle] Payment #{} already settled as PAID. Skipping duplicate processing.", payment.getPaymentId());
+                    return;
+                }
+
+                payment.setStatus(PaymentStatus.PAID);
+                payment.setPaymentDate(LocalDateTime.now());
+                payment.setUpdatedAt(LocalDateTime.now());
+                paymentRepository.save(payment);
+
+                if (payment.getOrder() != null) {
+                    Order order = payment.getOrder();
+                    if (order.getStatus() == OrderStatus.AWAITING_PAYMENT || order.getStatus() == OrderStatus.PENDING) {
+                        order.setStatus(OrderStatus.PAID);
+                        orderRepository.save(order);
+                        newlyPaidOrders.add(order);
+                        totalPaidAmount = payment.getAmount() != null ? payment.getAmount() : order.getTotalAmount();
+                        buyer = order.getBuyer();
+                        log.info("[PaymentSettle] Single order #{} updated to PAID", order.getOrderId());
+                    }
+
+                    if (order.getCheckoutBatch() != null) {
+                        CheckoutBatch b = order.getCheckoutBatch();
+                        List<Order> batchOrders = orderRepository.findByCheckoutBatch_Id(b.getId());
+                        boolean allPaid = batchOrders.stream()
+                                .allMatch(o -> o.getStatus() == OrderStatus.PAID || o.getStatus() == OrderStatus.COMPLETED);
+                        if (allPaid) {
+                            b.setStatus(BatchStatus.COMPLETED);
+                            checkoutBatchRepository.save(b);
+                            log.info("[PaymentSettle] All orders in batch #{} paid, batch marked COMPLETED", b.getId());
+                        }
                     }
                 }
             }
-        });
 
-        // Settle Batch nếu có
-        checkoutBatchRepository.findByPayosOrderCode(orderCode).ifPresent(batch -> {
-            batch.setStatus(BatchStatus.COMPLETED);
-            batch.setUpdatedAt(LocalDateTime.now());
-            checkoutBatchRepository.save(batch);
+            // 2. Settle Batch nếu có
+            var batchOpt = checkoutBatchRepository.findByPayosOrderCode(orderCode);
+            if (batchOpt.isPresent()) {
+                CheckoutBatch batch = batchOpt.get();
+                if (batch.getStatus() == BatchStatus.COMPLETED) {
+                    log.info("[PaymentSettle] Batch #{} already settled as COMPLETED. Skipping duplicate processing.", batch.getId());
+                    return;
+                }
 
-            List<Order> batchOrders = orderRepository.findByCheckoutBatch_Id(batch.getId());
-            for (Order o : batchOrders) {
-                if (o.getStatus() == OrderStatus.AWAITING_PAYMENT || o.getStatus() == OrderStatus.PENDING) {
-                    o.setStatus(OrderStatus.PAID);
-                    orderRepository.save(o);
-                    log.info("[PaymentSettle] Batch order #{} in batch #{} updated to PAID", o.getOrderId(), batch.getId());
+                batch.setStatus(BatchStatus.COMPLETED);
+                batch.setUpdatedAt(LocalDateTime.now());
+                checkoutBatchRepository.save(batch);
+                totalPaidAmount = batch.getTotalAmount() != null ? batch.getTotalAmount() : BigDecimal.ZERO;
+
+                List<Order> batchOrders = orderRepository.findByCheckoutBatch_Id(batch.getId());
+                for (Order o : batchOrders) {
+                    if (o.getStatus() == OrderStatus.AWAITING_PAYMENT || o.getStatus() == OrderStatus.PENDING) {
+                        o.setStatus(OrderStatus.PAID);
+                        orderRepository.save(o);
+                        newlyPaidOrders.add(o);
+                        if (buyer == null) {
+                            buyer = o.getBuyer();
+                        }
+                        log.info("[PaymentSettle] Batch order #{} in batch #{} updated to PAID", o.getOrderId(), batch.getId());
+                    }
                 }
             }
-        });
+
+            // 3. Gửi Email Hóa Đơn - Idempotent (Chỉ gửi duy nhất 1 lần khi có đơn vừa chuyển sang PAID)
+            if (!newlyPaidOrders.isEmpty() && buyer != null) {
+                log.info("[PaymentSettle] Sending single invoice email for orderCode: {} ({} orders) to {}",
+                        orderCode, newlyPaidOrders.size(), buyer.getEmail());
+                emailService.sendPaymentSuccessInvoiceEmail(buyer, newlyPaidOrders, orderCode, totalPaidAmount);
+            }
+        }
     }
 
     @Override
@@ -474,24 +524,18 @@ public class PaymentServiceImpl implements PaymentService {
     private void restoreOrderStockAndVouchers(Order order) {
         if (order == null) return;
 
-        // Hoàn kho tồn kho
+        // Hoàn kho tồn kho nguyên tử
         List<OrderDetail> details = orderDetailRepository.findByOrder_OrderId(order.getOrderId());
         for (OrderDetail detail : details) {
             int qty = detail.getQuantity() != null ? detail.getQuantity() : 0;
             if (qty <= 0) continue;
 
             if ("PRODUCT".equals(detail.getItemType()) && detail.getProduct() != null) {
-                Product p = detail.getProduct();
-                p.setStockQuantity((p.getStockQuantity() != null ? p.getStockQuantity() : 0) + qty);
-                productRepository.save(p);
+                productRepository.increaseStockAtomic(detail.getProduct().getProductId(), qty);
             } else if ("MYSTERY_BOX".equals(detail.getItemType()) && detail.getMysteryBox() != null) {
-                MysteryBox box = detail.getMysteryBox();
-                box.setSoldQuantity(Math.max(0, (box.getSoldQuantity() != null ? box.getSoldQuantity() : 0) - qty));
-                mysteryBoxRepository.save(box);
+                mysteryBoxRepository.increaseStockAtomic(detail.getMysteryBox().getMysteryId(), qty);
             } else if ("BUILD_COMBO".equals(detail.getItemType()) && detail.getBuildCombo() != null) {
-                BuildCombo combo = detail.getBuildCombo();
-                combo.setSoldQuantity(Math.max(0, (combo.getSoldQuantity() != null ? combo.getSoldQuantity() : 0) - qty));
-                buildComboRepository.save(combo);
+                buildComboRepository.increaseStockAtomic(detail.getBuildCombo().getComboId(), qty);
             }
         }
 

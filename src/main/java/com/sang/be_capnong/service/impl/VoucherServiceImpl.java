@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -91,7 +92,7 @@ public class VoucherServiceImpl implements VoucherService {
                 .orElseThrow(() -> new AppException(ErrorCode.VOUCHER_NOT_FOUND));
 
         User currentUser = getCurrentUser();
-        if (voucher.getShop().getId() != currentUser.getId()) {
+        if (voucher.getShop() == null || !Objects.equals(voucher.getShop().getId(), currentUser.getId())) {
             throw new AppException(ErrorCode.UNAUTHENTICATED); // Chỉ người tạo mới được sửa
         }
 

@@ -21,6 +21,7 @@ import com.sang.be_capnong.repository.UserRepository;
 import com.sang.be_capnong.repository.specification.MysteryBoxSpecification;
 import com.sang.be_capnong.service.MysteryBoxService;
 import com.sang.be_capnong.util.SecurityUtils;
+import java.util.Objects;
 import org.springframework.data.jpa.domain.Specification;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -81,7 +82,7 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
             Product product = productRepository.findById(item.getProductId())
                     .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-            if (product.getShop() == null || product.getShop().getId() != currentUserId) {
+            if (product.getShop() == null || !Objects.equals(product.getShop().getId(), currentUserId)) {
                 throw new AppException(ErrorCode.PRODUCT_NOT_BELONG_TO_SHOP);
             }
 
@@ -148,7 +149,7 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
             // Unauthenticated caller
         }
 
-        boolean isOwner = (currentUserId != null && box.getShop() != null && box.getShop().getId() == currentUserId);
+        boolean isOwner = (currentUserId != null && box.getShop() != null && Objects.equals(box.getShop().getId(), currentUserId));
         if (isOwner) {
             List<ProductMystery> items = productMysteryRepository.findByMysteryBox_MysteryId(id);
             response.setItems(mysteryBoxMapper.toProductMysteryResponseList(items));
@@ -234,7 +235,7 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
         MysteryBox box = mysteryBoxRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.MYSTERY_BOX_NOT_FOUND));
 
-        if (box.getShop() == null || box.getShop().getId() != currentUserId) {
+        if (box.getShop() == null || !Objects.equals(box.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_MYSTERY_BOX_OWNER);
         }
 
@@ -287,7 +288,7 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
         MysteryBox box = mysteryBoxRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.MYSTERY_BOX_NOT_FOUND));
 
-        if (box.getShop() == null || box.getShop().getId() != currentUserId) {
+        if (box.getShop() == null || !Objects.equals(box.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_MYSTERY_BOX_OWNER);
         }
 
@@ -309,7 +310,7 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
         MysteryBox box = mysteryBoxRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.MYSTERY_BOX_NOT_FOUND));
 
-        if (box.getShop() == null || box.getShop().getId() != currentUserId) {
+        if (box.getShop() == null || !Objects.equals(box.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_MYSTERY_BOX_OWNER);
         }
 

@@ -20,6 +20,7 @@ import com.sang.be_capnong.repository.BlogLikeRepository;
 import com.sang.be_capnong.repository.BlogRepository;
 import com.sang.be_capnong.repository.UserRepository;
 import com.sang.be_capnong.service.BlogService;
+import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -71,7 +72,7 @@ public class BlogServiceImpl implements BlogService {
         Blog blog = blogRepository.findById(blogId)
                 .orElseThrow(() -> new AppException(ErrorCode.BLOG_NOT_FOUND));
 
-        if (blog.getShop().getId() != shop.getId()) {
+        if (blog.getShop() == null || !Objects.equals(blog.getShop().getId(), shop.getId())) {
             throw new AppException(ErrorCode.NOT_BLOG_OWNER);
         }
 
@@ -92,7 +93,7 @@ public class BlogServiceImpl implements BlogService {
         Blog blog = blogRepository.findById(blogId)
                 .orElseThrow(() -> new AppException(ErrorCode.BLOG_NOT_FOUND));
 
-        if (blog.getShop().getId() != shop.getId()) {
+        if (blog.getShop() == null || !Objects.equals(blog.getShop().getId(), shop.getId())) {
             throw new AppException(ErrorCode.NOT_BLOG_OWNER);
         }
 
@@ -216,8 +217,8 @@ public class BlogServiceImpl implements BlogService {
                 .orElseThrow(() -> new AppException(ErrorCode.COMMENT_NOT_FOUND));
 
         // Người bình luận hoặc chủ Shop bài viết đó đều có thể xóa
-        boolean isCommentOwner = comment.getUser().getId() == user.getId();
-        boolean isBlogOwner = comment.getBlog().getShop().getId() == user.getId();
+        boolean isCommentOwner = comment.getUser() != null && Objects.equals(comment.getUser().getId(), user.getId());
+        boolean isBlogOwner = comment.getBlog() != null && comment.getBlog().getShop() != null && Objects.equals(comment.getBlog().getShop().getId(), user.getId());
 
         if (!isCommentOwner && !isBlogOwner) {
             throw new AppException(ErrorCode.NOT_COMMENT_OWNER);

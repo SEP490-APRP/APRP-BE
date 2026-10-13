@@ -36,4 +36,12 @@ public interface ProductRepository extends JpaRepository<Product, Integer> {
     Page<Product> findByShopIdAndOptionalStatus(@Param("shopId") int shopId,
                                                 @Param("status") String status,
                                                 Pageable pageable);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("UPDATE Product p SET p.stockQuantity = p.stockQuantity - :quantity WHERE p.productId = :productId AND p.stockQuantity >= :quantity")
+    int decreaseStockAtomic(@Param("productId") Integer productId, @Param("quantity") Integer quantity);
+
+    @org.springframework.data.jpa.repository.Modifying
+    @Query("UPDATE Product p SET p.stockQuantity = p.stockQuantity + :quantity WHERE p.productId = :productId")
+    int increaseStockAtomic(@Param("productId") Integer productId, @Param("quantity") Integer quantity);
 }

@@ -9,6 +9,14 @@
 CREATE DATABASE IF NOT EXISTS DB_CapNong CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE DB_CapNong;
 
+-- Đảm bảo toàn bộ session, client và kết nối đều sử dụng utf8mb4 (chuẩn tiếng Việt đầy đủ)
+SET NAMES utf8mb4;
+SET CHARACTER SET utf8mb4;
+SET character_set_client = utf8mb4;
+SET character_set_connection = utf8mb4;
+SET character_set_results = utf8mb4;
+SET collation_connection = utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- 1. DROP ALL EXISTING TABLES
@@ -371,6 +379,9 @@ CREATE TABLE orders (
     cod_cash_confirmed_at DATETIME,
     cod_payment_option ENUM('FULL_COD', 'DEPOSIT'),
     cod_payment_status ENUM('UNPAID', 'PARTIALLY_PAID', 'PAID', 'REFUNDED'),
+    cod_prepaid_amount DECIMAL(18,2) DEFAULT 0.00,
+    cod_refunded_at DATETIME,
+    shipper_paid_at DATETIME,
     CONSTRAINT fk_orders_buyer FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_orders_shop FOREIGN KEY (shop_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_orders_shipper FOREIGN KEY (shipper_id) REFERENCES users(id) ON DELETE SET NULL,

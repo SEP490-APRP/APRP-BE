@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -39,7 +40,7 @@ public class ProductImageServiceImpl implements ProductImageService {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-        if (product.getShop().getId() != currentUserId) {
+        if (product.getShop() == null || !Objects.equals(product.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_PRODUCT_OWNER);
         }
 
@@ -85,14 +86,14 @@ public class ProductImageServiceImpl implements ProductImageService {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-        if (product.getShop().getId() != currentUserId) {
+        if (product.getShop() == null || !Objects.equals(product.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_PRODUCT_OWNER);
         }
 
         ProductImage image = productImageRepository.findById(imageId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_IMAGE_NOT_FOUND));
 
-        if (image.getProduct().getProductId() != productId) {
+        if (!Objects.equals(image.getProduct().getProductId(), productId)) {
             throw new AppException(ErrorCode.IMAGE_NOT_BELONG_TO_PRODUCT);
         }
 
@@ -123,14 +124,14 @@ public class ProductImageServiceImpl implements ProductImageService {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-        if (product.getShop().getId() != currentUserId) {
+        if (product.getShop() == null || !Objects.equals(product.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_PRODUCT_OWNER);
         }
 
         ProductImage image = productImageRepository.findById(imageId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_IMAGE_NOT_FOUND));
 
-        if (image.getProduct().getProductId() != productId) {
+        if (!Objects.equals(image.getProduct().getProductId(), productId)) {
             throw new AppException(ErrorCode.IMAGE_NOT_BELONG_TO_PRODUCT);
         }
 
@@ -149,14 +150,14 @@ public class ProductImageServiceImpl implements ProductImageService {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-        if (product.getShop().getId() != currentUserId) {
+        if (product.getShop() == null || !Objects.equals(product.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_PRODUCT_OWNER);
         }
 
         ProductImage image = productImageRepository.findById(imageId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_IMAGE_NOT_FOUND));
 
-        if (image.getProduct().getProductId() != productId) {
+        if (!Objects.equals(image.getProduct().getProductId(), productId)) {
             throw new AppException(ErrorCode.IMAGE_NOT_BELONG_TO_PRODUCT);
         }
 

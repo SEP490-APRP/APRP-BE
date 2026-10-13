@@ -136,7 +136,7 @@ public class CartServiceImpl implements CartService {
                 .orElseThrow(() -> new AppException(ErrorCode.CART_ITEM_NOT_FOUND));
 
         User user = getCurrentUser();
-        if (cartItem.getCart().getUser().getId() != user.getId()) {
+        if (cartItem.getCart().getUser() == null || !Objects.equals(cartItem.getCart().getUser().getId(), user.getId())) {
             throw new AppException(ErrorCode.UNAUTHENTICATED);
         }
 
@@ -164,7 +164,7 @@ public class CartServiceImpl implements CartService {
         // Lấy các item cần xóa và thuộc về user hiện tại
         List<CartItem> itemsToDelete = cartItemRepository.findAllById(request.getCartItemIds())
                 .stream()
-                .filter(item -> item.getCart().getUser().getId() == user.getId())
+                .filter(item -> item.getCart().getUser() != null && Objects.equals(item.getCart().getUser().getId(), user.getId()))
                 .collect(Collectors.toList());
 
         if (!itemsToDelete.isEmpty()) {
