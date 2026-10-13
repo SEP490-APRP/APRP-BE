@@ -121,7 +121,7 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
         // Build and save MysteryBox
         MysteryBox mysteryBox = mysteryBoxMapper.toMysteryBox(request);
         mysteryBox.setShop(shop);
-        mysteryBox.setIsActive(true);
+        mysteryBox.setIsActive(false);
         mysteryBox.setSoldQuantity(0);
 
         MysteryBox savedBox = mysteryBoxRepository.save(mysteryBox);
@@ -284,10 +284,13 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
             }
         }
 
+        String oldImageUrlToDelete = null;
         if (request.getImageUrl() != null && !request.getImageUrl().isBlank()) {
             String newUrl = request.getImageUrl().trim();
             if (!newUrl.equals(box.getImageUrl())) {
-                String boxType = request.getBoxType() != null ? request.getBoxType() : box.getBoxType();
+                String boxType = (request.getBoxType() != null && !request.getBoxType().isBlank())
+                        ? request.getBoxType().trim()
+                        : box.getBoxType();
                 com.sang.be_capnong.dto.ModerationCheckResult checkResult = 
                         imageModerationService.checkImageUrl(newUrl, boxType, 5);
                 if (!checkResult.isAgricultural()) {
@@ -296,13 +299,24 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
                     throw new AppException(ErrorCode.IMAGE_NOT_AGRICULTURAL_PRODUCE);
                 }
                 if (box.getImageUrl() != null && !box.getImageUrl().isBlank()) {
-                    cloudinaryService.deleteImageByUrl(box.getImageUrl());
+                    oldImageUrlToDelete = box.getImageUrl();
                 }
             }
         }
 
         mysteryBoxMapper.updateMysteryBox(box, request);
+        // Phương án B: Chuyển về isActive = false để Admin duyệt lại mỗi khi chỉnh sửa mystery box
+        box.setIsActive(false);
+
         MysteryBox savedBox = mysteryBoxRepository.save(box);
+
+        if (oldImageUrlToDelete != null) {
+            try {
+                cloudinaryService.deleteImageByUrl(oldImageUrlToDelete);
+            } catch (Exception e) {
+                log.warn("Failed to delete old mystery box image from Cloudinary: {}", e.getMessage());
+            }
+        }
 
         MysteryBoxResponse res = mysteryBoxMapper.toMysteryBoxResponse(savedBox);
         List<ProductMystery> items = productMysteryRepository.findByMysteryBox_MysteryId(id);
@@ -314,16 +328,26 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
     @Transactional
     public MysteryBoxResponse toggleMysteryBoxStatus(Integer id, Boolean isActive) {
         Integer currentUserId = SecurityUtils.getCurrentUserId();
-        log.info("Toggling mystery box status id: {} to isActive: {} by user: {}", id, isActive, currentUserId);
+        boolean isAdmin = SecurityUtils.isAdmin();
+        log.info("Toggling mystery box status id: {} to isActive: {} by user: {} (isAdmin: {})", id, isActive, currentUserId, isAdmin);
 
         MysteryBox box = mysteryBoxRepository.findById(id)
                 .orElseThrow(() -> new AppException(ErrorCode.MYSTERY_BOX_NOT_FOUND));
 
-        if (box.getShop() == null || box.getShop().getId() != currentUserId) {
+        if (!isAdmin && (box.getShop() == null || box.getShop().getId() != currentUserId)) {
             throw new AppException(ErrorCode.NOT_MYSTERY_BOX_OWNER);
         }
 
-        box.setIsActive(Boolean.TRUE.equals(isActive));
+        boolean targetActive = Boolean.TRUE.equals(isActive);
+
+        // Shop cannot self-activate mystery box directly if it is not already active
+        if (targetActive && !isAdmin) {
+            if (!Boolean.TRUE.equals(box.getIsActive())) {
+                throw new AppException(ErrorCode.CANNOT_ACTIVATE_DIRECTLY);
+            }
+        }
+
+        box.setIsActive(targetActive);
         MysteryBox savedBox = mysteryBoxRepository.save(box);
 
         MysteryBoxResponse res = mysteryBoxMapper.toMysteryBoxResponse(savedBox);

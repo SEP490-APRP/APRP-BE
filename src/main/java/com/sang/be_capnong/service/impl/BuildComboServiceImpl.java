@@ -82,7 +82,7 @@ public class BuildComboServiceImpl implements BuildComboService {
         BuildCombo buildCombo = buildComboMapper.toBuildCombo(request);
         buildCombo.setShop(shop);
         buildCombo.setSoldQuantity(0);
-        buildCombo.setStatus("ACTIVE");
+        buildCombo.setStatus("PENDING");
 
         BuildCombo savedCombo = buildComboRepository.save(buildCombo);
 
@@ -282,28 +282,40 @@ public class BuildComboServiceImpl implements BuildComboService {
         List<ProductCombo> savedItems = productComboRepository.saveAll(newItemsToSave);
 
         // 4. Update BuildCombo entity fields
+        String oldImageUrlToDelete = null;
         if (request.getImageUrl() != null && !request.getImageUrl().isBlank()) {
             String newUrl = request.getImageUrl().trim();
             if (!newUrl.equals(buildCombo.getImageUrl())) {
+                String contextName = (request.getComboName() != null && !request.getComboName().isBlank())
+                        ? request.getComboName().trim()
+                        : buildCombo.getComboName();
                 com.sang.be_capnong.dto.ModerationCheckResult checkResult = 
-                        imageModerationService.checkImageUrl(newUrl, request.getComboName(), 5);
+                        imageModerationService.checkImageUrl(newUrl, contextName, 5);
                 if (!checkResult.isAgricultural()) {
-                    log.warn("Updated combo image rejected (Level 1) for combo '{}': {}", request.getComboName(), checkResult.getRejectionReason());
+                    log.warn("Updated combo image rejected (Level 1) for combo '{}': {}", contextName, checkResult.getRejectionReason());
                     cloudinaryService.deleteImageByUrl(newUrl);
                     throw new AppException(ErrorCode.IMAGE_NOT_AGRICULTURAL_PRODUCE);
                 }
                 if (buildCombo.getImageUrl() != null && !buildCombo.getImageUrl().isBlank()) {
-                    cloudinaryService.deleteImageByUrl(buildCombo.getImageUrl());
+                    oldImageUrlToDelete = buildCombo.getImageUrl();
                 }
             }
         }
 
         buildComboMapper.updateBuildCombo(buildCombo, request);
-        if (request.getStatus() != null && !request.getStatus().isBlank()) {
-            buildCombo.setStatus(request.getStatus().trim().toUpperCase());
-        }
+        // Phương án B: Chuyển về PENDING để Admin duyệt lại mỗi khi chỉnh sửa combo
+        buildCombo.setStatus("PENDING");
 
         BuildCombo updatedCombo = buildComboRepository.save(buildCombo);
+
+        if (oldImageUrlToDelete != null) {
+            try {
+                cloudinaryService.deleteImageByUrl(oldImageUrlToDelete);
+            } catch (Exception e) {
+                log.warn("Failed to delete old combo image from Cloudinary: {}", e.getMessage());
+            }
+        }
+
         BuildComboResponse response = buildComboMapper.toBuildComboResponse(updatedCombo);
         response.setItems(buildComboMapper.toProductComboResponseList(savedItems));
         return response;
@@ -313,16 +325,25 @@ public class BuildComboServiceImpl implements BuildComboService {
     @Transactional
     public BuildComboResponse updateStatus(Integer comboId, String status) {
         Integer currentUserId = SecurityUtils.getCurrentUserId();
-        log.info("Updating status for build combo id: {} to '{}' by user id: {}", comboId, status, currentUserId);
+        boolean isAdmin = SecurityUtils.isAdmin();
+        log.info("Updating status for build combo id: {} to '{}' by user id: {} (isAdmin: {})", comboId, status, currentUserId, isAdmin);
 
         BuildCombo buildCombo = buildComboRepository.findById(comboId)
                 .orElseThrow(() -> new AppException(ErrorCode.COMBO_NOT_FOUND));
 
-        if (buildCombo.getShop().getId() != currentUserId) {
+        if (!isAdmin && (buildCombo.getShop() == null || buildCombo.getShop().getId() != currentUserId)) {
             throw new AppException(ErrorCode.NOT_COMBO_OWNER);
         }
 
         String normalizedStatus = (status != null && !status.isBlank()) ? status.trim().toUpperCase() : "ACTIVE";
+
+        // Shop cannot self-activate combo directly if it is not already ACTIVE
+        if ("ACTIVE".equalsIgnoreCase(normalizedStatus) && !isAdmin) {
+            if (!"ACTIVE".equalsIgnoreCase(buildCombo.getStatus())) {
+                throw new AppException(ErrorCode.CANNOT_ACTIVATE_DIRECTLY);
+            }
+        }
+
         buildCombo.setStatus(normalizedStatus);
         BuildCombo savedCombo = buildComboRepository.save(buildCombo);
 

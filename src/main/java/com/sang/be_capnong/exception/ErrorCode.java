@@ -74,6 +74,8 @@ public enum ErrorCode {
     IMAGE_NOT_AGRICULTURAL_PRODUCE(3022, "Product image is not agricultural produce or is inappropriate", HttpStatus.BAD_REQUEST),
     IMAGE_MODERATION_FAILED(3023, "An error occurred during image moderation", HttpStatus.INTERNAL_SERVER_ERROR),
     MAX_PRODUCT_IMAGES_EXCEEDED(3024, "Each product can have a maximum of 8 images", HttpStatus.BAD_REQUEST),
+    AI_INAPPROPRIATE_CONTENT(3025, "Product name or content contains inappropriate or prohibited keywords", HttpStatus.BAD_REQUEST),
+    AI_RATE_LIMIT_EXCEEDED(3026, "Too many AI description requests. Please wait a moment before trying again", HttpStatus.TOO_MANY_REQUESTS),
 
     // Upload & File errors
     FILE_INVALID(4001, "Invalid image file", HttpStatus.BAD_REQUEST),
