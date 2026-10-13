@@ -94,7 +94,7 @@ public class BuildComboServiceImpl implements BuildComboService {
             Product product = productRepository.findById(itemReq.getProductId())
                     .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-            if (product.getShop().getId() != currentUserId) {
+            if (product.getShop() == null || !Objects.equals(product.getShop().getId(), currentUserId)) {
                 throw new AppException(ErrorCode.PRODUCT_NOT_BELONG_TO_SHOP);
             }
 
@@ -212,7 +212,7 @@ public class BuildComboServiceImpl implements BuildComboService {
         BuildCombo buildCombo = buildComboRepository.findById(comboId)
                 .orElseThrow(() -> new AppException(ErrorCode.COMBO_NOT_FOUND));
 
-        if (buildCombo.getShop().getId() != currentUserId) {
+        if (buildCombo.getShop() == null || !Objects.equals(buildCombo.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_COMBO_OWNER);
         }
 
@@ -254,7 +254,7 @@ public class BuildComboServiceImpl implements BuildComboService {
             Product product = productRepository.findById(itemReq.getProductId())
                     .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-            if (product.getShop().getId() != currentUserId) {
+            if (product.getShop() == null || !Objects.equals(product.getShop().getId(), currentUserId)) {
                 throw new AppException(ErrorCode.PRODUCT_NOT_BELONG_TO_SHOP);
             }
 
@@ -318,7 +318,7 @@ public class BuildComboServiceImpl implements BuildComboService {
         BuildCombo buildCombo = buildComboRepository.findById(comboId)
                 .orElseThrow(() -> new AppException(ErrorCode.COMBO_NOT_FOUND));
 
-        if (buildCombo.getShop().getId() != currentUserId) {
+        if (buildCombo.getShop() == null || !Objects.equals(buildCombo.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_COMBO_OWNER);
         }
 
@@ -341,7 +341,7 @@ public class BuildComboServiceImpl implements BuildComboService {
         BuildCombo buildCombo = buildComboRepository.findById(comboId)
                 .orElseThrow(() -> new AppException(ErrorCode.COMBO_NOT_FOUND));
 
-        if (buildCombo.getShop().getId() != currentUserId) {
+        if (buildCombo.getShop() == null || !Objects.equals(buildCombo.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_COMBO_OWNER);
         }
 

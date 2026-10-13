@@ -28,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -51,7 +52,7 @@ public class ProductImageServiceImpl implements ProductImageService {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-        if (product.getShop().getId() != currentUserId) {
+        if (product.getShop() == null || !Objects.equals(product.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_PRODUCT_OWNER);
         }
 
@@ -123,7 +124,7 @@ public class ProductImageServiceImpl implements ProductImageService {
 
         Integer currentUserId = SecurityUtils.getCurrentUserIdOrNull();
         boolean isAdmin = SecurityUtils.isAdmin();
-        boolean isOwner = currentUserId != null && product.getShop() != null && product.getShop().getId() == currentUserId;
+        boolean isOwner = currentUserId != null && product.getShop() != null && Objects.equals(product.getShop().getId(), currentUserId);
 
         // Nếu người xem là khách mua hàng / guest, chỉ trả về các ảnh đã được duyệt (isApproved != false)
         if (!isAdmin && !isOwner) {
@@ -143,14 +144,14 @@ public class ProductImageServiceImpl implements ProductImageService {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-        if (product.getShop().getId() != currentUserId) {
+        if (product.getShop() == null || !Objects.equals(product.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_PRODUCT_OWNER);
         }
 
         ProductImage image = productImageRepository.findById(imageId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_IMAGE_NOT_FOUND));
 
-        if (image.getProduct().getProductId() != productId) {
+        if (image.getProduct() == null || !Objects.equals(image.getProduct().getProductId(), productId)) {
             throw new AppException(ErrorCode.IMAGE_NOT_BELONG_TO_PRODUCT);
         }
 
@@ -220,14 +221,14 @@ public class ProductImageServiceImpl implements ProductImageService {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-        if (product.getShop().getId() != currentUserId) {
+        if (product.getShop() == null || !Objects.equals(product.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_PRODUCT_OWNER);
         }
 
         ProductImage image = productImageRepository.findById(imageId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_IMAGE_NOT_FOUND));
 
-        if (image.getProduct().getProductId() != productId) {
+        if (image.getProduct() == null || !Objects.equals(image.getProduct().getProductId(), productId)) {
             throw new AppException(ErrorCode.IMAGE_NOT_BELONG_TO_PRODUCT);
         }
 
@@ -255,14 +256,14 @@ public class ProductImageServiceImpl implements ProductImageService {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-        if (product.getShop().getId() != currentUserId) {
+        if (product.getShop() == null || !Objects.equals(product.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_PRODUCT_OWNER);
         }
 
         ProductImage image = productImageRepository.findById(imageId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_IMAGE_NOT_FOUND));
 
-        if (image.getProduct().getProductId() != productId) {
+        if (image.getProduct() == null || !Objects.equals(image.getProduct().getProductId(), productId)) {
             throw new AppException(ErrorCode.IMAGE_NOT_BELONG_TO_PRODUCT);
         }
 
@@ -351,7 +352,7 @@ public class ProductImageServiceImpl implements ProductImageService {
     private void unsetExistingPrimaryImages(int productId, Long exceptImageId) {
         List<ProductImage> primaries = productImageRepository.findByProduct_ProductIdAndIsPrimaryTrue(productId);
         for (ProductImage primary : primaries) {
-            if (exceptImageId == null || !primary.getId().equals(exceptImageId)) {
+            if (exceptImageId == null || !Objects.equals(primary.getId(), exceptImageId)) {
                 primary.setIsPrimary(false);
                 productImageRepository.save(primary);
             }
