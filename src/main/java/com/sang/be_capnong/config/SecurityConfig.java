@@ -81,6 +81,8 @@ public class SecurityConfig {
             "/combos/{id:[0-9]+}",
             "/v1/vouchers",
             "/vouchers",
+            "/v1/public/blogs",
+            "/v1/public/blogs/**",
             "/shipping/address-suggestions",
             "/payments/*",
             "/v3/api-docs/**",
