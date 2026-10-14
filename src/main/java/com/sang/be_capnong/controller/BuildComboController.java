@@ -88,7 +88,7 @@ public class BuildComboController {
     }
 
     @PatchMapping("/{id}/status")
-    @PreAuthorize("hasRole('SHOP')")
+    @PreAuthorize("hasAnyRole('SHOP', 'ADMIN')")
     public ApiResponse<BuildComboResponse> updateStatus(
             @PathVariable("id") Integer id,
             @RequestParam("status") String status

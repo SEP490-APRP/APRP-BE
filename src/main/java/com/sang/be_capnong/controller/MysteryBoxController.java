@@ -85,7 +85,7 @@ public class MysteryBoxController {
     }
 
     @PatchMapping("/{id}/status")
-    @PreAuthorize("hasRole('SHOP')")
+    @PreAuthorize("hasAnyRole('SHOP', 'ADMIN')")
     public ApiResponse<MysteryBoxResponse> toggleMysteryBoxStatus(
             @PathVariable("id") Integer id,
             @RequestParam("isActive") Boolean isActive

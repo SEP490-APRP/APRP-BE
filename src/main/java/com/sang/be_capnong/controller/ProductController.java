@@ -1,11 +1,14 @@
 package com.sang.be_capnong.controller;
 
+import com.sang.be_capnong.dto.request.AiDescriptionSuggestionRequest;
 import com.sang.be_capnong.dto.request.ProductCreationRequest;
 import com.sang.be_capnong.dto.request.ProductRejectRequest;
 import com.sang.be_capnong.dto.request.ProductUpdateRequest;
+import com.sang.be_capnong.dto.response.AiDescriptionSuggestionResponse;
 import com.sang.be_capnong.dto.response.ApiResponse;
 import com.sang.be_capnong.dto.response.PageResponse;
 import com.sang.be_capnong.dto.response.ProductResponse;
+import com.sang.be_capnong.service.AiDescriptionService;
 import com.sang.be_capnong.service.ProductService;
 import jakarta.validation.Valid;
 import lombok.AccessLevel;
@@ -23,6 +26,18 @@ import org.springframework.web.bind.annotation.*;
 public class ProductController {
 
     ProductService productService;
+    AiDescriptionService aiDescriptionService;
+
+    @PostMapping("/ai-suggest-description")
+    @PreAuthorize("hasRole('SHOP')")
+    public ApiResponse<AiDescriptionSuggestionResponse> suggestDescription(
+            @RequestBody @Valid AiDescriptionSuggestionRequest request
+    ) {
+        log.info("REST request to generate AI description for product: {}", request.getProductName());
+        return ApiResponse.<AiDescriptionSuggestionResponse>builder()
+                .result(aiDescriptionService.suggestDescription(request))
+                .build();
+    }
 
     @PostMapping
     @PreAuthorize("hasRole('SHOP')")

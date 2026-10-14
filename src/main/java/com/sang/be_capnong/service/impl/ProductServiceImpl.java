@@ -25,6 +25,8 @@ import com.sang.be_capnong.repository.ProductImageRepository;
 import com.sang.be_capnong.repository.ProductMysteryRepository;
 import com.sang.be_capnong.repository.ProductRepository;
 import com.sang.be_capnong.repository.UserRepository;
+import com.sang.be_capnong.repository.specification.ProductSpecification;
+import org.springframework.data.jpa.domain.Specification;
 import com.sang.be_capnong.service.ProductService;
 import com.sang.be_capnong.util.SecurityUtils;
 import java.util.Objects;
@@ -94,11 +96,25 @@ public class ProductServiceImpl implements ProductService {
         return productMapper.toProductResponse(savedProduct);
     }
 
+    static final java.util.Set<String> VALID_PRODUCT_STATUSES = java.util.Set.of("ACTIVE", "PENDING", "INACTIVE", "REJECTED");
+
     @Override
     public ProductResponse getProductById(Integer productId) {
         log.info("Fetching product details for id: {}", productId);
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
+
+        // Kiểm tra quyền xem chi tiết sản phẩm:
+        // Nếu không phải ACTIVE, chỉ Admin hoặc chính chủ Shop mới được xem. Người ngoài nhận 404 NOT_FOUND.
+        boolean isActive = "ACTIVE".equalsIgnoreCase(product.getStatus());
+        if (!isActive) {
+            Integer currentUserId = SecurityUtils.getCurrentUserIdOrNull();
+            boolean isAdmin = SecurityUtils.isAdmin();
+            boolean isOwner = currentUserId != null && product.getShop() != null && Objects.equals(product.getShop().getId(), currentUserId);
+            if (!isAdmin && !isOwner) {
+                throw new AppException(ErrorCode.PRODUCT_NOT_FOUND);
+            }
+        }
 
         ProductResponse response = productMapper.toProductResponse(product);
         return filterImagesForViewer(product, response);
@@ -117,15 +133,27 @@ public class ProductServiceImpl implements ProductService {
         log.info("Fetching products list - category: {}, keyword: {}, status: {}, page: {}, size: {}",
                 categoryId, keyword, status, page, size);
 
-        String effectiveStatus = (status != null && !status.isBlank()) ? status : "ACTIVE";
         String effectiveSortBy = (sortBy != null && !sortBy.isBlank()) ? sortBy : "productId";
         Sort.Direction direction = "asc".equalsIgnoreCase(sortDirection) ? Sort.Direction.ASC : Sort.Direction.DESC;
 
         int pageIndex = Math.max(0, page - 1);
-        int pageSize = Math.max(1, size);
+        int pageSize = Math.min(Math.max(1, size), 100);
         Pageable pageable = PageRequest.of(pageIndex, pageSize, Sort.by(direction, effectiveSortBy));
 
-        Page<Product> productPage = productRepository.findProducts(effectiveStatus, categoryId, keyword, pageable);
+        String effectiveStatus = "ACTIVE";
+        if (status != null && !status.isBlank()) {
+            String upperStatus = status.trim().toUpperCase();
+            if (!VALID_PRODUCT_STATUSES.contains(upperStatus)) {
+                throw new AppException(ErrorCode.INVALID_STATUS);
+            }
+            // Chỉ Admin mới được lọc trạng thái khác ACTIVE, khách/buyer bình thường luôn bị ép ACTIVE
+            if (SecurityUtils.isAdmin()) {
+                effectiveStatus = upperStatus;
+            }
+        }
+
+        Specification<Product> spec = ProductSpecification.filterProducts(effectiveStatus, categoryId, keyword, null);
+        Page<Product> productPage = productRepository.findAll(spec, pageable);
 
         List<ProductResponse> content = productPage.getContent().stream()
                 .map(p -> filterImagesForViewer(p, productMapper.toProductResponse(p)))
@@ -161,11 +189,20 @@ public class ProductServiceImpl implements ProductService {
         log.info("Fetching shop products for current shop user id: {}, status: {}", currentUserId, status);
 
         int pageIndex = Math.max(0, page - 1);
-        int pageSize = Math.max(1, size);
+        int pageSize = Math.min(Math.max(1, size), 100);
         Pageable pageable = PageRequest.of(pageIndex, pageSize, Sort.by(Sort.Direction.DESC, "productId"));
 
-        String filterStatus = (status != null && !status.isBlank()) ? status : null;
-        Page<Product> productPage = productRepository.findByShopIdAndOptionalStatus(currentUserId, filterStatus, pageable);
+        String filterStatus = null;
+        if (status != null && !status.isBlank()) {
+            String upperStatus = status.trim().toUpperCase();
+            if (!VALID_PRODUCT_STATUSES.contains(upperStatus)) {
+                throw new AppException(ErrorCode.INVALID_STATUS);
+            }
+            filterStatus = upperStatus;
+        }
+
+        Specification<Product> spec = ProductSpecification.filterProducts(filterStatus, null, null, currentUserId);
+        Page<Product> productPage = productRepository.findAll(spec, pageable);
 
         return PageResponse.from(productPage, productMapper.toProductResponseList(productPage.getContent()));
     }

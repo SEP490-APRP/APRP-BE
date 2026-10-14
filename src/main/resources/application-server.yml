@@ -40,6 +40,7 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
         format_sql: false
+        default_batch_fetch_size: 30
         connection:
           characterEncoding: UTF-8
           useUnicode: true
@@ -98,3 +99,8 @@ google:
   maps:
     api:
       key: ${GOOGLE_MAPS_API_KEY:}
+  gemini:
+    api-key: ${GEMINI_API_KEY:${GEMINI_KEY_1:}}
+    model: ${GEMINI_MODEL:gemini-1.5-flash}
+    timeout-seconds: 8
+

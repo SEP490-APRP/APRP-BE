@@ -120,11 +120,16 @@ public class ProductImageServiceImpl implements ProductImageService {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND));
 
-        List<ProductImage> images = productImageRepository.findByProduct_ProductIdOrderByDisplayOrderAscIdAsc(productId);
-
         Integer currentUserId = SecurityUtils.getCurrentUserIdOrNull();
         boolean isAdmin = SecurityUtils.isAdmin();
         boolean isOwner = currentUserId != null && product.getShop() != null && Objects.equals(product.getShop().getId(), currentUserId);
+        // Nếu sản phẩm chưa ACTIVE (đang PENDING/REJECTED/INACTIVE), chỉ Admin hoặc chủ shop mới được xem ảnh
+        boolean isProductActive = "ACTIVE".equalsIgnoreCase(product.getStatus());
+        if (!isProductActive && !isAdmin && !isOwner) {
+            throw new AppException(ErrorCode.PRODUCT_NOT_FOUND);
+        }
+
+        List<ProductImage> images = productImageRepository.findByProduct_ProductIdOrderByDisplayOrderAscIdAsc(productId);
 
         // Nếu người xem là khách mua hàng / guest, chỉ trả về các ảnh đã được duyệt (isApproved != false)
         if (!isAdmin && !isOwner) {
