@@ -16,6 +16,9 @@ public interface ProductImageMapper {
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "product", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
+    @Mapping(target = "isApproved", ignore = true)
+    @Mapping(target = "isFlagged", ignore = true)
+    @Mapping(target = "flagReason", ignore = true)
     ProductImage toProductImage(ProductImageCreationRequest request);
 
     ProductImageResponse toProductImageResponse(ProductImage productImage);
@@ -25,5 +28,8 @@ public interface ProductImageMapper {
     @Mapping(target = "id", ignore = true)
     @Mapping(target = "product", ignore = true)
     @Mapping(target = "createdAt", ignore = true)
+    @Mapping(target = "isApproved", ignore = true)
+    @Mapping(target = "isFlagged", ignore = true)
+    @Mapping(target = "flagReason", ignore = true)
     void updateProductImage(@MappingTarget ProductImage productImage, ProductImageUpdateRequest request);
 }

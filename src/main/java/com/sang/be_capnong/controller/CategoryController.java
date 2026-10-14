@@ -25,7 +25,7 @@ public class CategoryController {
     CategoryService categoryService;
 
     @PostMapping
-    @PreAuthorize("hasAuthority('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<CategoryResponse> createCategory(@RequestBody @Valid CategoryCreationRequest request) {
         log.info("REST request to create category: {}", request.getName());
         return ApiResponse.<CategoryResponse>builder()
@@ -50,7 +50,7 @@ public class CategoryController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<CategoryResponse> updateCategory(
             @PathVariable("id") Integer id,
             @RequestBody @Valid CategoryUpdateRequest request
@@ -62,7 +62,7 @@ public class CategoryController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAuthority('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<Void> deleteCategory(@PathVariable("id") Integer id) {
         log.info("REST request to delete category id: {}", id);
         categoryService.deleteCategory(id);

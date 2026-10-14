@@ -2,6 +2,11 @@ spring:
   application:
     name: BE_CapNong
 
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
   # ===============================
   # LOAD ENV FILE
   # ===============================
@@ -14,7 +19,7 @@ spring:
   datasource:
     url: jdbc:mysql://localhost:3306/test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Ho_Chi_Minh&useUnicode=true&characterEncoding=UTF-8
     username: test
-    password: 123456
+    password: 123456789net
     driver-class-name: com.mysql.cj.jdbc.Driver
 
     hikari:
@@ -77,3 +82,19 @@ logging:
         SQL: OFF
       springframework:
         web: INFO
+
+# ===============================
+# GOOGLE CLOUD CONFIGURATION (AI MODERATION & MAPS)
+# ===============================
+google:
+  vision:
+    credentials-path: ${GOOGLE_VISION_CREDENTIALS_PATH:classpath:credentials.json}
+    min-confidence: 70.0
+    non-agri-threshold: 80.0
+    max-labels: 30
+    max-file-size-bytes: 5242880
+    connect-timeout-seconds: 5
+    read-timeout-seconds: 10
+  maps:
+    api:
+      key: ${GOOGLE_MAPS_API_KEY:}

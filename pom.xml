@@ -143,6 +143,13 @@
             <artifactId>spring-boot-starter-websocket</artifactId>
         </dependency>
 
+        <!-- Google Cloud Vision SDK (AI Image Moderation - Free Tier) -->
+        <dependency>
+            <groupId>com.google.cloud</groupId>
+            <artifactId>google-cloud-vision</artifactId>
+            <version>3.54.0</version>
+        </dependency>
+
     </dependencies>
 
     <build>

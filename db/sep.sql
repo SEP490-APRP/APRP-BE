@@ -218,6 +218,9 @@ CREATE TABLE product_images (
     image_url VARCHAR(500) NOT NULL,
     is_primary TINYINT(1) DEFAULT 0,
     display_order INT DEFAULT 0,
+    is_approved TINYINT(1) NOT NULL DEFAULT 1,
+    is_flagged TINYINT(1) NOT NULL DEFAULT 0,
+    flag_reason VARCHAR(500) NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_product_images_product FOREIGN KEY (product_id) REFERENCES products(product_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

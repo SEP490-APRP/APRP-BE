@@ -25,7 +25,7 @@ public class ProductImageController {
     ProductImageService productImageService;
 
     @PostMapping
-    @PreAuthorize("hasAuthority('SHOP')")
+    @PreAuthorize("hasRole('SHOP')")
     public ApiResponse<ProductImageResponse> addImage(
             @PathVariable("productId") Integer productId,
             @RequestBody @Valid ProductImageCreationRequest request
@@ -47,7 +47,7 @@ public class ProductImageController {
     }
 
     @PutMapping("/{imageId}")
-    @PreAuthorize("hasAuthority('SHOP')")
+    @PreAuthorize("hasRole('SHOP')")
     public ApiResponse<ProductImageResponse> updateImage(
             @PathVariable("productId") Integer productId,
             @PathVariable("imageId") Long imageId,
@@ -60,7 +60,7 @@ public class ProductImageController {
     }
 
     @PatchMapping("/{imageId}/primary")
-    @PreAuthorize("hasAuthority('SHOP')")
+    @PreAuthorize("hasRole('SHOP')")
     public ApiResponse<ProductImageResponse> setPrimaryImage(
             @PathVariable("productId") Integer productId,
             @PathVariable("imageId") Long imageId
@@ -72,7 +72,7 @@ public class ProductImageController {
     }
 
     @DeleteMapping("/{imageId}")
-    @PreAuthorize("hasAuthority('SHOP')")
+    @PreAuthorize("hasRole('SHOP')")
     public ApiResponse<Void> deleteImage(
             @PathVariable("productId") Integer productId,
             @PathVariable("imageId") Long imageId
@@ -81,6 +81,18 @@ public class ProductImageController {
         productImageService.deleteImage(productId, imageId);
         return ApiResponse.<Void>builder()
                 .message("Product image deleted successfully")
+                .build();
+    }
+
+    @PatchMapping("/{imageId}/approve")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<ProductImageResponse> approveImage(
+            @PathVariable("productId") Integer productId,
+            @PathVariable("imageId") Long imageId
+    ) {
+        log.info("REST request to approve image id: {} for product id: {}", imageId, productId);
+        return ApiResponse.<ProductImageResponse>builder()
+                .result(productImageService.approveImage(productId, imageId))
                 .build();
     }
 }

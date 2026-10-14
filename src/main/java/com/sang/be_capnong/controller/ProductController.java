@@ -25,7 +25,7 @@ public class ProductController {
     ProductService productService;
 
     @PostMapping
-    @PreAuthorize("hasAuthority('SHOP')")
+    @PreAuthorize("hasRole('SHOP')")
     public ApiResponse<ProductResponse> createProduct(@RequestBody @Valid ProductCreationRequest request) {
         log.info("REST request to create product: {}", request.getProductName());
         return ApiResponse.<ProductResponse>builder()
@@ -58,7 +58,7 @@ public class ProductController {
     }
 
     @GetMapping("/my-shop")
-    @PreAuthorize("hasAuthority('SHOP')")
+    @PreAuthorize("hasRole('SHOP')")
     public ApiResponse<PageResponse<ProductResponse>> getMyProducts(
             @RequestParam(name = "status", required = false) String status,
             @RequestParam(name = "page", required = false, defaultValue = "1") int page,
@@ -71,7 +71,7 @@ public class ProductController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAuthority('SHOP')")
+    @PreAuthorize("hasRole('SHOP')")
     public ApiResponse<ProductResponse> updateProduct(
             @PathVariable("id") Integer id,
             @RequestBody @Valid ProductUpdateRequest request
@@ -83,7 +83,7 @@ public class ProductController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAuthority('SHOP')")
+    @PreAuthorize("hasRole('SHOP')")
     public ApiResponse<Void> deleteProduct(@PathVariable("id") Integer id) {
         log.info("REST request to delete product id: {}", id);
         productService.deleteProduct(id);
@@ -93,7 +93,7 @@ public class ProductController {
     }
 
     @PatchMapping("/{id}/approve")
-    @PreAuthorize("hasAuthority('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<ProductResponse> approveProduct(@PathVariable("id") Integer id) {
         log.info("REST request to approve product id: {}", id);
         return ApiResponse.<ProductResponse>builder()
@@ -102,7 +102,7 @@ public class ProductController {
     }
 
     @PatchMapping("/{id}/reject")
-    @PreAuthorize("hasAuthority('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<ProductResponse> rejectProduct(
             @PathVariable("id") Integer id,
             @RequestBody @Valid ProductRejectRequest request
