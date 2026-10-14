@@ -328,7 +328,7 @@ public class ProductImageServiceImpl implements ProductImageService {
         ProductImage image = productImageRepository.findById(imageId)
                 .orElseThrow(() -> new AppException(ErrorCode.PRODUCT_IMAGE_NOT_FOUND));
 
-        if (image.getProduct().getProductId() != productId) {
+        if (image.getProduct() == null || !Objects.equals(image.getProduct().getProductId(), productId)) {
             throw new AppException(ErrorCode.IMAGE_NOT_BELONG_TO_PRODUCT);
         }
 

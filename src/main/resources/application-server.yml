@@ -17,7 +17,7 @@ spring:
   # DATABASE (MYSQL)
   # ===============================
   datasource:
-    url: jdbc:mysql://localhost:3306/test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Ho_Chi_Minh&characterEncoding=utf8
+    url: jdbc:mysql://localhost:3306/test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Ho_Chi_Minh&useUnicode=true&characterEncoding=UTF-8
     username: test
     password: 123456789net
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -41,6 +41,9 @@ spring:
         dialect: org.hibernate.dialect.MySQLDialect
         format_sql: false
         default_batch_fetch_size: 30
+        connection:
+          characterEncoding: UTF-8
+          useUnicode: true
 
 # ===============================
 # JWT CONFIG (MAP FROM .env)

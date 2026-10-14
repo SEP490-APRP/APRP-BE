@@ -6,6 +6,9 @@ import com.sang.be_capnong.dto.response.VoucherResponse;
 import com.sang.be_capnong.entity.User;
 import com.sang.be_capnong.entity.Voucher;
 import com.sang.be_capnong.entity.VoucherUser;
+import com.sang.be_capnong.enums.VoucherScope;
+import com.sang.be_capnong.enums.VoucherTarget;
+import com.sang.be_capnong.enums.VoucherType;
 import com.sang.be_capnong.exception.AppException;
 import com.sang.be_capnong.exception.ErrorCode;
 import com.sang.be_capnong.repository.UserRepository;
@@ -21,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -47,6 +51,8 @@ public class VoucherServiceImpl implements VoucherService {
                 .shop(currentUser) // Admin hay Shop thì đều gán ID của người tạo vào đây
                 .voucherCode(request.getVoucherCode().toUpperCase())
                 .voucherType(request.getVoucherType())
+                .voucherScope(request.getVoucherScope())
+                .voucherTarget(request.getVoucherTarget())
                 .discountValue(request.getDiscountValue())
                 .maxDiscount(request.getMaxDiscount())
                 .minOrderValue(request.getMinOrderValue())
@@ -86,7 +92,7 @@ public class VoucherServiceImpl implements VoucherService {
                 .orElseThrow(() -> new AppException(ErrorCode.VOUCHER_NOT_FOUND));
 
         User currentUser = getCurrentUser();
-        if (voucher.getShop().getId() != currentUser.getId()) {
+        if (voucher.getShop() == null || !Objects.equals(voucher.getShop().getId(), currentUser.getId())) {
             throw new AppException(ErrorCode.UNAUTHENTICATED); // Chỉ người tạo mới được sửa
         }
 
@@ -133,7 +139,13 @@ public class VoucherServiceImpl implements VoucherService {
         List<VoucherUser> myVouchers = voucherUserRepository.findByUser_Id(buyer.getId());
         
         return myVouchers.stream()
+                .filter(vu -> {
+                    int qty = vu.getQuantity() == null ? 0 : vu.getQuantity();
+                    int used = vu.getQuantityUsed() == null ? 0 : vu.getQuantityUsed();
+                    return qty > used;
+                })
                 .map(vu -> mapToResponse(vu.getVoucher()))
+                .filter(resp -> resp != null && Boolean.TRUE.equals(resp.getActive()) && (resp.getExpiryDate() == null || resp.getExpiryDate().isAfter(LocalDateTime.now())))
                 .collect(Collectors.toList());
     }
 
@@ -176,10 +188,24 @@ public class VoucherServiceImpl implements VoucherService {
         String role = v.getShop() != null && v.getShop().getRole() != null ? v.getShop().getRole().getName() : "UNKNOWN";
         boolean isPublic = !"HIDDEN".equalsIgnoreCase(v.getAutoCreatedReason());
         
+        VoucherScope scope = v.getVoucherScope();
+        if (scope == null) {
+            scope = "ADMIN".equalsIgnoreCase(role) ? VoucherScope.PLATFORM : VoucherScope.SHOP;
+        }
+
+        VoucherTarget target = v.getVoucherTarget();
+        if (target == null) {
+            boolean isShipping = v.getVoucherType() == VoucherType.FREE_SHIPPING
+                    || (v.getVoucherCode() != null && v.getVoucherCode().toUpperCase().contains("FREESHIP"));
+            target = isShipping ? VoucherTarget.SHIPPING : VoucherTarget.ORDER;
+        }
+
         return VoucherResponse.builder()
                 .voucherId(v.getVoucherId())
                 .voucherCode(v.getVoucherCode())
                 .voucherType(v.getVoucherType())
+                .voucherScope(scope)
+                .voucherTarget(target)
                 .discountValue(v.getDiscountValue())
                 .maxDiscount(v.getMaxDiscount())
                 .minOrderValue(v.getMinOrderValue())

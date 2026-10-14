@@ -23,6 +23,7 @@ public class ShipperLocation {
     Double latitude;
     Double longitude;
     LocalDateTime updatedAt;
+    String deliveryPhase;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "order_id")

@@ -22,6 +22,9 @@ public class GoogleGeocodeResult {
     @JsonProperty("formatted_address")
     private String formattedAddress;
 
+    @JsonProperty("place_id")
+    private String placeId;
+
     /** Chứa tọa độ lat/lng */
     private GoogleGeometry geometry;
 }

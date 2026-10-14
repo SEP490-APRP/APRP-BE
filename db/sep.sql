@@ -9,6 +9,14 @@
 CREATE DATABASE IF NOT EXISTS DB_CapNong CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE DB_CapNong;
 
+-- Đảm bảo toàn bộ session, client và kết nối đều sử dụng utf8mb4 (chuẩn tiếng Việt đầy đủ)
+SET NAMES utf8mb4;
+SET CHARACTER SET utf8mb4;
+SET character_set_client = utf8mb4;
+SET character_set_connection = utf8mb4;
+SET character_set_results = utf8mb4;
+SET collation_connection = utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 0;
 
 -- 1. DROP ALL EXISTING TABLES
@@ -374,6 +382,10 @@ CREATE TABLE orders (
     cod_cash_confirmed_at DATETIME,
     cod_payment_option ENUM('FULL_COD', 'DEPOSIT'),
     cod_payment_status ENUM('UNPAID', 'PARTIALLY_PAID', 'PAID', 'REFUNDED'),
+    cod_prepaid_amount DECIMAL(18,2) DEFAULT 0.00,
+    cod_refunded_at DATETIME,
+    shipper_paid_at DATETIME,
+    picked_up_at DATETIME,
     CONSTRAINT fk_orders_buyer FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_orders_shop FOREIGN KEY (shop_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_orders_shipper FOREIGN KEY (shipper_id) REFERENCES users(id) ON DELETE SET NULL,
@@ -483,6 +495,8 @@ CREATE TABLE vouchers (
     usage_limit INT,
     expiry_date DATETIME,
     voucher_type ENUM('FIXED_AMOUNT', 'PERCENTAGE', 'FREE_SHIPPING'),
+    voucher_scope ENUM('PLATFORM', 'SHOP', 'SYSTEM', 'WELCOME') DEFAULT 'SHOP',
+    voucher_target ENUM('ORDER', 'SHIPPING') DEFAULT 'ORDER',
     claim_limit INT,
     claimed_count INT DEFAULT 0,
     used_count INT DEFAULT 0,
@@ -786,7 +800,59 @@ INSERT INTO products (product_id, shop_id, category_id, product_name, unit, sell
 (208, 5, 3, 'Dưa hấu ruột đỏ ngọt lịm', 'kg', 14000, 180, 'Dưa hấu vỏ mỏng ruột đỏ đặc ruột, ngọt lịm giải nhiệt.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 14 DAY), 0)
 ON DUPLICATE KEY UPDATE product_name=VALUES(product_name), selling_price=VALUES(selling_price);
 
--- 3.5 PRODUCT IMAGES
+-- 3.5 MYSTERY BOXES & BUILD COMBOS (REFERENCED FROM EXE.SQL / SWD.SQL)
+-- Dữ liệu này giúp buyer page getMysteryBoxes / getCombos trả về data thực thay vì fallback mock.
+INSERT INTO mystery_boxes (mystery_id, shop_id, box_type, image_url, price, description, note, is_active, total_quantity, sold_quantity) VALUES
+(1, 4, 'Hộp Củ Bí Ẩn Đà Lạt', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774253772/brands/sftnvmjw2mvym1plcpql.jpg', 89000, 'Hộp củ bí ẩn từ vườn organic Đà Lạt, gồm 4-5 loại củ tươi ngon được chọn lọc kỹ càng.', 'Giao hàng trong ngày, bảo đảm tươi sạch', 1, 20, 5),
+(2, 4, 'Hộp Trái Cây Dinh Dưỡng', 'https://images.unsplash.com/photo-1619566636858-adf3ef46400b?w=400&h=300&fit=crop', 129000, 'Hộp trái cây bí ẩn gồm 3-4 loại quả tươi ngon, giàu vitamin và khoáng chất.', 'Giá trị thực tế cao hơn 30% so với giá bán', 1, 15, 3),
+(3, 5, 'Hộp Củ Quả Miền Tây', 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=400&h=300&fit=crop', 75000, 'Hộp củ quả đặc sản miền Tây gồm 4-5 loại tươi xanh mát, phù hợp nấu canh và xào.', 'Thu hoạch buổi sáng, giao ngay trong ngày', 1, 25, 8),
+(4, 5, 'Hộp Trái Cây Nhiệt Đới', 'https://images.unsplash.com/photo-1553279768-865429fa0078?w=400&h=300&fit=crop', 149000, 'Hộp trái cây nhiệt đới gồm 4-5 loại trái cây ngọt ngon, tươi mát cho mùa hè.', 'Phù hợp giải nhiệt mùa hè', 1, 15, 4)
+ON DUPLICATE KEY UPDATE box_type=VALUES(box_type), price=VALUES(price), description=VALUES(description);
+
+SET @box_shop1_1 = (SELECT mystery_id FROM mystery_boxes WHERE box_type='Hộp Củ Bí Ẩn Đà Lạt' AND shop_id=4);
+SET @box_shop1_2 = (SELECT mystery_id FROM mystery_boxes WHERE box_type='Hộp Trái Cây Dinh Dưỡng' AND shop_id=4);
+SET @box_shop2_1 = (SELECT mystery_id FROM mystery_boxes WHERE box_type='Hộp Củ Quả Miền Tây' AND shop_id=5);
+SET @box_shop2_2 = (SELECT mystery_id FROM mystery_boxes WHERE box_type='Hộp Trái Cây Nhiệt Đới' AND shop_id=5);
+
+INSERT INTO product_mystery (product_id, mystery_id, product_quantity) VALUES
+(105, @box_shop1_1, 1), (106, @box_shop1_1, 1), (107, @box_shop1_1, 1), (104, @box_shop1_1, 1),
+(108, @box_shop1_2, 1), (109, @box_shop1_2, 1), (102, @box_shop1_2, 1),
+(203, @box_shop2_1, 1), (204, @box_shop2_1, 1), (206, @box_shop2_1, 1), (207, @box_shop2_1, 1),
+(208, @box_shop2_2, 2), (205, @box_shop2_2, 1), (206, @box_shop2_2, 1)
+ON DUPLICATE KEY UPDATE product_quantity=VALUES(product_quantity);
+
+INSERT INTO build_combos (combo_id, shop_id, combo_name, price, description, type, meal_type, region, total_quantity, sold_quantity, image_url, status) VALUES
+(1, 4, 'Combo Detox Củ Quả Sáng', 70000, 'Bộ củ quả giải độc buổi sáng: cà rốt tươi ngọt, cần tây giòn mát, gừng ấm bụng, dưa leo thanh mát.', 'Available', 'BREAKFAST', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916721/brands/uj1eoinkwvthfjvtpvpq.jpg', 'ACTIVE'),
+(2, 4, 'Combo Salad Eat Clean Đà Lạt', 75000, 'Bộ rau củ cho bữa salad eat clean: dưa leo giòn mát, cà chua đỏ ngọt, ớt chuông nhiều vitamin C, cần tây ít calo.', 'Available', 'BREAKFAST', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917431/brands/yif2icgotbydg5qvzvbf.jpg', 'ACTIVE'),
+(3, 4, 'Combo Hầm Súp Củ Quả', 85000, 'Rau củ đầy đủ để hầm nồi súp bổ dưỡng: cà rốt, khoai tây, bí đỏ, hành tây.', 'Available', 'LUNCH', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916676/brands/bmgnazybi0rro8bnxhwp.jpg', 'ACTIVE'),
+(4, 4, 'Combo Xào Củ Quả Thập Cẩm', 75000, 'Hỗn hợp củ quả để xào nhanh: hành tây, cà chua, mướp, tỏi.', 'Available', 'LUNCH', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917463/brands/xjz74sedvolg7woxywpo.jpg', 'ACTIVE'),
+(5, 4, 'Combo Tráng Miệng Trái Cây Đà Lạt', 175000, 'Bộ trái cây Đà Lạt tươi cho bữa tráng miệng: dâu tây, táo, chuối.', 'Available', 'SNACK', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773943061/brands/qtspypfmdjcxtsbme7xi.jpg', 'ACTIVE'),
+(6, 5, 'Combo Ép Vitamin C Buổi Sáng', 110000, 'Trái cây giàu vitamin C cho buổi sáng: cam, bưởi, ổi.', 'Available', 'BREAKFAST', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916481/brands/s5ld5232nl4s4fwczawr.jpg', 'ACTIVE'),
+(7, 5, 'Combo Xào Cà Tím Sả Ớt', 60000, 'Nguyên liệu xào cà tím đặc sản miền Nam: cà tím, hành tím, sả, ớt đỏ.', 'Available', 'LUNCH', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773943685/brands/sn8j7wqbpp6uhtitk5nf.jpg', 'ACTIVE'),
+(8, 5, 'Combo Giải Nhiệt Mùa Hè', 75000, 'Trái cây giải nhiệt mùa hè: dưa hấu, thanh long, cam.', 'Available', 'SNACK', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917373/brands/h0mivuwgipa6hssaawfi.jpg', 'ACTIVE')
+ON DUPLICATE KEY UPDATE combo_name=VALUES(combo_name), price=VALUES(price), description=VALUES(description), status=VALUES(status);
+
+SET @combo_detox = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Detox Củ Quả Sáng' AND shop_id=4);
+SET @combo_salad = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Salad Eat Clean Đà Lạt' AND shop_id=4);
+SET @combo_sup = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Hầm Súp Củ Quả' AND shop_id=4);
+SET @combo_xao = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Xào Củ Quả Thập Cẩm' AND shop_id=4);
+SET @combo_fruit = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Tráng Miệng Trái Cây Đà Lạt' AND shop_id=4);
+SET @combo_vitamin = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Ép Vitamin C Buổi Sáng' AND shop_id=5);
+SET @combo_ca_tim = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Xào Cà Tím Sả Ớt' AND shop_id=5);
+SET @combo_cool = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Giải Nhiệt Mùa Hè' AND shop_id=5);
+
+INSERT INTO product_combo (combo_id, product_id, product_quantity) VALUES
+(@combo_detox, 105, 1), (@combo_detox, 102, 1), (@combo_detox, 107, 1), (@combo_detox, 103, 1),
+(@combo_salad, 103, 1), (@combo_salad, 108, 1), (@combo_salad, 104, 1), (@combo_salad, 105, 1),
+(@combo_sup, 105, 1), (@combo_sup, 106, 1), (@combo_sup, 107, 1), (@combo_sup, 104, 1),
+(@combo_xao, 104, 1), (@combo_xao, 108, 1), (@combo_xao, 107, 1), (@combo_xao, 109, 1),
+(@combo_fruit, 109, 1), (@combo_fruit, 101, 1), (@combo_fruit, 102, 1),
+(@combo_vitamin, 206, 1), (@combo_vitamin, 205, 1), (@combo_vitamin, 207, 1),
+(@combo_ca_tim, 204, 1), (@combo_ca_tim, 203, 1), (@combo_ca_tim, 202, 1), (@combo_ca_tim, 201, 1),
+(@combo_cool, 208, 2), (@combo_cool, 206, 1), (@combo_cool, 205, 1)
+ON DUPLICATE KEY UPDATE product_quantity=VALUES(product_quantity);
+
+-- 3.6 PRODUCT IMAGES
 INSERT INTO product_images (product_id, image_url, is_primary, display_order) VALUES
 (101, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773943166/brands/ezrip6hvips9nwmyottf.jpg', 1, 1),
 (102, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773943139/brands/mhfnqgigq3xwxivi3r0u.jpg', 1, 1),
@@ -817,23 +883,101 @@ INSERT INTO nutrition_info (product_id, calories, protein_g, carbs_g, fat_g) VAL
 (109, 32.0, 0.7, 7.7, 0.3)
 ON DUPLICATE KEY UPDATE calories=VALUES(calories);
 
--- 3.7 VOUCHERS
-INSERT INTO vouchers (voucher_id, shop_id, voucher_code, discount_value, max_discount, min_order_value, usage_limit, expiry_date, voucher_type, active) VALUES
-(1, 4, 'CAPNONG10K', 10000, 10000, 50000, 100, DATE_ADD(NOW(), INTERVAL 30 DAY), 'FIXED_AMOUNT', 1),
-(2, 4, 'DALATFREESHIP', 15000, 15000, 100000, 50, DATE_ADD(NOW(), INTERVAL 30 DAY), 'FREE_SHIPPING', 1),
-(3, 5, 'MIENTAY15K', 15000, 15000, 80000, 100, DATE_ADD(NOW(), INTERVAL 30 DAY), 'FIXED_AMOUNT', 1)
+-- 3.7 VOUCHERS (ĐỦ CÁC LOẠI: TOÀN SÀN, FREESHIP, SHOP, %, CỐ ĐỊNH)
+INSERT INTO vouchers (voucher_id, shop_id, voucher_code, discount_value, max_discount, min_order_value, usage_limit, expiry_date, voucher_type, voucher_scope, voucher_target, claim_limit, claimed_count, used_count, per_user_limit, active) VALUES
+(1, 4, 'CAPNONG10K', 10000, 10000, 50000, 100, DATE_ADD(NOW(), INTERVAL 30 DAY), 'FIXED_AMOUNT', 'SHOP', 'ORDER', 100, 1, 0, 1, 1),
+(2, 4, 'DALATFREESHIP', 15000, 15000, 100000, 50, DATE_ADD(NOW(), INTERVAL 30 DAY), 'FREE_SHIPPING', 'SHOP', 'SHIPPING', 50, 1, 0, 1, 1),
+(3, 5, 'MIENTAY15K', 15000, 15000, 80000, 100, DATE_ADD(NOW(), INTERVAL 30 DAY), 'FIXED_AMOUNT', 'SHOP', 'ORDER', 100, 1, 0, 1, 1),
+(4, 4, 'CAPNONG20K', 20000, 20000, 120000, 50, DATE_ADD(NOW(), INTERVAL 30 DAY), 'FIXED_AMOUNT', 'SHOP', 'ORDER', 50, 0, 0, 1, 1),
+(5, 1, 'FREESHIPALL', 30000, NULL, 100000, 200, DATE_ADD(NOW(), INTERVAL 30 DAY), 'FREE_SHIPPING', 'PLATFORM', 'SHIPPING', 200, 2, 0, 1, 1),
+(6, 1, 'PLATFORM15K', 15000, 15000, 150000, 100, DATE_ADD(NOW(), INTERVAL 30 DAY), 'FIXED_AMOUNT', 'PLATFORM', 'ORDER', 100, 1, 0, 1, 1),
+(7, 1, 'PLATFORM10PERCENT', 10, 25000, 100000, 150, DATE_ADD(NOW(), INTERVAL 30 DAY), 'PERCENTAGE', 'PLATFORM', 'ORDER', 150, 1, 0, 1, 1),
+(8, 1, 'FREESHIP50K', 50000, NULL, 200000, 50, DATE_ADD(NOW(), INTERVAL 30 DAY), 'FREE_SHIPPING', 'PLATFORM', 'SHIPPING', 50, 0, 0, 1, 1)
 ON DUPLICATE KEY UPDATE voucher_code=VALUES(voucher_code);
 
--- 3.8 CARTS & SAMPLE CART ITEMS (FOR BUYER 1 & 2)
+-- 3.8 VOUCHER USERS (VÍ VOUCHER NGƯỜI DÙNG - BUYER 1 & 2 ĐÃ SỞ HỮU ĐỂ TEST CHECKOUT)
+INSERT INTO voucher_users (id, user_id, voucher_id, quantity, quantity_used, claim_at) VALUES
+(1, 2, 1, 1, 0, NOW()),  -- Buyer 1 (Sang) có CAPNONG10K
+(2, 2, 2, 1, 0, NOW()),  -- Buyer 1 có DALATFREESHIP
+(3, 2, 3, 1, 0, NOW()),  -- Buyer 1 có MIENTAY15K
+(4, 2, 5, 1, 0, NOW()),  -- Buyer 1 có FREESHIPALL
+(5, 2, 6, 1, 0, NOW()),  -- Buyer 1 có PLATFORM15K
+(6, 2, 7, 1, 0, NOW()),  -- Buyer 1 có PLATFORM10PERCENT
+(7, 3, 1, 1, 0, NOW()),  -- Buyer 2 (Mai) có CAPNONG10K
+(8, 3, 5, 1, 0, NOW())   -- Buyer 2 có FREESHIPALL
+ON DUPLICATE KEY UPDATE quantity=VALUES(quantity);
+
+-- 3.9 CARTS & SAMPLE CART ITEMS (FOR BUYER 1 & 2)
 INSERT INTO carts (id, user_id) VALUES
 (1, 2),
 (2, 3)
 ON DUPLICATE KEY UPDATE user_id=VALUES(user_id);
 
-INSERT INTO cart_items (cart_id, product_id, quantity) VALUES
-(1, 101, 2),  -- Rau muống (Shop 1)
-(1, 105, 1),  -- Cà rốt (Shop 1)
-(1, 205, 1);  -- Bưởi da xanh (Shop 2)
+INSERT INTO cart_items (cart_id, product_id, mystery_box_id, build_combo_id, quantity) VALUES
+(1, 105, NULL, NULL, 1),  -- Cà rốt Đà Lạt hữu cơ (Shop 4)
+(1, NULL, NULL, 1, 1),     -- Combo Detox Củ Quả Sáng (Shop 4)
+(1, NULL, NULL, 8, 1);     -- Combo Giải Nhiệt Mùa Hè (Shop 5)
+
+-- 3.10 CHECKOUT BATCHES (PHỤC VỤ TEST PAYOS MULTI-ORDER)
+INSERT INTO checkout_batches (id, buyer_id, payos_order_code, payment_method, status, total_amount, batch_discount_amount, checkout_url, qr_code_url, created_at) VALUES
+(1, 2, '1791793001', 'PAYOS', 'PENDING', 197000, 10000, 'https://pay.payos.vn/web/test1791793001', 'https://qr.payos.vn/test1791793001.png', DATE_SUB(NOW(), INTERVAL 2 HOUR)),
+(2, 2, '1791793002', 'PAYOS', 'COMPLETED', 167000, 40000, 'https://pay.payos.vn/web/test1791793002', 'https://qr.payos.vn/test1791793002.png', DATE_SUB(NOW(), INTERVAL 1 DAY))
+ON DUPLICATE KEY UPDATE payos_order_code=VALUES(payos_order_code);
+
+-- 3.11 ORDERS (ĐA DẠNG TRẠNG THÁI ĐỂ TEST CẢ 3 ROLES: BUYER, SHOP, SHIPPER)
+INSERT INTO orders (order_id, buyer_id, shop_id, shipper_id, checkout_batch_id, shipping_fee, recipient_name, recipient_phone, shipping_address, note, status, total_amount, payment_method, shipping_discount_amount, batch_discount_amount, shipping_latitude, shipping_longitude, shop_latitude, shop_longitude, created_at) VALUES
+-- Đơn 101: Trong Batch 1, trạng thái AWAITING_PAYMENT (Shop Đà Lạt) -> Test Resume Payment / Split Payment
+(101, 2, 4, NULL, 1, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao rau củ tươi trong giờ hành chính', 'AWAITING_PAYMENT', 100000, 'PAYOS', 0, 10000, 10.7725, 106.6579, 10.7801, 106.6990, DATE_SUB(NOW(), INTERVAL 2 HOUR)),
+
+-- Đơn 102: Trong Batch 1, trạng thái AWAITING_PAYMENT (Shop Miền Tây)
+(102, 2, 5, NULL, 1, 22000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao nhẹ tay giúp mình', 'AWAITING_PAYMENT', 97000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.7850, 106.7100, DATE_SUB(NOW(), INTERVAL 2 HOUR)),
+
+-- Đơn 103: Đơn COD mới tạo (PENDING) -> Test Shop xác nhận đơn
+(103, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao buổi sáng', 'PENDING', 85000, 'COD', 0, 0, 10.7725, 106.6579, 10.7801, 106.6990, DATE_SUB(NOW(), INTERVAL 1 HOUR)),
+
+-- Đơn 104: Đơn đã xác nhận (CONFIRMED) -> Test Shop chuẩn bị hàng
+(104, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Đóng gói kỹ', 'CONFIRMED', 120000, 'COD', 0, 0, 10.7725, 106.6579, 10.7801, 106.6990, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
+
+-- Đơn 105: Đang giao hàng (SHIPPING) đã gán Shipper Hoàng (id: 6) -> TEST GOOGLE MAPS REALTIME TRACKING
+(105, 2, 4, 6, 2, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Gọi trước khi đến 10 phút', 'SHIPPING', 95000, 'PAYOS', 15000, 10000, 10.7725, 106.6579, 10.7801, 106.6990, DATE_SUB(NOW(), INTERVAL 30 MINUTE)),
+
+-- Đơn 106: Đã giao thành công (DELIVERED) -> Test Đánh giá / Hoàn thành
+(106, 2, 5, 6, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao hàng thành công', 'DELIVERED', 135000, 'COD', 0, 15000, 10.7725, 106.6579, 10.7850, 106.7100, DATE_SUB(NOW(), INTERVAL 1 DAY)),
+
+-- Đơn 107: Đã hủy (CANCELLED)
+(107, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Khách đổi ý', 'CANCELLED', 50000, 'COD', 0, 0, 10.7725, 106.6579, 10.7801, 106.6990, DATE_SUB(NOW(), INTERVAL 2 DAY))
+ON DUPLICATE KEY UPDATE status=VALUES(status);
+
+-- 3.12 ORDER DETAILS (CHI TIẾT MẶT HÀNG TỪNG ĐƠN: SẢN PHẨM, TÚI MÙ, COMBO)
+INSERT INTO order_details (order_detail_id, order_id, product_id, mystery_id, combo_id, quantity, unit_price, item_type) VALUES
+(1, 101, 105, NULL, NULL, 1, 25000, 'PRODUCT'),        -- Cà rốt Đà Lạt (Đơn 101)
+(2, 101, NULL, NULL, 1, 1, 70000, 'BUILD_COMBO'),     -- Combo Detox Củ Quả Sáng (Đơn 101)
+(3, 102, NULL, NULL, 8, 1, 75000, 'BUILD_COMBO'),     -- Combo Giải Nhiệt Mùa Hè (Đơn 102)
+(4, 103, 101, NULL, NULL, 2, 12000, 'PRODUCT'),        -- Rau muống (Đơn 103)
+(5, 103, 106, NULL, NULL, 1, 30000, 'PRODUCT'),        -- Khoai tây vàng (Đơn 103)
+(6, 104, NULL, 1, NULL, 1, 89000, 'MYSTERY_BOX'),     -- Hộp Củ Bí Ẩn Đà Lạt (Đơn 104)
+(7, 105, 105, NULL, NULL, 1, 25000, 'PRODUCT'),        -- Cà rốt (Đơn 105 đang giao)
+(8, 105, NULL, NULL, 1, 1, 70000, 'BUILD_COMBO'),     -- Combo Detox (Đơn 105 đang giao)
+(9, 106, 205, NULL, NULL, 2, 65000, 'PRODUCT')         -- Bưởi da xanh (Đơn 106 đã giao)
+ON DUPLICATE KEY UPDATE quantity=VALUES(quantity);
+
+-- 3.13 PAYMENTS (LIÊN KẾT THANH TOÁN VỚI ĐƠN HÀNG)
+INSERT INTO payments (payment_id, order_id, payment_date, amount, payment_gateway, status, payos_order_code, checkout_url, qr_code_url, created_at) VALUES
+(1, 101, NULL, 197000, 'PAYOS', 'PENDING', '1791793001', 'https://pay.payos.vn/web/test1791793001', 'https://qr.payos.vn/test1791793001.png', DATE_SUB(NOW(), INTERVAL 2 HOUR)),
+(2, 105, DATE_SUB(NOW(), INTERVAL 35 MINUTE), 95000, 'PAYOS', 'PAID', '1791793002', 'https://pay.payos.vn/web/test1791793002', 'https://qr.payos.vn/test1791793002.png', DATE_SUB(NOW(), INTERVAL 40 MINUTE))
+ON DUPLICATE KEY UPDATE status=VALUES(status);
+
+-- 3.14 VOUCHER USAGES (LỊCH SỬ SỬ DỤNG MÃ)
+INSERT INTO voucher_usages (id, order_id, user_id, voucher_id, discount_amount, used_at) VALUES
+(1, 105, 2, 1, 10000, DATE_SUB(NOW(), INTERVAL 35 MINUTE)),
+(2, 105, 2, 5, 15000, DATE_SUB(NOW(), INTERVAL 35 MINUTE)),
+(3, 106, 2, 3, 15000, DATE_SUB(NOW(), INTERVAL 1 DAY))
+ON DUPLICATE KEY UPDATE discount_amount=VALUES(discount_amount);
+
+-- 3.15 SHIPPER LOCATIONS (VỊ TRÍ GPS HIỆN TẠI PHỤC VỤ THEO DÕI LIVE GOOGLE MAPS)
+INSERT INTO shipper_locations (id, order_id, shipper_id, latitude, longitude, updated_at) VALUES
+(1, 105, 6, 10.7769, 106.7009, NOW())
+ON DUPLICATE KEY UPDATE latitude=VALUES(latitude), longitude=VALUES(longitude);
 
 -- 3.9 WALLETS
 INSERT INTO wallets (user_id, status, type, total_balance, frozen_balance, total_revenue_all_time, total_withdrawn, commission_wallet) VALUES

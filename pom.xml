@@ -137,6 +137,11 @@
             <version>2.0.1</version>
         </dependency>
 
+        <!-- Spring WebSocket -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-websocket</artifactId>
+        </dependency>
 
         <!-- Google Cloud Vision SDK (AI Image Moderation - Free Tier) -->
         <dependency>

@@ -93,6 +93,7 @@ public class Order {
     BigDecimal codPrepaidAmount;
     LocalDateTime codRefundedAt;
     LocalDateTime shipperPaidAt;
+    LocalDateTime pickedUpAt;
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     List<OrderDetail> orderDetails;

@@ -21,9 +21,16 @@ public class NutritionInfo {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     int id;
 
+    @Column(name = "calories")
     BigDecimal calories;
+
+    @Column(name = "protein_g")
     BigDecimal proteinG;
+
+    @Column(name = "carbs_g")
     BigDecimal carbsG;
+
+    @Column(name = "fat_g")
     BigDecimal fatG;
 
     @OneToOne(fetch = FetchType.LAZY)

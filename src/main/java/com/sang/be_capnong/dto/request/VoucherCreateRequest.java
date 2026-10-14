@@ -1,5 +1,7 @@
 package com.sang.be_capnong.dto.request;
 
+import com.sang.be_capnong.enums.VoucherScope;
+import com.sang.be_capnong.enums.VoucherTarget;
 import com.sang.be_capnong.enums.VoucherType;
 import jakarta.validation.constraints.Future;
 import jakarta.validation.constraints.Min;
@@ -23,6 +25,12 @@ public class VoucherCreateRequest {
 
     @NotNull(message = "Voucher type is required")
     VoucherType voucherType;
+
+    @NotNull(message = "Voucher scope is required")
+    VoucherScope voucherScope;
+
+    @NotNull(message = "Voucher target is required")
+    VoucherTarget voucherTarget;
 
     @NotNull(message = "Discount value is required")
     @Min(value = 0, message = "Discount value must be at least 0")

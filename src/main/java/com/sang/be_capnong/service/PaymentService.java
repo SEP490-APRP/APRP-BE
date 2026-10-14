@@ -9,5 +9,6 @@ public interface PaymentService {
     PaymentResponse getPaymentByOrderCode(String orderCode);
     PaymentResponse confirmPaymentFromClient(String orderCode);
     void processPayosWebhook(JsonNode webhookBody);
+    void cancelPaymentByOrderCode(String orderCode);
     com.sang.be_capnong.dto.response.ResumePaymentOptionsResponse getResumePaymentOptions(int orderId);
 }

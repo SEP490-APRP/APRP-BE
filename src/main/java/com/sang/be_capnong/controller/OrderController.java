@@ -138,8 +138,8 @@ public class OrderController {
                 .build();
     }
 
-    @Operation(summary = "Shipper starts delivery",
-            description = "[SHIPPER only] Shipper picks up the order. Transitions: READY → SHIPPING.")
+    @Operation(summary = "Shipper accepts and heads to shop",
+            description = "[SHIPPER only] Shipper accepts the order and moves to shop. Transitions: READY → SHIPPING.")
     @PutMapping("/{id}/ship")
     @PreAuthorize("hasRole('SHIPPER')")
     public ApiResponse<OrderResponse> markOrderAsShipping(@PathVariable("id") int orderId) {
@@ -149,8 +149,19 @@ public class OrderController {
                 .build();
     }
 
+    @Operation(summary = "Shipper picks up order from shop",
+            description = "[SHIPPER only] Shipper arrives at shop and picks up the goods. Transitions: SHIPPING → PICKED_UP.")
+    @PutMapping("/{id}/pickup")
+    @PreAuthorize("hasRole('SHIPPER')")
+    public ApiResponse<OrderResponse> markOrderAsPickedUp(@PathVariable("id") int orderId) {
+        return ApiResponse.<OrderResponse>builder()
+                .result(orderService.markOrderAsPickedUp(orderId))
+                .message("Order has been picked up from shop.")
+                .build();
+    }
+
     @Operation(summary = "Shipper confirms delivery",
-            description = "[SHIPPER only] Order delivered successfully. Transitions: SHIPPING → DELIVERED.")
+            description = "[SHIPPER only] Order delivered successfully. Transitions: PICKED_UP (or SHIPPING) → DELIVERED.")
     @PutMapping("/{id}/deliver")
     @PreAuthorize("hasRole('SHIPPER')")
     public ApiResponse<OrderResponse> markOrderAsDelivered(@PathVariable("id") int orderId) {
