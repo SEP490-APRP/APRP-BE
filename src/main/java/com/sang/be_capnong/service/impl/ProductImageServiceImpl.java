@@ -123,7 +123,6 @@ public class ProductImageServiceImpl implements ProductImageService {
         Integer currentUserId = SecurityUtils.getCurrentUserIdOrNull();
         boolean isAdmin = SecurityUtils.isAdmin();
         boolean isOwner = currentUserId != null && product.getShop() != null && Objects.equals(product.getShop().getId(), currentUserId);
-
         // Nếu sản phẩm chưa ACTIVE (đang PENDING/REJECTED/INACTIVE), chỉ Admin hoặc chủ shop mới được xem ảnh
         boolean isProductActive = "ACTIVE".equalsIgnoreCase(product.getStatus());
         if (!isProductActive && !isAdmin && !isOwner) {
