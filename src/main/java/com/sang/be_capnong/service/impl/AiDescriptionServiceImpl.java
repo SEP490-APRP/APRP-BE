@@ -8,6 +8,9 @@ import com.sang.be_capnong.enums.AgriculturalProduceLabel;
 import com.sang.be_capnong.enums.ProhibitedContentCategory;
 import com.sang.be_capnong.exception.AppException;
 import com.sang.be_capnong.exception.ErrorCode;
+import com.sang.be_capnong.entity.User;
+import com.sang.be_capnong.enums.UserStatus;
+import com.sang.be_capnong.repository.UserRepository;
 import com.sang.be_capnong.service.AiDescriptionService;
 import com.sang.be_capnong.util.SecurityUtils;
 import jakarta.annotation.PostConstruct;
@@ -40,6 +43,9 @@ public class AiDescriptionServiceImpl implements AiDescriptionService {
     final Environment environment;
     final List<String> activeApiKeys = new CopyOnWriteArrayList<>();
     final AtomicInteger currentKeyIndex = new AtomicInteger(0);
+
+    @Autowired(required = false)
+    UserRepository userRepository;
 
     // Rate Limiting In-Memory (10 requests / 1 minute / user)
     final Map<Integer, ConcurrentLinkedDeque<Long>> userRequestTimestamps = new ConcurrentHashMap<>();
@@ -129,6 +135,23 @@ public class AiDescriptionServiceImpl implements AiDescriptionService {
 
         String productType = request.getProductType() != null ? request.getProductType().trim().toUpperCase() : "SINGLE";
         log.info("Generating AI description suggestion for product: '{}' (type: {})", productName, productType);
+
+        // 0. Kiểm tra tài khoản Shop hợp lệ (không bị khóa hoặc chưa kích hoạt)
+        Integer currentUserId = SecurityUtils.getCurrentUserIdOrNull();
+        if (currentUserId != null && userRepository != null) {
+            User shopUser = userRepository.findById(currentUserId).orElse(null);
+            if (shopUser != null) {
+                if (shopUser.getStatus() == UserStatus.LOCKED) {
+                    throw new AppException(ErrorCode.USER_LOCKED);
+                }
+                if (shopUser.getStatus() == UserStatus.PENDING) {
+                    throw new AppException(ErrorCode.USER_PENDING_APPROVAL);
+                }
+                if (shopUser.getStatus() != UserStatus.ACTIVE || Boolean.FALSE.equals(shopUser.getShopActive())) {
+                    throw new AppException(ErrorCode.SHOP_NOT_FOUND);
+                }
+            }
+        }
 
         // 1. Tiền kiểm duyệt an toàn nội dung toàn diện (Content Safety & Prompt Injection across all fields)
         validateContentSafety(request, productName);

@@ -76,6 +76,7 @@ public enum ErrorCode {
     MAX_PRODUCT_IMAGES_EXCEEDED(3024, "Each product can have a maximum of 8 images", HttpStatus.BAD_REQUEST),
     AI_INAPPROPRIATE_CONTENT(3025, "Product name or content contains inappropriate or prohibited keywords", HttpStatus.BAD_REQUEST),
     AI_RATE_LIMIT_EXCEEDED(3026, "Too many AI description requests. Please wait a moment before trying again", HttpStatus.TOO_MANY_REQUESTS),
+    INVALID_STATUS(3027, "Product status is invalid. Allowed values: ACTIVE, PENDING, INACTIVE, REJECTED", HttpStatus.BAD_REQUEST),
 
     // Upload & File errors
     FILE_INVALID(4001, "Invalid image file", HttpStatus.BAD_REQUEST),

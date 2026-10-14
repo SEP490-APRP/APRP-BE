@@ -40,6 +40,7 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
         format_sql: false
+        default_batch_fetch_size: 30
 
 # ===============================
 # JWT CONFIG (MAP FROM .env)

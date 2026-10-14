@@ -24,24 +24,31 @@ public class AiDescriptionSuggestionRequest {
      * - "MYSTERY_BOX" (tui mu / hop nong san bi an)
      * - "COMBO" (combo mon an / mam com gia dinh)
      */
+    @Size(max = 50, message = "Product type must not exceed 50 characters")
     String productType;
 
     /**
      * Loai bua an khi productType la "COMBO":
      * FAMILY_DINNER, HOTPOT, BBQ, VEGETARIAN, etc.
      */
+    @Size(max = 50, message = "Meal type must not exceed 50 characters")
     String mealType;
 
     /**
      * Danh sach ten cac nong san / nguyen lieu thanh phan (cho Combo va Tui mu).
      */
-    List<String> includedItems;
+    @Size(max = 30, message = "Included items list must not exceed 30 items")
+    List<@Size(max = 100, message = "Item name must not exceed 100 characters") String> includedItems;
 
+    @Size(max = 100, message = "Category name must not exceed 100 characters")
     String categoryName;
 
+    @Size(max = 150, message = "Origin must not exceed 150 characters")
     String origin;
 
+    @Size(max = 500, message = "Image URL must not exceed 500 characters")
     String imageUrl;
 
+    @Size(max = 1000, message = "Current description must not exceed 1000 characters")
     String currentDescription;
 }
