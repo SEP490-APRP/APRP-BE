@@ -57,6 +57,29 @@ public class PaymentController {
                 .build();
     }
 
+    @Operation(summary = "Hủy thanh toán PayOS", description = "FE gọi khi Buyer bấm hủy thanh toán để hoàn tồn kho và trả hàng về giỏ")
+    @PostMapping("/{orderCode}/cancel")
+    public ApiResponse<String> cancelPayment(@PathVariable String orderCode) {
+        log.info("Cancelling payment for orderCode: {}", orderCode);
+        paymentService.cancelPaymentByOrderCode(orderCode);
+        return ApiResponse.<String>builder()
+                .result("CANCELLED")
+                .message("Payment cancelled, inventory and cart restored.")
+                .build();
+    }
+
+    @Operation(summary = "Hủy thanh toán PayOS qua Query Param", description = "FE gọi khi cancel với param orderCode")
+    @PostMapping("/cancel")
+    public ApiResponse<String> cancelPaymentByParam(@RequestParam(required = false) String orderCode) {
+        if (orderCode != null && !orderCode.isBlank()) {
+            paymentService.cancelPaymentByOrderCode(orderCode);
+        }
+        return ApiResponse.<String>builder()
+                .result("CANCELLED")
+                .message("Payment cancelled, inventory and cart restored.")
+                .build();
+    }
+
     @Operation(summary = "PayOS Webhook", description = "Nhận thông báo tự động từ cổng PayOS khi thanh toán hoàn tất")
     @PostMapping("/payos/webhook")
     public ApiResponse<String> payosWebhook(@RequestBody JsonNode request) {

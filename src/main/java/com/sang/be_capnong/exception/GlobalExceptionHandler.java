@@ -59,7 +59,10 @@ public class GlobalExceptionHandler {
         ApiResponse apiResponse = new ApiResponse();
 
         apiResponse.setCode(errorCode.getCode());
-        apiResponse.setMessage(errorCode.getMessage());
+        apiResponse.setMessage(ex.getMessage() != null && !ex.getMessage().isBlank()
+                ? ex.getMessage()
+                : errorCode.getMessage());
+        apiResponse.setResult(ex.getData());
 
         return ResponseEntity
                 .status(errorCode.getStatusCode())

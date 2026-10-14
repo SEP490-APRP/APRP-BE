@@ -1,6 +1,8 @@
 package com.sang.be_capnong.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.sang.be_capnong.enums.VoucherScope;
+import com.sang.be_capnong.enums.VoucherTarget;
 import com.sang.be_capnong.enums.VoucherType;
 import jakarta.persistence.*;
 import lombok.*;
@@ -41,6 +43,12 @@ public class Voucher {
 
     @Enumerated(EnumType.STRING)
     VoucherType voucherType;
+
+    @Enumerated(EnumType.STRING)
+    VoucherScope voucherScope;
+
+    @Enumerated(EnumType.STRING)
+    VoucherTarget voucherTarget;
 
     Integer claimLimit;
     Integer claimedCount;
