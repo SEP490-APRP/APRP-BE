@@ -1,5 +1,6 @@
 package com.sang.be_capnong.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.sang.be_capnong.enums.BlogCategory;
 import com.sang.be_capnong.enums.BlogStatus;
 import lombok.*;
@@ -20,7 +21,11 @@ public class BlogResponse {
     String pictureUrl;
     BlogStatus status;
     BlogCategory category;
+
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss")
     LocalDateTime createAt;
+
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss")
     LocalDateTime updatedAt;
     Integer views;
 
