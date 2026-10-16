@@ -291,9 +291,16 @@ public class BlogServiceImpl implements BlogService {
 
     private BlogResponse mapToResponse(Blog blog, User shop, long likeCount, long commentCount, Boolean isLiked) {
         int shopId = (shop != null) ? shop.getId() : 0;
-        String shopName = (shop != null)
-                ? (shop.getShopName() != null && !shop.getShopName().isBlank() ? shop.getShopName() : shop.getFullName())
-                : "CapNong";
+        String shopName = "CapNong";
+        if (shop != null) {
+            if (shop.getShopName() != null && !shop.getShopName().isBlank()) {
+                shopName = shop.getShopName();
+            } else if (shop.getFullName() != null && !shop.getFullName().isBlank()) {
+                shopName = shop.getFullName();
+            } else if (isAdmin(shop)) {
+                shopName = "Quản trị viên";
+            }
+        }
         String shopAvatar = (shop != null) ? shop.getLogoUrl() : null;
 
         return BlogResponse.builder()
@@ -318,7 +325,14 @@ public class BlogServiceImpl implements BlogService {
     private BlogCommentResponse mapToCommentResponse(BlogComment comment) {
         User user = comment.getUser();
         int userId = (user != null) ? user.getId() : 0;
-        String userName = (user != null) ? user.getFullName() : "Người dùng";
+        String userName = "Người dùng";
+        if (user != null) {
+            if (user.getFullName() != null && !user.getFullName().isBlank()) {
+                userName = user.getFullName();
+            } else if (isAdmin(user)) {
+                userName = "Quản trị viên";
+            }
+        }
         String userAvatar = (user != null) ? user.getLogoUrl() : null;
 
         return BlogCommentResponse.builder()

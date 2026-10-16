@@ -142,9 +142,9 @@ public class BlogController {
                 .build();
     }
 
-    // Admin kiểm duyệt: đổi trạng thái bài viết (ví dụ: chuyển sang HIDDEN)
-    @PatchMapping({"/v1/admin/blogs/{blogId}/status", "/blogs/{blogId}/status", "/v1/blogs/{blogId}/status"})
-    @PreAuthorize("hasRole('ADMIN')")
+    // Đổi trạng thái bài viết (Chính chủ Shop hoặc Admin kiểm duyệt)
+    @PatchMapping({"/v1/admin/blogs/{blogId}/status", "/v1/shop/blogs/{blogId}/status", "/blogs/{blogId}/status", "/v1/blogs/{blogId}/status"})
+    @PreAuthorize("hasAnyRole('SHOP', 'ADMIN')")
     public ApiResponse<BlogResponse> updateBlogStatus(@PathVariable int blogId,
                                                       @RequestParam BlogStatus status) {
         BlogUpdateRequest request = BlogUpdateRequest.builder()
