@@ -2,6 +2,7 @@ package com.sang.be_capnong.service.impl;
 
 import com.sang.be_capnong.dto.request.VoucherCreateRequest;
 import com.sang.be_capnong.dto.response.ApiResponse;
+import com.sang.be_capnong.dto.response.PageResponse;
 import com.sang.be_capnong.dto.response.VoucherResponse;
 import com.sang.be_capnong.entity.User;
 import com.sang.be_capnong.entity.Voucher;
@@ -18,6 +19,10 @@ import com.sang.be_capnong.service.VoucherService;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,11 +52,22 @@ public class VoucherServiceImpl implements VoucherService {
             throw new AppException(ErrorCode.VOUCHER_CODE_EXISTED);
         }
 
+        if (request.getVoucherType() == VoucherType.PERCENTAGE && request.getDiscountValue() != null && request.getDiscountValue().compareTo(java.math.BigDecimal.valueOf(100)) > 0) {
+            throw new AppException(ErrorCode.DISCOUNT_PERCENT_INVALID);
+        }
+
+        VoucherScope scope = request.getVoucherScope();
+        if (!isAdmin) {
+            scope = VoucherScope.SHOP;
+        } else if (scope == null) {
+            scope = VoucherScope.PLATFORM;
+        }
+
         Voucher voucher = Voucher.builder()
                 .shop(currentUser) // Admin hay Shop thì đều gán ID của người tạo vào đây
                 .voucherCode(request.getVoucherCode().toUpperCase())
                 .voucherType(request.getVoucherType())
-                .voucherScope(request.getVoucherScope())
+                .voucherScope(scope)
                 .voucherTarget(request.getVoucherTarget())
                 .discountValue(request.getDiscountValue())
                 .maxDiscount(request.getMaxDiscount())
@@ -72,17 +88,22 @@ public class VoucherServiceImpl implements VoucherService {
     }
 
     @Override
-    public List<VoucherResponse> getManagementVouchers(boolean isAdmin) {
+    public PageResponse<VoucherResponse> getManagementVouchers(boolean isAdmin, int page, int size) {
         User currentUser = getCurrentUser();
-        List<Voucher> vouchers;
+        Pageable pageable = PageRequest.of(Math.max(0, page), Math.max(1, size), Sort.by(Sort.Direction.DESC, "createAt", "voucherId"));
+        Page<Voucher> voucherPage;
         if (isAdmin) {
-            // Lấy tất cả voucher do Admin này tạo
-            vouchers = voucherRepository.findByShop_Id(currentUser.getId());
+            // Lấy tất cả voucher do Admin tạo hoặc toàn sàn
+            List<VoucherScope> adminScopes = List.of(VoucherScope.PLATFORM, VoucherScope.SYSTEM, VoucherScope.WELCOME);
+            voucherPage = voucherRepository.findAllAdminVouchers(adminScopes, pageable);
         } else {
             // Lấy tất cả voucher do Shop này tạo
-            vouchers = voucherRepository.findByShop_Id(currentUser.getId());
+            voucherPage = voucherRepository.findByShop_Id(currentUser.getId(), pageable);
         }
-        return vouchers.stream().map(this::mapToResponse).collect(Collectors.toList());
+        List<VoucherResponse> content = voucherPage.getContent().stream()
+                .map(this::mapToResponse)
+                .collect(Collectors.toList());
+        return PageResponse.from(voucherPage, content);
     }
 
     @Transactional
@@ -92,8 +113,11 @@ public class VoucherServiceImpl implements VoucherService {
                 .orElseThrow(() -> new AppException(ErrorCode.VOUCHER_NOT_FOUND));
 
         User currentUser = getCurrentUser();
-        if (voucher.getShop() == null || !Objects.equals(voucher.getShop().getId(), currentUser.getId())) {
-            throw new AppException(ErrorCode.UNAUTHENTICATED); // Chỉ người tạo mới được sửa
+        boolean isCurrentUserAdmin = currentUser.getRole() != null && "ADMIN".equalsIgnoreCase(currentUser.getRole().getName());
+        if (!isCurrentUserAdmin) {
+            if (voucher.getShop() == null || !Objects.equals(voucher.getShop().getId(), currentUser.getId())) {
+                throw new AppException(ErrorCode.UNAUTHORIZED);
+            }
         }
 
         voucher.setActive(!Boolean.TRUE.equals(voucher.getActive()));
@@ -107,8 +131,8 @@ public class VoucherServiceImpl implements VoucherService {
         List<Voucher> vouchers = voucherRepository.findByActiveTrueAndAutoCreatedReasonIsNull();
         
         return vouchers.stream()
-                .filter(v -> v.getExpiryDate().isAfter(now))
-                .filter(v -> v.getClaimLimit() == null || v.getClaimedCount() < v.getClaimLimit())
+                .filter(v -> v.getExpiryDate() == null || v.getExpiryDate().isAfter(now))
+                .filter(v -> v.getClaimLimit() == null || (v.getClaimedCount() != null ? v.getClaimedCount() : 0) < v.getClaimLimit())
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -152,10 +176,10 @@ public class VoucherServiceImpl implements VoucherService {
     // --- HELPER METHODS ---
 
     private ApiResponse<Void> doCollectVoucher(User buyer, Voucher voucher) {
-        if (!Boolean.TRUE.equals(voucher.getActive()) || voucher.getExpiryDate().isBefore(LocalDateTime.now())) {
+        if (!Boolean.TRUE.equals(voucher.getActive()) || (voucher.getExpiryDate() != null && voucher.getExpiryDate().isBefore(LocalDateTime.now()))) {
             throw new AppException(ErrorCode.VOUCHER_INVALID);
         }
-        if (voucher.getClaimLimit() != null && voucher.getClaimedCount() >= voucher.getClaimLimit()) {
+        if (voucher.getClaimLimit() != null && (voucher.getClaimedCount() != null ? voucher.getClaimedCount() : 0) >= voucher.getClaimLimit()) {
             throw new AppException(ErrorCode.VOUCHER_OUT_OF_STOCK);
         }
 
@@ -185,12 +209,15 @@ public class VoucherServiceImpl implements VoucherService {
     }
 
     private VoucherResponse mapToResponse(Voucher v) {
-        String role = v.getShop() != null && v.getShop().getRole() != null ? v.getShop().getRole().getName() : "UNKNOWN";
+        String role = v.getShop() != null && v.getShop().getRole() != null ? v.getShop().getRole().getName() : "SHOP";
+        boolean isCreatorAdmin = "ADMIN".equalsIgnoreCase(role);
         boolean isPublic = !"HIDDEN".equalsIgnoreCase(v.getAutoCreatedReason());
         
         VoucherScope scope = v.getVoucherScope();
-        if (scope == null) {
-            scope = "ADMIN".equalsIgnoreCase(role) ? VoucherScope.PLATFORM : VoucherScope.SHOP;
+        if (!isCreatorAdmin) {
+            scope = VoucherScope.SHOP;
+        } else if (scope == null) {
+            scope = VoucherScope.PLATFORM;
         }
 
         VoucherTarget target = v.getVoucherTarget();

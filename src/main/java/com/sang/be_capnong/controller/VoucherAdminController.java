@@ -2,6 +2,7 @@ package com.sang.be_capnong.controller;
 
 import com.sang.be_capnong.dto.request.VoucherCreateRequest;
 import com.sang.be_capnong.dto.response.ApiResponse;
+import com.sang.be_capnong.dto.response.PageResponse;
 import com.sang.be_capnong.dto.response.VoucherResponse;
 import com.sang.be_capnong.service.VoucherService;
 import jakarta.validation.Valid;
@@ -31,9 +32,12 @@ public class VoucherAdminController {
 
     @GetMapping
     @PreAuthorize("hasRole('ADMIN')")
-    public ApiResponse<List<VoucherResponse>> getManagementVouchers() {
-        return ApiResponse.<List<VoucherResponse>>builder()
-                .result(voucherService.getManagementVouchers(true))
+    public ApiResponse<PageResponse<VoucherResponse>> getManagementVouchers(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size
+    ) {
+        return ApiResponse.<PageResponse<VoucherResponse>>builder()
+                .result(voucherService.getManagementVouchers(true, page, size))
                 .build();
     }
 
