@@ -48,4 +48,10 @@ public class VoucherAdminController {
                 .result(voucherService.toggleVoucherStatus(voucherId))
                 .build();
     }
+
+    @DeleteMapping("/{voucherId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<Void> deleteVoucher(@PathVariable int voucherId) {
+        return voucherService.deleteVoucher(voucherId);
+    }
 }

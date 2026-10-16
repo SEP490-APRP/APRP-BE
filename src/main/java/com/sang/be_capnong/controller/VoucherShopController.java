@@ -48,4 +48,10 @@ public class VoucherShopController {
                 .result(voucherService.toggleVoucherStatus(voucherId))
                 .build();
     }
+
+    @DeleteMapping("/{voucherId}")
+    @PreAuthorize("hasRole('SHOP')")
+    public ApiResponse<Void> deleteVoucher(@PathVariable int voucherId) {
+        return voucherService.deleteVoucher(voucherId);
+    }
 }

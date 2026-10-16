@@ -13,6 +13,7 @@ public interface VoucherService {
     VoucherResponse createVoucher(VoucherCreateRequest request, boolean isAdmin);
     PageResponse<VoucherResponse> getManagementVouchers(boolean isAdmin, int page, int size);
     VoucherResponse toggleVoucherStatus(int voucherId);
+    ApiResponse<Void> deleteVoucher(int voucherId);
 
     // --- CHO BUYER ---
     List<VoucherResponse> getAvailablePublicVouchers();

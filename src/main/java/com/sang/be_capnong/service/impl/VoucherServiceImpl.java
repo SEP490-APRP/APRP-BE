@@ -14,6 +14,7 @@ import com.sang.be_capnong.exception.AppException;
 import com.sang.be_capnong.exception.ErrorCode;
 import com.sang.be_capnong.repository.UserRepository;
 import com.sang.be_capnong.repository.VoucherRepository;
+import com.sang.be_capnong.repository.VoucherUsageRepository;
 import com.sang.be_capnong.repository.VoucherUserRepository;
 import com.sang.be_capnong.service.VoucherService;
 import lombok.AccessLevel;
@@ -40,6 +41,7 @@ public class VoucherServiceImpl implements VoucherService {
 
     VoucherRepository voucherRepository;
     VoucherUserRepository voucherUserRepository;
+    VoucherUsageRepository voucherUsageRepository;
     UserRepository userRepository;
 
     @Transactional
@@ -122,6 +124,34 @@ public class VoucherServiceImpl implements VoucherService {
 
         voucher.setActive(!Boolean.TRUE.equals(voucher.getActive()));
         return mapToResponse(voucherRepository.save(voucher));
+    }
+
+    @Transactional
+    @Override
+    public ApiResponse<Void> deleteVoucher(int voucherId) {
+        Voucher voucher = voucherRepository.findById(voucherId)
+                .orElseThrow(() -> new AppException(ErrorCode.VOUCHER_NOT_FOUND));
+
+        User currentUser = getCurrentUser();
+        boolean isCurrentUserAdmin = currentUser.getRole() != null && "ADMIN".equalsIgnoreCase(currentUser.getRole().getName());
+        if (!isCurrentUserAdmin) {
+            if (voucher.getShop() == null || !Objects.equals(voucher.getShop().getId(), currentUser.getId())) {
+                throw new AppException(ErrorCode.UNAUTHORIZED);
+            }
+        }
+
+        // Voucher phải đang ở trạng thái TẠM DỪNG hoạt động (active == false) thì mới được xóa
+        if (Boolean.TRUE.equals(voucher.getActive())) {
+            throw new AppException(ErrorCode.VOUCHER_CANNOT_DELETE_ACTIVE);
+        }
+
+        voucherUserRepository.deleteByVoucher_VoucherId(voucherId);
+        voucherUsageRepository.deleteByVoucher_VoucherId(voucherId);
+        voucherRepository.delete(voucher);
+
+        return ApiResponse.<Void>builder()
+                .message("Xóa voucher thành công")
+                .build();
     }
 
     @Override
