@@ -109,4 +109,75 @@ INSERT INTO vouchers (voucher_id, shop_id, voucher_code, discount_value, max_dis
 (3, 5, 'MIENTAY15K', 15000, 15000, 80000, 100, DATE_ADD(NOW(), INTERVAL 30 DAY), 'FIXED_AMOUNT', 1)
 ON DUPLICATE KEY UPDATE voucher_code=VALUES(voucher_code);
 
+-- 8. BLOGS & STORIES (PHÂN ĐỀU CHO SHOP 1 [ID: 4] VÀ SHOP 2 [ID: 5])
+INSERT INTO blogs (blog_id, shop_id, title, content, picture_url, category, status, views, create_at, updated_at) VALUES
+(1, 4, 'Cà rốt hai nhánh Cầu Đất: Đằng sau vẻ ngoài kỳ lạ là vị ngọt đậm tự nhiên hiếm có',
+'<p>Tại các sườn đồi đất đỏ bazan thoai thoải ở Cầu Đất (Đà Lạt), mùa thu hoạch cà rốt luôn mang lại những bất ngờ thú vị cho người làm nông. Khác với những củ cà rốt thẳng tắp, bóng bẩy trên quầy siêu thị công nghiệp, những củ cà rốt nơi đây thường uốn lượn, thậm chí chẻ đôi thành hai nhánh như đôi chân của một vũ công nhỏ.</p>
+<p>Lý giải về hiện tượng này, kỹ sư nông nghiệp Trần Văn Kiệt cho biết: "Đất canh tác hữu cơ của chúng tôi giàu mùn tự nhiên nhưng lẫn nhiều sỏi đá dung nham cổ xưa. Khi đầu rễ non đâm xuống gặp phải viên sỏi nhỏ, nó sẽ tự tách làm đôi để tiếp tục sinh trưởng. Vẻ ngoài có thể xấu mã, nhưng cấu trúc thịt củ lại đặc khít hơn, hàm lượng đường tự nhiên và hợp chất carotenoid cao hơn 15% so với củ trồng trên đất cát nhân tạo."</p>
+<p>Khi ép lấy nước hoặc dùng nấu món canh sườn thanh mát, cà rốt hai nhánh cho nước cốt đậm đà, mùi thơm nồng nàn đặc trưng của đất trời cao nguyên. Đây là minh chứng rõ nét cho thông điệp: Vẻ đẹp đích thực của nông sản nằm ở sự tinh khiết và hương vị nguyên bản bên trong.</p>',
+'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?auto=format&fit=crop&w=1200&q=80', 'STORY', 'PUBLISHED', 128, DATE_SUB(NOW(), INTERVAL 3 DAY), DATE_SUB(NOW(), INTERVAL 3 DAY)),
+
+(2, 4, 'Hành trình 90 ngày canh tác dâu tây hữu cơ không màng thuốc bảo vệ thực vật tại cao nguyên',
+'<p>Ở độ cao trên 1.500m so với mực nước biển, sương mù bao phủ những nhà màng trồng dâu tây sinh thái của nông trại chúng tôi suốt những sớm tinh mơ. Khác với mô hình canh tác thông thường sử dụng thuốc trừ nấm và hóa chất kích ngọt, chúng tôi chọn con đường khó khăn hơn: nuôi thiên địch bọ trĩ và xịt dịch chiết tỏi, ớt, gừng lên men tự nhiên.</p>
+<p>Quá trình này đòi hỏi sự kiên nhẫn tột cùng. Trái dâu tây không dùng chất bảo quản thường có kích thước không đồng đều, có quả hơi méo mó ở phần cuống do thụ phấn tự nhiên bởi ong mật. Thế nhưng, khi cắn ngập chân răng, người sành ăn sẽ cảm nhận ngay độ giòn xốp, hậu vị ngọt thanh kèm chút chua dịu đánh thức mọi giác quan.</p>
+<p>"Khách hàng hiện đại ngày càng hiểu rằng quả dâu hoàn hảo không tì vết thường phải trả giá bằng lượng hóa học tồn dư. Những quả dâu có chút khiếm khuyết ngoại hình nhưng an toàn tuyệt đối chính là món quà quý nhất mà đất mẹ ban tặng," đại diện nhà vườn chia sẻ.</p>',
+'https://images.unsplash.com/photo-1464965911861-746a04b4bca6?auto=format&fit=crop&w=1200&q=80', 'NONG_NGHIEP', 'PUBLISHED', 215, DATE_SUB(NOW(), INTERVAL 2 DAY), DATE_SUB(NOW(), INTERVAL 2 DAY)),
+
+(3, 4, 'Giải cứu bắp cải Cầu Đất sau đợt sương muối: Khi sự chung tay thắp sáng niềm hy vọng',
+'<p>Đợt rét đậm đầu tháng kéo theo sương muối dày đặc đã phủ trắng xóa các luống bắp cải đang bước vào kỳ thu hoạch rộ tại thung lũng Đơn Dương. Hàng ngàn búp cải bị cháy xém lớp lá ngoài cùng, khiến thương lái ép giá hoặc từ chối thu mua vì không đạt tiêu chuẩn trưng bày thông thường.</p>
+<p>Tuy nhiên, chỉ cần khéo léo bóc tách 2 - 3 lớp bẹ lá ngoài bị sạm nám do sương giá, phần lõi bên trong bắp cải vẫn cuộn chắc nịch, giòn ngọt và căng mọng từng giọt nước mát lành. Nhờ sự hỗ trợ kết nối nhanh chóng từ nền tảng CapNong, hơn 3 tấn bắp cải đã được giải cứu thành công và đưa thẳng tới tay người tiêu dùng TP.HCM và các tỉnh lân cận chỉ trong vòng 48 giờ.</p>
+<p>Sự đón nhận nồng nhiệt từ cộng đồng không chỉ giúp người làm vườn vượt qua tổn thất mùa vụ, mà còn chứng minh một tư duy tiêu dùng mới: ủng hộ giá trị thực tế của nông sản, giảm thiểu lãng phí thực phẩm cho xã hội.</p>',
+'https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=80', 'NEW_PRODUCT', 'PUBLISHED', 342, DATE_SUB(NOW(), INTERVAL 1 DAY), DATE_SUB(NOW(), INTERVAL 1 DAY)),
+
+(4, 4, 'Cẩm nang nhà bếp: 5 món canh thanh nhiệt tuyệt đỉnh từ củ quả xấu mã nhưng trọn vị ngọt',
+'<p>Nhiều bà nội trợ thường có tâm lý e ngại khi thấy những củ quả hình dáng kỳ lạ, vỏ xù xì hoặc cong queo. Thực tế, trong nghệ thuật ẩm thực truyền thống, đây lại chính là những nguyên liệu vàng để tạo nên những nồi nước dùng ngọt nước, thanh mát tự nhiên mà không cần đến mì chính.</p>
+<p>Dưới đây là 5 gợi ý tuyệt vời cho thực đơn gia đình trong mùa nắng nóng:
+1. Canh sườn non hầm củ dền xoắn và khoai tây bi: Nước canh có màu hồng ngọc quyến rũ, vị ngọt bùi sâu lắng.
+2. Súp bí đỏ hồ lô hạt sen: Những quả bí da sần sùi lại sở hữu lớp thịt dẻo quánh, hàm lượng vitamin A vượt trội.
+3. Canh bí đao chanh tươi tôm nõn: Bí đao thụ phấn tự nhiên cho vị thanh mát giải nhiệt tức thì.
+4. Nước ép cà rốt - cần tây - táo xanh: Sử dụng cà rốt nhánh nhỏ giữ trọn men vi sinh sống.
+5. Canh chua cá lóc nấu cà chua bi nứt vỏ: Cà chua nứt vỏ khi chín rộ trên cây có độ chua ngọt hài hòa nhất.</p>
+<p>Hãy cùng CapNong biến những nông sản mộc mạc thành những bữa cơm gia đình đầm ấm và ngập tràn tình yêu thương!</p>',
+'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=1200&q=80', 'GUIDE', 'PUBLISHED', 89, DATE_SUB(NOW(), INTERVAL 8 HOUR), DATE_SUB(NOW(), INTERVAL 8 HOUR)),
+
+(5, 5, 'Bưởi da xanh Bến Tre vỏ đốm nám: Vì sao các chuyên gia dinh dưỡng khuyên dùng?',
+'<p>Dọc theo các con rạch trĩu nặng phù sa của huyện Châu Thành (Bến Tre), những vườn bưởi da xanh cổ thụ đang bước vào chính vụ. Mùa nắng gắt, dưới tác động của ánh sáng mặt trời nhiệt đới và sự tiếp xúc tự nhiên với nhện đỏ thân thiện, vỏ bưởi thường xuất hiện những mảng nám sậm màu (thường gọi là bưởi da cám).</p>
+<p>Trái với định kiến của nhiều người rằng vỏ rám là bưởi sâu bệnh, các nhà khoa học thực phẩm khẳng định: Quá trình cây bưởi tự tiết chất bảo vệ khỏi ánh nắng gay gắt chính là cơ chế kích hoạt sản sinh chất chống oxy hóa tự nhiên flavonoids và naringin ở nồng độ cao nhất. Lớp vỏ nám bên ngoài đóng vai trò như một lớp áo giáp tự nhiên giữ cho từng tép bưởi hồng bên trong luôn mọng nước, tôm bưởi róc rách và vị ngọt thanh đậm đà.</p>
+<p>Chọn mua bưởi da cám trực tiếp từ nhà vườn vừa tiết kiệm đến 35% chi phí so với hàng tuyển xuất khẩu, vừa mang lại nguồn vitamin C tinh khiết tuyệt vời cho sức khỏe cả gia đình.</p>',
+'https://images.unsplash.com/photo-1619566636858-adf3ef46400b?auto=format&fit=crop&w=1200&q=80', 'SUC_KHOE', 'PUBLISHED', 194, DATE_SUB(NOW(), INTERVAL 4 DAY), DATE_SUB(NOW(), INTERVAL 4 DAY)),
+
+(6, 5, 'Chuyện cây ổi Nữ Hoàng đất phù sa: Giữ trọn sự mộc mạc giữa làn sóng công nghiệp hóa',
+'<p>Trong căn chòi nhỏ bên bờ kênh rợp bóng dừa nước, dì Sáu Ngọc chia sẻ về vườn ổi Nữ Hoàng hơn 5 năm tuổi của mình. Giữa lúc nhiều nơi lạm dụng phân bón kích cỡ để ép quả ổi to đùng, bóng loáng như sáp nến, vườn của dì vẫn kiên định bón phân trùn quế và ủ bã đậu nành.</p>
+<p>"Trái ổi của dì nó không tròn xoe, có trái méo mó, da hơi gồ ghề do cọ xát với cành lá lúc đón gió sông. Nhưng bổ ra thì hạt nhỏ xíu, cùi dày cui, giòn rụm và mùi thơm ngào ngạt lan khắp nhà," dì Ngọc cười rạng rỡ, đưa tay hái một trái ổi vừa chín tới còn đọng sương mai.</p>
+<p>Câu chuyện của dì Sáu là nguồn cảm hứng lớn lao cho hành trình gìn giữ những giá trị nông nghiệp bền vững. Hãy thưởng thức trái cây với sự trân trọng mồ hôi công sức của người nông dân chân chính.</p>',
+'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&w=1200&q=80', 'STORY', 'PUBLISHED', 167, DATE_SUB(NOW(), INTERVAL 2 DAY), DATE_SUB(NOW(), INTERVAL 2 DAY)),
+
+(7, 5, 'Mẹo bảo quản rau ăn lá nhiệt đới tươi giòn suốt 7 ngày không cần túi nylon độc hại',
+'<p>Rau ăn lá như cải ngọt, mồng tơi, rau dền rất dễ bị úa vàng hoặc nhớt lá chỉ sau 2 ngày để trong tủ lạnh nếu không biết cách xử lý độ ẩm dư thừa. Rất nhiều người có thói quen cột chặt rau trong túi nylon kín mít, điều này khiến khí ethylene do rau tự tiết ra bị nghẹt, đẩy nhanh tốc độ phân hủy.</p>
+<p>Chuyên gia nông nghiệp từ Vườn Xanh Bình Dương chia sẻ bí quyết 3 bước cực kỳ đơn giản:
+Bước 1: Không rửa rau trước khi cất tủ lạnh. Độ ẩm bề mặt là kẻ thù số một gây nấm mốc.
+Bước 2: Dùng khăn bông ẩm hoặc giấy báo bọc lỏng quanh gốc rau, tạo điều kiện cho rau thở nhẹ nhàng.
+Bước 3: Đặt rau đứng theo chiều phát triển tự nhiên trong ngăn chứa rau củ chuyên dụng (nhiệt độ lý tưởng từ 4 - 8 độ C).</p>
+<p>Áp dụng cách này, bó rau của bạn sẽ giữ nguyên độ giòn xanh, lượng vitamin và khoáng chất quý giá suốt cả tuần lễ bận rộn!</p>',
+'https://images.unsplash.com/photo-1518843875459-f738682238a6?auto=format&fit=crop&w=1200&q=80', 'GUIDE', 'PUBLISHED', 276, DATE_SUB(NOW(), INTERVAL 1 DAY), DATE_SUB(NOW(), INTERVAL 1 DAY)),
+
+(8, 5, 'Ưu đãi mùa vụ: Thu hoạch xoài cát Hòa Lộc vỏ rám vàng - Ngọt lịm từng thớ thịt',
+'<p>Xoài cát Hòa Lộc từ lâu đã được mệnh danh là vương hậu của các loại cây ăn trái miền Tây Nam Bộ. Năm nay, do thời tiết chuyển mùa hanh khô, những chùm xoài đón trọn vẹn ánh nắng hướng đông xuất hiện lớp da rám nắng lấm tấm chấm mật quanh cuống.</p>
+<p>Nhiều thương lái bán chợ truyền thống chê xoài rám vỏ, nhưng chính người sành ăn xứ Tiền Giang đều biết: Chỉ những quả xoài dãi dầu sương nắng đủ ngày đủ tháng mới tích tụ trọn vẹn lượng mật ngọt sánh mịn, thơm lừng mùi vani nhiệt đới, dốc hạt mỏng dính và không hề có xơ.</p>
+<p>Nhân dịp thu hoạch rộ, nhà vườn gửi tặng quý khách hàng CapNong chương trình ưu đãi giảm 20% khi đặt mua từ 5kg xoài cát Hòa Lộc da rám mật ong. Hãy trải nghiệm ngay hương vị ngọt ngào tuyệt hảo đậm đà phù sa miền sông nước!</p>',
+'https://images.unsplash.com/photo-1553279768-865429fa0078?auto=format&fit=crop&w=1200&q=80', 'PROMOTION', 'PUBLISHED', 310, DATE_SUB(NOW(), INTERVAL 5 HOUR), DATE_SUB(NOW(), INTERVAL 5 HOUR))
+ON DUPLICATE KEY UPDATE title=VALUES(title), content=VALUES(content), picture_url=VALUES(picture_url), category=VALUES(category);
+
+-- Sample blog likes & comments
+INSERT INTO blog_likes (like_id, blog_id, user_id, create_at) VALUES
+(1, 1, 2, NOW()),
+(2, 5, 4, NOW())
+ON DUPLICATE KEY UPDATE blog_id=VALUES(blog_id);
+
+INSERT INTO blog_comments (comment_id, blog_id, user_id, content, create_at) VALUES
+(1, 1, 2, 'Cà rốt này nhà mình mua về ép nước với táo, ngọt lịm tự nhiên không cần thêm đường luôn! Rất cảm ơn các cô chú nông dân.', DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(2, 1, 4, 'Dạ vườn cảm ơn gia đình mình nhiều ạ! Vụ sau vườn sẽ tiếp tục gửi đến bà con những mẻ rau củ sạch nhất nhé 🌱', DATE_SUB(NOW(), INTERVAL 12 HOUR)),
+(3, 5, 2, 'Bưởi da cám ăn thơm và đậm vị hơn hẳn bưởi vỏ xanh mướt bày siêu thị. Cả nhà mình ai cũng mê!', DATE_SUB(NOW(), INTERVAL 6 HOUR))
+ON DUPLICATE KEY UPDATE content=VALUES(content);
+
 SET FOREIGN_KEY_CHECKS = 1;
