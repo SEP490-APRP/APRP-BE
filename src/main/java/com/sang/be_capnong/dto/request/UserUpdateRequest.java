@@ -21,6 +21,7 @@ public class UserUpdateRequest {
 
     // Shop fields
     String shopName;
+    @Size(max = 500, message = "Mô tả nhà vườn không được vượt quá 500 ký tự")
     String description;
     String logoUrl;
     String achievement;
