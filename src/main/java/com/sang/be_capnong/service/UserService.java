@@ -1,6 +1,7 @@
 package com.sang.be_capnong.service;
 
 import com.sang.be_capnong.dto.request.BuyerCreationRequest;
+import com.sang.be_capnong.dto.request.ChangePasswordRequest;
 import com.sang.be_capnong.dto.request.ResendOtpRequest;
 import com.sang.be_capnong.dto.request.ShipperCreationRequest;
 import com.sang.be_capnong.dto.request.ShopCreationRequest;
@@ -31,6 +32,8 @@ public interface UserService {
     UserResponse getMyInfo();
 
     UserResponse updateMyInfo(UserUpdateRequest request);
+
+    void changePassword(ChangePasswordRequest request);
 
     UserResponse updateAvatar(MultipartFile file);
 

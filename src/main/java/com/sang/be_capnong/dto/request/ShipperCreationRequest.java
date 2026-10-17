@@ -33,10 +33,18 @@ public class ShipperCreationRequest {
     @NotBlank(message = "ADDRESS_REQUIRED")
     String address;
 
+    @NotBlank(message = "CCCD_REQUIRED")
+    @Pattern(regexp = "^[0-9]{12}$", message = "CCCD_INVALID")
+    String cccd;
+
     @NotBlank(message = "VEHICLE_NUMBER_REQUIRED")
     String vehicleNumber;
 
     String vehicleDocImageUrl;
+
+    String bankAccount;
+    String bankAccountHolder;
+    String bankName;
 
     Boolean emailVerified;
 }

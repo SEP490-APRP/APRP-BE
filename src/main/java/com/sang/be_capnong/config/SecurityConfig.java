@@ -28,7 +28,6 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 public class SecurityConfig {
 
     private static final String[] PUBLIC_ANY_ENDPOINTS = {
-            "/oauth2/**",
             "/login/**",
             "/error",
             "/ws/**",
@@ -41,9 +40,12 @@ public class SecurityConfig {
     private static final String[] PUBLIC_POST_ENDPOINTS = {
             // Auth & Token
             "/auth/login",
+            "/auth/google",
             "/auth/introspect",
             "/auth/logout",
             "/auth/refresh",
+            "/auth/forgot-password",
+            "/auth/reset-password",
 
             // Đăng ký tài khoản (Buyer, Shop, Shipper) & xác thực OTP
             "/users",
@@ -97,10 +99,6 @@ public class SecurityConfig {
     @Autowired
     private CustomJwtDecoder customJwtDecoder;
 
-    @Autowired
-    @Lazy
-    private OAuth2AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler;
-
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
@@ -122,9 +120,6 @@ public class SecurityConfig {
 
                         // Tất cả các request còn lại yêu cầu đăng nhập (bao gồm /products/my-shop, /cart/**, /orders/**)
                         .anyRequest().authenticated()
-                )
-                .oauth2Login(oauth2 -> oauth2
-                        .successHandler(oAuth2AuthenticationSuccessHandler)
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt
