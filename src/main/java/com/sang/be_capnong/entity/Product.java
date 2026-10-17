@@ -5,6 +5,8 @@ import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
 
+import org.hibernate.annotations.BatchSize;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -55,6 +57,7 @@ public class Product {
     LocalDateTime discountStartDate;
     LocalDateTime discountEndDate;
 
+    @BatchSize(size = 30)
     @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true)
     List<ProductImage> images;
 

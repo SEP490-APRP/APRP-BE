@@ -74,6 +74,9 @@ public enum ErrorCode {
     IMAGE_NOT_AGRICULTURAL_PRODUCE(3022, "Product image is not agricultural produce or is inappropriate", HttpStatus.BAD_REQUEST),
     IMAGE_MODERATION_FAILED(3023, "An error occurred during image moderation", HttpStatus.INTERNAL_SERVER_ERROR),
     MAX_PRODUCT_IMAGES_EXCEEDED(3024, "Each product can have a maximum of 8 images", HttpStatus.BAD_REQUEST),
+    AI_INAPPROPRIATE_CONTENT(3025, "Product name or content contains inappropriate or prohibited keywords", HttpStatus.BAD_REQUEST),
+    AI_RATE_LIMIT_EXCEEDED(3026, "Too many AI description requests. Please wait a moment before trying again", HttpStatus.TOO_MANY_REQUESTS),
+    INVALID_STATUS(3027, "Product status is invalid. Allowed values: ACTIVE, PENDING, INACTIVE, REJECTED", HttpStatus.BAD_REQUEST),
 
     // Upload & File errors
     FILE_INVALID(4001, "Invalid image file", HttpStatus.BAD_REQUEST),
@@ -137,6 +140,7 @@ public enum ErrorCode {
     VOUCHER_INVALID(9003, "Voucher is inactive or expired", HttpStatus.BAD_REQUEST),
     VOUCHER_OUT_OF_STOCK(9004, "Voucher is out of stock (claim limit reached)", HttpStatus.BAD_REQUEST),
     VOUCHER_LIMIT_REACHED(9005, "You have reached the maximum claim limit for this voucher", HttpStatus.BAD_REQUEST),
+    VOUCHER_CANNOT_DELETE_ACTIVE(9006, "Voucher đang hoạt động, vui lòng tạm dừng hoạt động trước khi xóa", HttpStatus.BAD_REQUEST),
 
     // Blog / Forum Errors (Series 10000)
     BLOG_NOT_FOUND(10001, "Blog post not found", HttpStatus.NOT_FOUND),

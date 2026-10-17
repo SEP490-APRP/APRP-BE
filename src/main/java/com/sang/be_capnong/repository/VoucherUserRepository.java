@@ -11,4 +11,5 @@ import java.util.Optional;
 public interface VoucherUserRepository extends JpaRepository<VoucherUser, Integer> {
     List<VoucherUser> findByUser_Id(int userId);
     Optional<VoucherUser> findByUser_IdAndVoucher_VoucherId(int userId, int voucherId);
+    void deleteByVoucher_VoucherId(int voucherId);
 }

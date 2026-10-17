@@ -29,21 +29,21 @@ public class VoucherUserController {
 
     // Lưu mã hiển thị sẵn
     @PostMapping("/vouchers/{voucherId}/collect")
-    @PreAuthorize("hasRole('BUYER') or hasRole('SHOP')")
+    @PreAuthorize("isAuthenticated()")
     public ApiResponse<Void> collectVoucher(@PathVariable int voucherId) {
         return voucherService.collectVoucher(voucherId);
     }
 
     // Lưu mã ẩn bằng code
     @PostMapping("/vouchers/collect-by-code")
-    @PreAuthorize("hasRole('BUYER') or hasRole('SHOP')")
+    @PreAuthorize("isAuthenticated()")
     public ApiResponse<Void> collectVoucherByCode(@RequestParam String voucherCode) {
         return voucherService.collectVoucherByCode(voucherCode);
     }
 
     // Lấy danh sách ví voucher của người dùng
     @GetMapping("/users/me/vouchers")
-    @PreAuthorize("hasRole('BUYER') or hasRole('SHOP')")
+    @PreAuthorize("isAuthenticated()")
     public ApiResponse<List<VoucherResponse>> getMyVouchers() {
         return ApiResponse.<List<VoucherResponse>>builder()
                 .result(voucherService.getMyVouchers())

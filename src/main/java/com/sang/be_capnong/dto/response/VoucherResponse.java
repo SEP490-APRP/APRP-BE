@@ -40,4 +40,7 @@ public class VoucherResponse {
     String creatorRole; // "ADMIN" hoặc "SHOP"
     Integer shopId; // Trả về shopId nếu là shop voucher
     Boolean isPublic; // Phân biệt mã hiển thị hay mã gõ tay
+    Boolean isCollected; // User hiện tại đã lưu mã này vào ví chưa
+    Boolean isUsed; // User hiện tại đã sử dụng hết lượt chưa
+    Integer userRemainingQuantity; // Số lượt dùng còn lại của user (nếu đã lưu)
 }
