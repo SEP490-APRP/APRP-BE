@@ -154,7 +154,26 @@ public enum ErrorCode {
     // Saved Address Errors (Series 9500)
     ADDRESS_NOT_FOUND(9501, "Saved address not found", HttpStatus.NOT_FOUND),
     MAX_ADDRESSES_REACHED(9502, "You have reached the maximum limit of 10 saved addresses", HttpStatus.BAD_REQUEST),
-    ADDRESS_UNAUTHORIZED(9503, "You do not have permission to access or modify this address", HttpStatus.FORBIDDEN)
+    ADDRESS_UNAUTHORIZED(9503, "You do not have permission to access or modify this address", HttpStatus.FORBIDDEN),
+
+    // AI Build Plan & Health Profile Errors (Series 11000)
+    ALLERGEN_NOT_FOUND(11001, "Allergen not found", HttpStatus.NOT_FOUND),
+    ALLERGEN_NAME_EXISTED(11002, "Allergen name already exists", HttpStatus.BAD_REQUEST),
+    HEALTH_CONDITION_NOT_FOUND(11003, "Health condition not found", HttpStatus.NOT_FOUND),
+    CONDITION_NAME_EXISTED(11004, "Health condition name already exists", HttpStatus.BAD_REQUEST),
+    NUTRITION_NOT_FOUND(11005, "Nutrition info not found for this product", HttpStatus.NOT_FOUND),
+    PLAN_NOT_FOUND(11006, "Build plan not found", HttpStatus.NOT_FOUND),
+    PLAN_FORBIDDEN(11007, "You do not have permission to access or modify this plan", HttpStatus.FORBIDDEN),
+    INVALID_STATUS_TRANSITION(11008, "Invalid plan status transition", HttpStatus.BAD_REQUEST),
+    NO_SUITABLE_COMBOS(11009, "No suitable combos found matching your constraints and stock availability", HttpStatus.UNPROCESSABLE_ENTITY),
+    COMBO_UNAVAILABLE(11010, "Combo is unavailable or out of stock", HttpStatus.BAD_REQUEST),
+    ALLERGEN_CONFLICT(11011, "Item contains allergens registered in buyer profile", HttpStatus.BAD_REQUEST),
+    BUDGET_EXCEEDED(11012, "Total plan price exceeds target budget", HttpStatus.BAD_REQUEST),
+    AI_UNAVAILABLE(11013, "AI service is currently unavailable", HttpStatus.SERVICE_UNAVAILABLE),
+    AI_INVALID_RESPONSE(11014, "AI returned an invalid response structure", HttpStatus.BAD_GATEWAY),
+    REQUEST_ALREADY_CONFIRMED(11015, "Profile update request has already been confirmed", HttpStatus.CONFLICT),
+    REQUEST_NOT_FOUND(11016, "Profile update request not found", HttpStatus.NOT_FOUND),
+    SLOT_NOT_FOUND(11017, "Meal slot not found in plan", HttpStatus.NOT_FOUND)
     ;
 
     private final int code;
