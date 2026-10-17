@@ -37,6 +37,8 @@ public enum ErrorCode {
     SEND_MAIL_FAILED(1024, "Failed to send email", HttpStatus.INTERNAL_SERVER_ERROR),
     USER_PENDING_APPROVAL(1025, "Account is pending admin approval. Please wait for approval before accessing the platform", HttpStatus.FORBIDDEN),
     USER_LOCKED(1026, "Account has been locked. Please contact support", HttpStatus.FORBIDDEN),
+    OLD_PASSWORD_INCORRECT(1027, "Mật khẩu hiện tại không chính xác", HttpStatus.BAD_REQUEST),
+    OLD_PASSWORD_REQUIRED(1028, "Vui lòng nhập mật khẩu hiện tại để đổi mật khẩu", HttpStatus.BAD_REQUEST),
 
 
     // Category errors

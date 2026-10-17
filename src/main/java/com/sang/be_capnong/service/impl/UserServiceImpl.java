@@ -230,6 +230,12 @@ public class UserServiceImpl implements UserService {
         updateUserFieldsByRole(user, request);
 
         if (request.getPassword() != null && !request.getPassword().isBlank()) {
+            if (request.getOldPassword() == null || request.getOldPassword().isBlank()) {
+                throw new AppException(ErrorCode.OLD_PASSWORD_REQUIRED);
+            }
+            if (!passwordEncoder.matches(request.getOldPassword(), user.getPassword())) {
+                throw new AppException(ErrorCode.OLD_PASSWORD_INCORRECT);
+            }
             user.setPassword(passwordEncoder.encode(request.getPassword()));
         }
 
