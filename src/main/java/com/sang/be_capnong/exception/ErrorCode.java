@@ -140,6 +140,7 @@ public enum ErrorCode {
     VOUCHER_INVALID(9003, "Voucher is inactive or expired", HttpStatus.BAD_REQUEST),
     VOUCHER_OUT_OF_STOCK(9004, "Voucher is out of stock (claim limit reached)", HttpStatus.BAD_REQUEST),
     VOUCHER_LIMIT_REACHED(9005, "You have reached the maximum claim limit for this voucher", HttpStatus.BAD_REQUEST),
+    VOUCHER_CANNOT_DELETE_ACTIVE(9006, "Voucher đang hoạt động, vui lòng tạm dừng hoạt động trước khi xóa", HttpStatus.BAD_REQUEST),
 
     // Blog / Forum Errors (Series 10000)
     BLOG_NOT_FOUND(10001, "Blog post not found", HttpStatus.NOT_FOUND),

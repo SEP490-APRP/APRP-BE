@@ -26,7 +26,6 @@ public class VoucherCreateRequest {
     @NotNull(message = "Voucher type is required")
     VoucherType voucherType;
 
-    @NotNull(message = "Voucher scope is required")
     VoucherScope voucherScope;
 
     @NotNull(message = "Voucher target is required")
@@ -54,5 +53,6 @@ public class VoucherCreateRequest {
     LocalDateTime expiryDate;
 
     // Truyền true nếu là public, truyền false nếu là mã ẩn (hidden)
+    @Builder.Default
     Boolean isPublic = true;
 }

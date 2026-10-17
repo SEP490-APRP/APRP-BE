@@ -220,26 +220,41 @@ public class OrderServiceImpl implements OrderService {
                         continue;
                     }
 
-                    v.setUsedCount((v.getUsedCount() == null ? 0 : v.getUsedCount()) + 1);
-                    voucherRepository.save(v);
-                       
-                    voucherUser.setQuantityUsed(used + 1);
-                    voucherUserRepository.save(voucherUser);
-                           
+                    // Tính tổng discount thực tế mà voucher này đã mang lại trong đơn hàng
+                    BigDecimal totalDiscountFromThisVoucher = BigDecimal.ZERO;
                     for (int i = 0; i < savedOrders.size(); i++) {
-                        Order savedOrder = savedOrders.get(i);
                         CheckoutPreviewResponse.ShopOrderPreview sp = previewRes.getShopOrders().get(i);
-                        if (voucherAppliesToOrderShop(v, savedOrder)) {
-                            BigDecimal discountForThisOrder = sp.getVoucherDiscountsDetail() != null ? sp.getVoucherDiscountsDetail().get(code.toUpperCase()) : null;
-                            if (discountForThisOrder != null && discountForThisOrder.compareTo(BigDecimal.ZERO) > 0) {
-                                VoucherUsage vu = VoucherUsage.builder()
-                                    .order(savedOrder)
-                                    .user(buyer)
-                                    .voucher(v)
-                                    .usedAt(LocalDateTime.now())
-                                    .discountAmount(discountForThisOrder)
-                                    .build();
-                                voucherUsageRepository.save(vu);
+                        if (sp.getVoucherDiscountsDetail() != null && sp.getVoucherDiscountsDetail().containsKey(code.toUpperCase())) {
+                            BigDecimal d = sp.getVoucherDiscountsDetail().get(code.toUpperCase());
+                            if (d != null && d.compareTo(BigDecimal.ZERO) > 0) {
+                                totalDiscountFromThisVoucher = totalDiscountFromThisVoucher.add(d);
+                            }
+                        }
+                    }
+
+                    // CHỈ trừ lượt dùng và lưu VoucherUsage nếu voucher này thực sự giảm giá cho ít nhất 1 shop trong đơn
+                    if (totalDiscountFromThisVoucher.compareTo(BigDecimal.ZERO) > 0) {
+                        v.setUsedCount((v.getUsedCount() == null ? 0 : v.getUsedCount()) + 1);
+                        voucherRepository.save(v);
+                           
+                        voucherUser.setQuantityUsed(used + 1);
+                        voucherUserRepository.save(voucherUser);
+                                
+                        for (int i = 0; i < savedOrders.size(); i++) {
+                            Order savedOrder = savedOrders.get(i);
+                            CheckoutPreviewResponse.ShopOrderPreview sp = previewRes.getShopOrders().get(i);
+                            if (voucherAppliesToOrderShop(v, savedOrder)) {
+                                BigDecimal discountForThisOrder = sp.getVoucherDiscountsDetail() != null ? sp.getVoucherDiscountsDetail().get(code.toUpperCase()) : null;
+                                if (discountForThisOrder != null && discountForThisOrder.compareTo(BigDecimal.ZERO) > 0) {
+                                    VoucherUsage vu = VoucherUsage.builder()
+                                        .order(savedOrder)
+                                        .user(buyer)
+                                        .voucher(v)
+                                        .usedAt(LocalDateTime.now())
+                                        .discountAmount(discountForThisOrder)
+                                        .build();
+                                    voucherUsageRepository.save(vu);
+                                }
                             }
                         }
                     }
@@ -581,14 +596,18 @@ public class OrderServiceImpl implements OrderService {
             sp.setTotalAmount(shopTotal);
         }
 
-        BigDecimal finalTotalAmount = totalGoodsAmount.add(totalShippingFee).subtract(totalVoucherDiscount);
-        if (finalTotalAmount.compareTo(BigDecimal.ZERO) < 0) finalTotalAmount = BigDecimal.ZERO;
+        BigDecimal finalTotalAmount = shopOrderPreviews.stream()
+                .map(ShopOrderPreview::getTotalAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal effectiveTotalDiscount = totalGoodsAmount.add(totalShippingFee).subtract(finalTotalAmount);
+        if (effectiveTotalDiscount.compareTo(BigDecimal.ZERO) < 0) effectiveTotalDiscount = BigDecimal.ZERO;
 
         return CheckoutPreviewResponse.builder()
                 .shopOrders(shopOrderPreviews)
                 .totalGoodsAmount(totalGoodsAmount)
                 .totalShippingFee(totalShippingFee)
-                .totalVoucherDiscount(totalVoucherDiscount)
+                .totalVoucherDiscount(effectiveTotalDiscount)
                 .finalTotalAmount(finalTotalAmount)
                 .build();
     }
@@ -599,7 +618,7 @@ public class OrderServiceImpl implements OrderService {
 
         for (String code : voucherCodes) {
             Voucher voucher = voucherRepository.findByVoucherCode(code.toUpperCase()).orElse(null);
-            if (voucher == null || !Boolean.TRUE.equals(voucher.getActive()) || voucher.getExpiryDate() == null || voucher.getExpiryDate().isBefore(LocalDateTime.now())) {
+            if (voucher == null || !Boolean.TRUE.equals(voucher.getActive()) || (voucher.getExpiryDate() != null && voucher.getExpiryDate().isBefore(LocalDateTime.now()))) {
                 continue;
             }
 
@@ -630,11 +649,16 @@ public class OrderServiceImpl implements OrderService {
                 }
             }
 
+            User creator = voucher.getShop();
+            String creatorRole = (creator != null && creator.getRole() != null) ? creator.getRole().getName() : "SHOP";
+            boolean isCreatorAdmin = "ADMIN".equalsIgnoreCase(creatorRole);
+
             VoucherScope scope = voucher.getVoucherScope();
-            if (scope == null) {
-                User shopOwner = voucher.getShop();
-                String role = (shopOwner != null && shopOwner.getRole() != null) ? shopOwner.getRole().getName() : "SHOP";
-                scope = "ADMIN".equalsIgnoreCase(role) ? VoucherScope.PLATFORM : VoucherScope.SHOP;
+            if (!isCreatorAdmin) {
+                // Voucher do Shop tạo TUYỆT ĐỐI chỉ có phạm vi SHOP, không bao giờ toàn sàn!
+                scope = VoucherScope.SHOP;
+            } else if (scope == null) {
+                scope = VoucherScope.PLATFORM;
             }
 
             VoucherTarget target = voucher.getVoucherTarget();
@@ -644,7 +668,7 @@ public class OrderServiceImpl implements OrderService {
                 target = isShipping ? VoucherTarget.SHIPPING : VoucherTarget.ORDER;
             }
 
-            boolean isPlatformScope = scope == VoucherScope.PLATFORM || scope == VoucherScope.SYSTEM || scope == VoucherScope.WELCOME;
+            boolean isPlatformScope = isCreatorAdmin && (scope == VoucherScope.PLATFORM || scope == VoucherScope.SYSTEM || scope == VoucherScope.WELCOME);
 
             if (isPlatformScope) {
                 // ĐIỀU KIỆN ĐƠN TỐI THIỂU: Với voucher Toàn sàn (cả Freeship và Giảm giá), đơn tối thiểu luôn so sánh với TỔNG TIỀN HÀNG
@@ -685,6 +709,7 @@ public class OrderServiceImpl implements OrderService {
                     .findFirst()
                     .orElse(null);
             if (targetShopPreview == null) {
+                // Voucher của shop này không áp dụng vì đơn hàng không có sản phẩm của shop này
                 continue;
             }
 
@@ -697,6 +722,13 @@ public class OrderServiceImpl implements OrderService {
             if (discount.compareTo(BigDecimal.ZERO) <= 0) {
                 continue;
             }
+
+            // Giới hạn giảm giá không vượt quá số tiền tối đa còn lại của shop đó (tránh tràn số âm sang shop khác)
+            BigDecimal remainingShopPayable = targetShopPreview.getGoodsAmount().add(targetShopPreview.getShippingFee()).subtract(targetShopPreview.getVoucherDiscount());
+            if (remainingShopPayable.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            discount = discount.min(remainingShopPayable);
 
             targetShopPreview.setVoucherDiscount(targetShopPreview.getVoucherDiscount().add(discount));
             targetShopPreview.getVoucherDiscountsDetail().put(code.toUpperCase(), discount);
@@ -745,18 +777,22 @@ public class OrderServiceImpl implements OrderService {
             return false;
         }
 
+        User creator = voucher.getShop();
+        String creatorRole = (creator != null && creator.getRole() != null) ? creator.getRole().getName() : "SHOP";
+        boolean isCreatorAdmin = "ADMIN".equalsIgnoreCase(creatorRole);
+
         VoucherScope scope = voucher.getVoucherScope();
-        if (scope == null) {
-            User shopOwner = voucher.getShop();
-            String role = (shopOwner != null && shopOwner.getRole() != null) ? shopOwner.getRole().getName() : "SHOP";
-            scope = "ADMIN".equalsIgnoreCase(role) ? VoucherScope.PLATFORM : VoucherScope.SHOP;
+        if (!isCreatorAdmin) {
+            scope = VoucherScope.SHOP;
+        } else if (scope == null) {
+            scope = VoucherScope.PLATFORM;
         }
 
-        if (scope == VoucherScope.PLATFORM || scope == VoucherScope.SYSTEM || scope == VoucherScope.WELCOME) {
+        if (isCreatorAdmin && (scope == VoucherScope.PLATFORM || scope == VoucherScope.SYSTEM || scope == VoucherScope.WELCOME)) {
             return true;
         }
 
-        return voucher.getShop() != null && order.getShop() != null && Objects.equals(voucher.getShop().getId(), order.getShop().getId());
+        return voucher.getShop() != null && Objects.equals(voucher.getShop().getId(), order.getShop().getId());
     }
 
     // ============================================================
@@ -897,18 +933,39 @@ public class OrderServiceImpl implements OrderService {
         if (usages != null) {
             for (VoucherUsage usage : usages) {
                 Voucher v = usage.getVoucher();
-                if (v != null) {
-                    v.setUsedCount(Math.max(0, (v.getUsedCount() != null ? v.getUsedCount() : 0) - 1));
-                    voucherRepository.save(v);
+                boolean otherOrderStillUsing = false;
+                if (order.getCheckoutBatch() != null && v != null) {
+                    List<Order> batchOrders = orderRepository.findByCheckoutBatch_Id(order.getCheckoutBatch().getId());
+                    if (batchOrders != null) {
+                        for (Order bo : batchOrders) {
+                            if (bo.getOrderId() != order.getOrderId() && bo.getStatus() != OrderStatus.CANCELLED && bo.getStatus() != OrderStatus.FAILED) {
+                                List<VoucherUsage> boUsages = voucherUsageRepository.findByOrder(bo);
+                                if (boUsages != null && boUsages.stream().anyMatch(u -> u.getVoucher() != null && u.getVoucher().getVoucherId() == v.getVoucherId())) {
+                                    otherOrderStillUsing = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
                 }
-                if (order.getBuyer() != null && v != null) {
-                    voucherUserRepository.findByUser_IdAndVoucher_VoucherId(order.getBuyer().getId(), v.getVoucherId())
-                            .ifPresent(vu -> {
-                                vu.setQuantityUsed(Math.max(0, (vu.getQuantityUsed() != null ? vu.getQuantityUsed() : 0) - 1));
-                                voucherUserRepository.save(vu);
-                            });
-                }
+
+                // Xoá bản ghi VoucherUsage gắn với đơn này
                 voucherUsageRepository.delete(usage);
+
+                // CHỈ hoàn lại lượt dùng cho Buyer và Voucher nếu không còn đơn hàng nào khác trong batch đang hưởng voucher này
+                if (!otherOrderStillUsing) {
+                    if (v != null) {
+                        v.setUsedCount(Math.max(0, (v.getUsedCount() != null ? v.getUsedCount() : 0) - 1));
+                        voucherRepository.save(v);
+                    }
+                    if (order.getBuyer() != null && v != null) {
+                        voucherUserRepository.findByUser_IdAndVoucher_VoucherId(order.getBuyer().getId(), v.getVoucherId())
+                                .ifPresent(vu -> {
+                                    vu.setQuantityUsed(Math.max(0, (vu.getQuantityUsed() != null ? vu.getQuantityUsed() : 0) - 1));
+                                    voucherUserRepository.save(vu);
+                                });
+                    }
+                }
             }
         }
 

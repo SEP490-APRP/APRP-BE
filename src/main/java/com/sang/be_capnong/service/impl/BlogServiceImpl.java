@@ -19,8 +19,8 @@ import com.sang.be_capnong.repository.BlogCommentRepository;
 import com.sang.be_capnong.repository.BlogLikeRepository;
 import com.sang.be_capnong.repository.BlogRepository;
 import com.sang.be_capnong.repository.UserRepository;
+import com.sang.be_capnong.repository.specification.BlogSpecification;
 import com.sang.be_capnong.service.BlogService;
-import java.util.Objects;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -28,12 +28,15 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.Optional;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -45,14 +48,14 @@ public class BlogServiceImpl implements BlogService {
     BlogCommentRepository blogCommentRepository;
     UserRepository userRepository;
 
-    // ===================== SELLER APIs =====================
+    // ===================== CRUD APIs (SHOP & ADMIN) =====================
 
     @Transactional
     @Override
     public BlogResponse createBlog(BlogCreateRequest request) {
-        User shop = getCurrentUser();
+        User creator = getCurrentUser();
         Blog blog = Blog.builder()
-                .shop(shop)
+                .shop(creator)
                 .title(request.getTitle())
                 .content(request.getContent())
                 .pictureUrl(request.getPictureUrl())
@@ -62,17 +65,20 @@ public class BlogServiceImpl implements BlogService {
                 .updatedAt(LocalDateTime.now())
                 .views(0)
                 .build();
-        return mapToResponse(blogRepository.save(blog), shop, shop);
+        return mapToResponse(blogRepository.save(blog), creator, 0L, 0L, false);
     }
 
     @Transactional
     @Override
     public BlogResponse updateBlog(int blogId, BlogUpdateRequest request) {
-        User shop = getCurrentUser();
+        User currentUser = getCurrentUser();
         Blog blog = blogRepository.findById(blogId)
                 .orElseThrow(() -> new AppException(ErrorCode.BLOG_NOT_FOUND));
 
-        if (blog.getShop() == null || !Objects.equals(blog.getShop().getId(), shop.getId())) {
+        boolean isOwner = blog.getShop() != null && Objects.equals(blog.getShop().getId(), currentUser.getId());
+        boolean isAdmin = isAdmin(currentUser);
+
+        if (!isOwner && !isAdmin) {
             throw new AppException(ErrorCode.NOT_BLOG_OWNER);
         }
 
@@ -83,17 +89,25 @@ public class BlogServiceImpl implements BlogService {
         if (request.getCategory() != null) blog.setCategory(request.getCategory());
         blog.setUpdatedAt(LocalDateTime.now());
 
-        return mapToResponse(blogRepository.save(blog), shop, shop);
+        Blog saved = blogRepository.save(blog);
+        long likeCount = blogLikeRepository.countByBlog_BlogId(blogId);
+        long commentCount = blogCommentRepository.countByBlog_BlogId(blogId);
+        Boolean isLiked = blogLikeRepository.findByBlog_BlogIdAndUser_Id(blogId, currentUser.getId()).isPresent();
+
+        return mapToResponse(saved, saved.getShop(), likeCount, commentCount, isLiked);
     }
 
     @Transactional
     @Override
     public ApiResponse<Void> deleteBlog(int blogId) {
-        User shop = getCurrentUser();
+        User currentUser = getCurrentUser();
         Blog blog = blogRepository.findById(blogId)
                 .orElseThrow(() -> new AppException(ErrorCode.BLOG_NOT_FOUND));
 
-        if (blog.getShop() == null || !Objects.equals(blog.getShop().getId(), shop.getId())) {
+        boolean isOwner = blog.getShop() != null && Objects.equals(blog.getShop().getId(), currentUser.getId());
+        boolean isAdmin = isAdmin(currentUser);
+
+        if (!isOwner && !isAdmin) {
             throw new AppException(ErrorCode.NOT_BLOG_OWNER);
         }
 
@@ -101,13 +115,13 @@ public class BlogServiceImpl implements BlogService {
         return ApiResponse.<Void>builder().message("Xoá bài viết thành công").build();
     }
 
+    @Transactional(readOnly = true)
     @Override
     public PageResponse<BlogResponse> getMyBlogs(int page, int size) {
         User shop = getCurrentUser();
         Pageable pageable = PageRequest.of(page, size, Sort.by("createAt").descending());
         Page<Blog> blogs = blogRepository.findByShop_Id(shop.getId(), pageable);
-        return PageResponse.from(blogs, blogs.getContent().stream()
-                .map(b -> mapToResponse(b, shop, shop)).toList());
+        return mapToBatchResponse(blogs, shop);
     }
 
     // ===================== PUBLIC APIs =====================
@@ -127,21 +141,35 @@ public class BlogServiceImpl implements BlogService {
         blogRepository.save(blog);
 
         User currentUser = getCurrentUserOptionally();
-        return mapToResponse(blog, blog.getShop(), currentUser);
+        long likeCount = blogLikeRepository.countByBlog_BlogId(blogId);
+        long commentCount = blogCommentRepository.countByBlog_BlogId(blogId);
+        Boolean isLiked = (currentUser != null)
+                ? blogLikeRepository.findByBlog_BlogIdAndUser_Id(blogId, currentUser.getId()).isPresent()
+                : null;
+
+        return mapToResponse(blog, blog.getShop(), likeCount, commentCount, isLiked);
     }
 
+    @Transactional(readOnly = true)
     @Override
-    public PageResponse<BlogResponse> getPublicBlogs(int page, int size, BlogCategory category) {
+    public PageResponse<BlogResponse> getPublicBlogs(int page, int size, BlogCategory category, String search) {
         Pageable pageable = PageRequest.of(page, size, Sort.by("createAt").descending());
-        Page<Blog> blogs;
-        if (category != null) {
-            blogs = blogRepository.findByStatusAndCategory(BlogStatus.PUBLISHED, category, pageable);
-        } else {
-            blogs = blogRepository.findByStatus(BlogStatus.PUBLISHED, pageable);
-        }
+        Specification<Blog> spec = BlogSpecification.filterBlogs(BlogStatus.PUBLISHED, category, search, null);
+        Page<Blog> blogs = blogRepository.findAll(spec, pageable);
         User currentUser = getCurrentUserOptionally();
-        return PageResponse.from(blogs, blogs.getContent().stream()
-                .map(b -> mapToResponse(b, b.getShop(), currentUser)).toList());
+        return mapToBatchResponse(blogs, currentUser);
+    }
+
+    // ===================== ADMIN APIs =====================
+
+    @Transactional(readOnly = true)
+    @Override
+    public PageResponse<BlogResponse> getAllBlogsForAdmin(int page, int size, BlogStatus status, BlogCategory category, String search) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by("createAt").descending());
+        Specification<Blog> spec = BlogSpecification.filterBlogs(status, category, search, null);
+        Page<Blog> blogs = blogRepository.findAll(spec, pageable);
+        User currentUser = getCurrentUserOptionally();
+        return mapToBatchResponse(blogs, currentUser);
     }
 
     // ===================== LIKE & COMMENT APIs =====================
@@ -194,15 +222,16 @@ public class BlogServiceImpl implements BlogService {
         return mapToCommentResponse(blogCommentRepository.save(comment));
     }
 
+    @Transactional(readOnly = true)
     @Override
     public PageResponse<BlogCommentResponse> getComments(int blogId, int page, int size) {
         Blog blog = blogRepository.findById(blogId)
                 .orElseThrow(() -> new AppException(ErrorCode.BLOG_NOT_FOUND));
-        
+
         if (blog.getStatus() != BlogStatus.PUBLISHED) {
             throw new AppException(ErrorCode.BLOG_NOT_FOUND);
         }
-        
+
         Pageable pageable = PageRequest.of(page, size, Sort.by("createAt").descending());
         Page<BlogComment> comments = blogCommentRepository.findByBlog_BlogId(blogId, pageable);
         return PageResponse.from(comments, comments.getContent().stream()
@@ -212,15 +241,15 @@ public class BlogServiceImpl implements BlogService {
     @Transactional
     @Override
     public ApiResponse<Void> deleteComment(int commentId) {
-        User user = getCurrentUser();
+        User currentUser = getCurrentUser();
         BlogComment comment = blogCommentRepository.findById(commentId)
                 .orElseThrow(() -> new AppException(ErrorCode.COMMENT_NOT_FOUND));
 
-        // Người bình luận hoặc chủ Shop bài viết đó đều có thể xóa
-        boolean isCommentOwner = comment.getUser() != null && Objects.equals(comment.getUser().getId(), user.getId());
-        boolean isBlogOwner = comment.getBlog() != null && comment.getBlog().getShop() != null && Objects.equals(comment.getBlog().getShop().getId(), user.getId());
+        boolean isCommentOwner = comment.getUser() != null && Objects.equals(comment.getUser().getId(), currentUser.getId());
+        boolean isBlogOwner = comment.getBlog() != null && comment.getBlog().getShop() != null && Objects.equals(comment.getBlog().getShop().getId(), currentUser.getId());
+        boolean isAdmin = isAdmin(currentUser);
 
-        if (!isCommentOwner && !isBlogOwner) {
+        if (!isCommentOwner && !isBlogOwner && !isAdmin) {
             throw new AppException(ErrorCode.NOT_COMMENT_OWNER);
         }
 
@@ -230,15 +259,49 @@ public class BlogServiceImpl implements BlogService {
 
     // ===================== HELPER METHODS =====================
 
-    private BlogResponse mapToResponse(Blog blog, User shop, User currentUser) {
-        long likeCount = blogLikeRepository.countByBlog_BlogId(blog.getBlogId());
-        long commentCount = blogCommentRepository.countByBlog_BlogId(blog.getBlogId());
-
-        // Kiểm tra user hiện tại đã like chưa (nếu đang đăng nhập)
-        Boolean isLiked = null;
-        if (currentUser != null) {
-            isLiked = blogLikeRepository.findByBlog_BlogIdAndUser_Id(blog.getBlogId(), currentUser.getId()).isPresent();
+    private PageResponse<BlogResponse> mapToBatchResponse(Page<Blog> blogs, User currentUser) {
+        List<Blog> content = blogs.getContent();
+        if (content.isEmpty()) {
+            return PageResponse.from(blogs, Collections.emptyList());
         }
+
+        List<Integer> blogIds = content.stream().map(Blog::getBlogId).toList();
+
+        Map<Integer, Long> likeCountMap = blogLikeRepository.findByBlog_BlogIdIn(blogIds).stream()
+                .collect(Collectors.groupingBy(l -> l.getBlog().getBlogId(), Collectors.counting()));
+
+        Map<Integer, Long> commentCountMap = blogCommentRepository.findByBlog_BlogIdIn(blogIds).stream()
+                .collect(Collectors.groupingBy(c -> c.getBlog().getBlogId(), Collectors.counting()));
+
+        Set<Integer> likedBlogIds = (currentUser != null)
+                ? blogLikeRepository.findByBlog_BlogIdInAndUser_Id(blogIds, currentUser.getId()).stream()
+                        .map(l -> l.getBlog().getBlogId()).collect(Collectors.toSet())
+                : Collections.emptySet();
+
+        List<BlogResponse> dtoList = content.stream().map(blog -> {
+            int bId = blog.getBlogId();
+            long likes = likeCountMap.getOrDefault(bId, 0L);
+            long comments = commentCountMap.getOrDefault(bId, 0L);
+            Boolean isLiked = (currentUser != null) ? likedBlogIds.contains(bId) : null;
+            return mapToResponse(blog, blog.getShop(), likes, comments, isLiked);
+        }).toList();
+
+        return PageResponse.from(blogs, dtoList);
+    }
+
+    private BlogResponse mapToResponse(Blog blog, User shop, long likeCount, long commentCount, Boolean isLiked) {
+        int shopId = (shop != null) ? shop.getId() : 0;
+        String shopName = "CapNong";
+        if (shop != null) {
+            if (shop.getShopName() != null && !shop.getShopName().isBlank()) {
+                shopName = shop.getShopName();
+            } else if (shop.getFullName() != null && !shop.getFullName().isBlank()) {
+                shopName = shop.getFullName();
+            } else if (isAdmin(shop)) {
+                shopName = "Quản trị viên";
+            }
+        }
+        String shopAvatar = (shop != null) ? shop.getLogoUrl() : null;
 
         return BlogResponse.builder()
                 .blogId(blog.getBlogId())
@@ -250,9 +313,9 @@ public class BlogServiceImpl implements BlogService {
                 .createAt(blog.getCreateAt())
                 .updatedAt(blog.getUpdatedAt())
                 .views(blog.getViews())
-                .shopId(shop.getId())
-                .shopName(shop.getShopName() != null ? shop.getShopName() : shop.getFullName())
-                .shopAvatar(shop.getLogoUrl())
+                .shopId(shopId)
+                .shopName(shopName)
+                .shopAvatar(shopAvatar)
                 .likeCount(likeCount)
                 .commentCount(commentCount)
                 .isLikedByCurrentUser(isLiked)
@@ -261,18 +324,46 @@ public class BlogServiceImpl implements BlogService {
 
     private BlogCommentResponse mapToCommentResponse(BlogComment comment) {
         User user = comment.getUser();
+        int userId = (user != null) ? user.getId() : 0;
+        String userName = "Người dùng";
+        if (user != null) {
+            if (user.getFullName() != null && !user.getFullName().isBlank()) {
+                userName = user.getFullName();
+            } else if (isAdmin(user)) {
+                userName = "Quản trị viên";
+            }
+        }
+        String userAvatar = (user != null) ? user.getLogoUrl() : null;
+
         return BlogCommentResponse.builder()
                 .commentId(comment.getCommentId())
                 .content(comment.getContent())
                 .createAt(comment.getCreateAt())
-                .userId(user.getId())
-                .userName(user.getFullName())
-                .userAvatar(user.getLogoUrl())
+                .userId(userId)
+                .userName(userName)
+                .userAvatar(userAvatar)
                 .build();
     }
 
+    private boolean isAdmin(User user) {
+        if (user == null) return false;
+        if (user.getRole() != null && "ADMIN".equalsIgnoreCase(user.getRole().getName())) {
+            return true;
+        }
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null) {
+            return auth.getAuthorities().stream().anyMatch(a ->
+                    a.getAuthority().equals("ROLE_ADMIN") || a.getAuthority().equals("ADMIN"));
+        }
+        return false;
+    }
+
     private User getCurrentUser() {
-        String subject = SecurityContextHolder.getContext().getAuthentication().getName();
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getName())) {
+            throw new AppException(ErrorCode.UNAUTHENTICATED);
+        }
+        String subject = auth.getName();
         try {
             int userId = Integer.parseInt(subject);
             return userRepository.findById(userId)
@@ -283,10 +374,11 @@ public class BlogServiceImpl implements BlogService {
     }
 
     private User getCurrentUserOptionally() {
-        String subject = SecurityContextHolder.getContext().getAuthentication().getName();
-        if (subject == null || subject.equals("anonymousUser")) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated() || "anonymousUser".equals(auth.getName())) {
             return null;
         }
+        String subject = auth.getName();
         try {
             int userId = Integer.parseInt(subject);
             return userRepository.findById(userId).orElse(null);
