@@ -159,11 +159,36 @@ public class VoucherServiceImpl implements VoucherService {
         // Lấy các mã active, chưa hết hạn, và không có autoCreatedReason = "HIDDEN"
         LocalDateTime now = LocalDateTime.now();
         List<Voucher> vouchers = voucherRepository.findByActiveTrueAndAutoCreatedReasonIsNull();
-        
+        User currentUser = getCurrentUserSafely();
+
         return vouchers.stream()
                 .filter(v -> v.getExpiryDate() == null || v.getExpiryDate().isAfter(now))
                 .filter(v -> v.getClaimLimit() == null || (v.getClaimedCount() != null ? v.getClaimedCount() : 0) < v.getClaimLimit())
-                .map(this::mapToResponse)
+                .map(v -> {
+                    VoucherResponse resp = mapToResponse(v);
+                    if (currentUser != null) {
+                        Optional<VoucherUser> vuOpt = voucherUserRepository.findByUser_IdAndVoucher_VoucherId(currentUser.getId(), v.getVoucherId());
+                        if (vuOpt.isPresent()) {
+                            VoucherUser vu = vuOpt.get();
+                            int qty = vu.getQuantity() == null ? 0 : vu.getQuantity();
+                            int used = vu.getQuantityUsed() == null ? 0 : vu.getQuantityUsed();
+                            boolean hasUsedAll = (v.getPerUserLimit() != null && qty >= v.getPerUserLimit() && used >= qty);
+                            boolean isCollected = (qty > used);
+                            resp.setIsCollected(isCollected);
+                            resp.setIsUsed(hasUsedAll);
+                            resp.setUserRemainingQuantity(Math.max(0, qty - used));
+                        } else {
+                            resp.setIsCollected(false);
+                            resp.setIsUsed(false);
+                            resp.setUserRemainingQuantity(0);
+                        }
+                    } else {
+                        resp.setIsCollected(false);
+                        resp.setIsUsed(false);
+                        resp.setUserRemainingQuantity(0);
+                    }
+                    return resp;
+                })
                 .collect(Collectors.toList());
     }
 
@@ -198,7 +223,17 @@ public class VoucherServiceImpl implements VoucherService {
                     int used = vu.getQuantityUsed() == null ? 0 : vu.getQuantityUsed();
                     return qty > used;
                 })
-                .map(vu -> mapToResponse(vu.getVoucher()))
+                .map(vu -> {
+                    VoucherResponse resp = mapToResponse(vu.getVoucher());
+                    if (resp != null) {
+                        int qty = vu.getQuantity() == null ? 0 : vu.getQuantity();
+                        int used = vu.getQuantityUsed() == null ? 0 : vu.getQuantityUsed();
+                        resp.setIsCollected(true);
+                        resp.setIsUsed(false);
+                        resp.setUserRemainingQuantity(Math.max(0, qty - used));
+                    }
+                    return resp;
+                })
                 .filter(resp -> resp != null && Boolean.TRUE.equals(resp.getActive()) && (resp.getExpiryDate() == null || resp.getExpiryDate().isAfter(LocalDateTime.now())))
                 .collect(Collectors.toList());
     }
@@ -277,6 +312,18 @@ public class VoucherServiceImpl implements VoucherService {
                 .shopId(v.getShop() != null ? v.getShop().getId() : null)
                 .isPublic(isPublic)
                 .build();
+    }
+
+    private User getCurrentUserSafely() {
+        try {
+            if (SecurityContextHolder.getContext().getAuthentication() == null) return null;
+            String subject = SecurityContextHolder.getContext().getAuthentication().getName();
+            if (subject == null || "anonymousUser".equalsIgnoreCase(subject)) return null;
+            int userId = Integer.parseInt(subject);
+            return userRepository.findById(userId).orElse(null);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private User getCurrentUser() {
