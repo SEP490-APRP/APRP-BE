@@ -28,6 +28,9 @@ public class User {
     @Column(unique = true)
     String email;
 
+    @Column(unique = true)
+    String googleId;
+
     @Column(length = 255)
     String password;
 
@@ -39,9 +42,17 @@ public class User {
 
     String address;
 
+    @Column(length = 20)
+    String cccd;
+
     @Enumerated(EnumType.STRING)
     @Column(length = 50)
     UserStatus status;
+
+    // ===== WALLET & BANKING FIELDS (Tất cả vai trò đều có ví và tài khoản ngân hàng) =====
+    String bankAccount;
+    String bankAccountHolder;
+    String bankName;
 
     // ===== SHOP FIELDS =====
     String shopName;
@@ -49,9 +60,6 @@ public class User {
     @Builder.Default
     Boolean shopActive = true;
 
-    String bankAccount;
-    String bankAccountHolder;
-    String bankName;
     Double ratingAverage;
 
     @Column(length = 500)

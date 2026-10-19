@@ -1,6 +1,7 @@
 package com.sang.be_capnong.controller;
 
 import com.sang.be_capnong.dto.request.BuyerCreationRequest;
+import com.sang.be_capnong.dto.request.ChangePasswordRequest;
 import com.sang.be_capnong.dto.request.ResendOtpRequest;
 import com.sang.be_capnong.dto.request.ShipperCreationRequest;
 import com.sang.be_capnong.dto.request.ShopCreationRequest;
@@ -86,6 +87,15 @@ public class UserController {
         log.info("REST request to update current user info");
         return ApiResponse.<UserResponse>builder()
                 .result(userService.updateMyInfo(request))
+                .build();
+    }
+
+    @PostMapping("/change-password")
+    public ApiResponse<Void> changePassword(@RequestBody @Valid ChangePasswordRequest request) {
+        log.info("REST request to change password for current user");
+        userService.changePassword(request);
+        return ApiResponse.<Void>builder()
+                .message("Đổi mật khẩu thành công")
                 .build();
     }
 

@@ -33,6 +33,10 @@ public class ShopCreationRequest {
     @NotBlank(message = "ADDRESS_REQUIRED")
     String address;
 
+    @NotBlank(message = "CCCD_REQUIRED")
+    @Pattern(regexp = "^[0-9]{12}$", message = "CCCD_INVALID")
+    String cccd;
+
     @NotBlank(message = "SHOP_NAME_REQUIRED")
     String shopName;
 

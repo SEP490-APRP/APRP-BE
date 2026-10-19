@@ -22,6 +22,7 @@ public class UserResponse {
     String fullName;
     String phoneNumber;
     String address;
+    String cccd;
     UserStatus status;
     RoleResponse role;
 

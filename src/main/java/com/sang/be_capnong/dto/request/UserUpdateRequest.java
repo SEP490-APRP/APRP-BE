@@ -24,6 +24,7 @@ public class UserUpdateRequest {
     String phoneNumber;
 
     String address;
+    String cccd;
 
     // Shop fields
     String shopName;

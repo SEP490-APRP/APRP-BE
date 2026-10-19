@@ -65,6 +65,64 @@ public class EmailServiceImpl implements EmailService {
     }
 
     @Override
+    public void sendForgotPasswordOtpEmail(String toEmail, int otp) {
+        log.info("Preparing to send forgot-password OTP to: {}", toEmail);
+
+        if (fromEmail == null || fromEmail.isBlank()) {
+            log.warn("spring.mail.username is not configured in .env / application.yml.");
+            log.info("========== [DEVELOPMENT FORGOT-PASSWORD OTP CODE] Email: {} | OTP: {} ==========", toEmail, otp);
+            return;
+        }
+
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
+
+            helper.setFrom(fromEmail);
+            helper.setTo(toEmail);
+            helper.setSubject("[APRP] Yêu cầu đặt lại mật khẩu (OTP)");
+
+            String htmlContent = buildForgotPasswordOtpHtmlContent(otp);
+            helper.setText(htmlContent, true);
+
+            mailSender.send(message);
+            log.info("Forgot-password OTP email sent successfully to: {}", toEmail);
+
+        } catch (Exception e) {
+            log.error("Failed to send forgot-password OTP email to {}: {}", toEmail, e.getMessage());
+            log.info("========== [FALLBACK FORGOT-PASSWORD OTP CODE] Email: {} | OTP: {} ==========", toEmail, otp);
+        }
+    }
+
+    private String buildForgotPasswordOtpHtmlContent(int otp) {
+        return """
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; padding: 24px; border: 1px solid #e0e0e0; border-radius: 12px; background-color: #ffffff;">
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <h2 style="color: #2e7d32; margin: 0; font-size: 24px;">NỀN TẢNG GIẢI CỨU NÔNG SẢN VIỆT NAM (APRP)</h2>
+                    <p style="color: #666; font-size: 14px; margin-top: 6px;">Yêu Cầu Đặt Lại Mật Khẩu</p>
+                </div>
+                <hr style="border: none; border-top: 1px solid #eeeeee; margin: 20px 0;" />
+                <p style="font-size: 16px; color: #333333;">Xin chào,</p>
+                <p style="font-size: 15px; color: #555555; line-height: 1.6;">
+                    Chúng tôi nhận được yêu cầu đặt lại mật khẩu cho tài khoản APRP của bạn. Vui lòng nhập mã OTP xác thực 6 chữ số dưới đây để hoàn tất việc đổi mật khẩu mới:
+                </p>
+                <div style="text-align: center; margin: 35px 0;">
+                    <span style="display: inline-block; font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #d32f2f; background: #ffebee; padding: 14px 28px; border-radius: 10px; border: 2px dashed #d32f2f;">
+                        """ + otp + """
+                    </span>
+                </div>
+                <p style="color: #d32f2f; font-size: 14px; font-weight: bold; text-align: center;">
+                    ⚠️ Mã OTP có hiệu lực trong vòng 5 phút. Nếu bạn không thực hiện yêu cầu này, vui lòng bỏ qua email hoặc đổi mật khẩu để bảo vệ tài khoản.
+                </p>
+                <hr style="border: none; border-top: 1px solid #eeeeee; margin: 24px 0;" />
+                <p style="font-size: 12px; color: #888888; text-align: center; margin: 0;">
+                    Đây là email tự động từ hệ thống APRP. Vui lòng không trả lời email này.
+                </p>
+            </div>
+        """;
+    }
+
+    @Override
     public void sendPaymentSuccessInvoiceEmail(User buyer, List<Order> orders, String orderCode, BigDecimal totalAmount) {
         if (buyer == null || buyer.getEmail() == null || buyer.getEmail().isBlank()) {
             log.warn("[InvoiceEmail] Buyer or buyer email is null. Skip sending invoice email for orderCode: {}", orderCode);
