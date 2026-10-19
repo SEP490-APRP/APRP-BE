@@ -1,5 +1,6 @@
 package com.sang.be_capnong.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.sang.be_capnong.enums.DietPreference;
 import com.sang.be_capnong.enums.UserStatus;
@@ -47,6 +48,9 @@ public class UserResponse {
     BigDecimal loyaltyPoints;
     BigDecimal totalRescuedWeight;
 
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss")
     LocalDateTime createAt;
+
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss")
     LocalDateTime updateAt;
 }

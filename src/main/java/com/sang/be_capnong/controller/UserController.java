@@ -18,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -120,6 +121,7 @@ public class UserController {
     }
 
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<List<UserResponse>> getAllUsers() {
         log.info("REST request to get all users");
         return ApiResponse.<List<UserResponse>>builder()
@@ -128,6 +130,7 @@ public class UserController {
     }
 
     @GetMapping("/paged")
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<PageResponse<UserResponse>> getUsersByRolePaged(
             @RequestParam(name = "roles", required = false) List<String> roles,
             @RequestParam(name = "status", required = false) String status,
@@ -141,6 +144,7 @@ public class UserController {
     }
 
     @PatchMapping("/{userId}/approve-shop-owner")
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<UserResponse> approveShopOwner(@PathVariable("userId") Integer userId) {
         log.info("REST request to approve shop owner with userId: {}", userId);
         return ApiResponse.<UserResponse>builder()
@@ -149,6 +153,7 @@ public class UserController {
     }
 
     @PatchMapping("/{userId}/approve-shipper")
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<UserResponse> approveShipper(@PathVariable("userId") Integer userId) {
         log.info("REST request to approve shipper with userId: {}", userId);
         return ApiResponse.<UserResponse>builder()
@@ -157,6 +162,7 @@ public class UserController {
     }
 
     @PatchMapping("/{userId}/activate")
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<Void> activateUser(@PathVariable("userId") Integer userId) {
         log.info("REST request to activate user with userId: {}", userId);
         userService.activateUser(userId);
@@ -166,6 +172,7 @@ public class UserController {
     }
 
     @PatchMapping("/{userId}/deactivate")
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<Void> deactivateUser(@PathVariable("userId") Integer userId) {
         log.info("REST request to deactivate user with userId: {}", userId);
         userService.deactivateUser(userId);
@@ -175,6 +182,7 @@ public class UserController {
     }
 
     @PutMapping("/{userId}")
+    @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<UserResponse> updateUser(@PathVariable("userId") Integer userId, @RequestBody @Valid UserUpdateRequest request) {
         log.info("REST request to update user profile by id: {}", userId);
         return ApiResponse.<UserResponse>builder()

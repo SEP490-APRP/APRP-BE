@@ -237,6 +237,12 @@ public class UserServiceImpl implements UserService {
         updateUserFieldsByRole(user, request);
 
         if (request.getPassword() != null && !request.getPassword().isBlank()) {
+            if (request.getOldPassword() == null || request.getOldPassword().isBlank()) {
+                throw new AppException(ErrorCode.OLD_PASSWORD_REQUIRED);
+            }
+            if (!passwordEncoder.matches(request.getOldPassword(), user.getPassword())) {
+                throw new AppException(ErrorCode.OLD_PASSWORD_INCORRECT);
+            }
             user.setPassword(passwordEncoder.encode(request.getPassword()));
         }
 
@@ -300,6 +306,11 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public UserResponse updateUser(Integer userId, UserUpdateRequest request) {
         log.info("updateUser for user id: {}", userId);
+        Integer currentUserId = SecurityUtils.getCurrentUserIdOrNull();
+        if (!SecurityUtils.isAdmin() && (currentUserId == null || !currentUserId.equals(userId))) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
+
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
 
@@ -321,7 +332,13 @@ public class UserServiceImpl implements UserService {
     private void updateUserFieldsByRole(User user, UserUpdateRequest request) {
         // Cập nhật các trường chung cho tất cả các Role (bao gồm thông tin cá nhân & tài khoản ngân hàng liên kết ví)
         if (request.getFullName() != null) user.setFullName(request.getFullName());
-        if (request.getPhoneNumber() != null) user.setPhoneNumber(request.getPhoneNumber());
+        if (request.getPhoneNumber() != null && !request.getPhoneNumber().isBlank()) {
+            String newPhone = request.getPhoneNumber().trim();
+            if (!newPhone.equals(user.getPhoneNumber()) && userRepository.existsByPhoneNumberAndIdNot(newPhone, user.getId())) {
+                throw new AppException(ErrorCode.PHONE_EXISTED);
+            }
+            user.setPhoneNumber(newPhone);
+        }
         if (request.getAddress() != null) user.setAddress(request.getAddress());
         if (request.getCccd() != null) user.setCccd(request.getCccd());
         if (request.getBankAccount() != null) user.setBankAccount(request.getBankAccount());
@@ -360,7 +377,20 @@ public class UserServiceImpl implements UserService {
     public UserResponse getUserById(Integer userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
-        return userMapper.toUserResponse(user);
+        UserResponse response = userMapper.toUserResponse(user);
+
+        Integer currentUserId = SecurityUtils.getCurrentUserIdOrNull();
+        boolean isOwnerOrAdmin = (currentUserId != null && currentUserId.equals(userId)) || SecurityUtils.isAdmin();
+        if (!isOwnerOrAdmin) {
+            // Bảo mật: Ẩn thông tin tài khoản ngân hàng và tài liệu pháp lý khi xem công khai
+            response.setBankAccount(null);
+            response.setBankAccountHolder(null);
+            response.setBankName(null);
+            response.setLicense(null);
+            response.setLicenseImageUrl(null);
+            response.setVehicleDocImageUrl(null);
+        }
+        return response;
     }
 
     @Override

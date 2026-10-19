@@ -37,12 +37,13 @@ public enum ErrorCode {
     SEND_MAIL_FAILED(1024, "Failed to send email", HttpStatus.INTERNAL_SERVER_ERROR),
     USER_PENDING_APPROVAL(1025, "Account is pending admin approval. Please wait for approval before accessing the platform", HttpStatus.FORBIDDEN),
     USER_LOCKED(1026, "Account has been locked. Please contact support", HttpStatus.FORBIDDEN),
-    OLD_PASSWORD_INCORRECT(1027, "Old password is incorrect", HttpStatus.BAD_REQUEST),
+    OLD_PASSWORD_INCORRECT(1027, "Mật khẩu hiện tại không chính xác", HttpStatus.BAD_REQUEST),
     PASSWORD_CONFIRMATION_NOT_MATCH(1028, "Password confirmation does not match", HttpStatus.BAD_REQUEST),
     NEW_PASSWORD_SAME_AS_OLD(1029, "New password cannot be the same as old password", HttpStatus.BAD_REQUEST),
     CCCD_REQUIRED(1030, "Citizen identity card (CCCD) is required", HttpStatus.BAD_REQUEST),
     CCCD_INVALID(1031, "Citizen identity card (CCCD) format is invalid (12 digits)", HttpStatus.BAD_REQUEST),
     CCCD_EXISTED(1032, "Citizen identity card (CCCD) is already registered", HttpStatus.BAD_REQUEST),
+    OLD_PASSWORD_REQUIRED(1033, "Vui lòng nhập mật khẩu hiện tại để đổi mật khẩu", HttpStatus.BAD_REQUEST),
 
 
     // Category errors
