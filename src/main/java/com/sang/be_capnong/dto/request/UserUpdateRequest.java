@@ -1,6 +1,7 @@
 package com.sang.be_capnong.dto.request;
 
 import com.sang.be_capnong.enums.DietPreference;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
@@ -18,7 +19,10 @@ public class UserUpdateRequest {
     String password;
 
     String fullName;
+
+    @Pattern(regexp = "^(0|\\+84)[3|5|7|8|9][0-9]{8}$", message = "PHONE_NUMBER_INVALID")
     String phoneNumber;
+
     String address;
 
     // Shop fields
