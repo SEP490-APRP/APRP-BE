@@ -165,7 +165,14 @@ public enum ErrorCode {
     // Saved Address Errors (Series 9500)
     ADDRESS_NOT_FOUND(9501, "Saved address not found", HttpStatus.NOT_FOUND),
     MAX_ADDRESSES_REACHED(9502, "You have reached the maximum limit of 10 saved addresses", HttpStatus.BAD_REQUEST),
-    ADDRESS_UNAUTHORIZED(9503, "You do not have permission to access or modify this address", HttpStatus.FORBIDDEN)
+    ADDRESS_UNAUTHORIZED(9503, "You do not have permission to access or modify this address", HttpStatus.FORBIDDEN),
+
+    // Chat Errors (Series 11000)
+    CONVERSATION_NOT_FOUND(11001, "Conversation not found", HttpStatus.NOT_FOUND),
+    CANNOT_CHAT_WITH_SELF(11002, "You cannot chat with yourself", HttpStatus.BAD_REQUEST),
+    RECEIVER_NOT_FOUND(11003, "Recipient user not found", HttpStatus.NOT_FOUND),
+    CHAT_UNAUTHORIZED(11004, "You are not a participant in this conversation", HttpStatus.FORBIDDEN),
+    EMPTY_MESSAGE_CONTENT(11005, "Message content or attachment cannot be empty", HttpStatus.BAD_REQUEST)
     ;
 
     private final int code;

@@ -26,6 +26,12 @@ public class ChatMessage {
     Boolean isRead;
     LocalDateTime sentAt;
 
+    @Builder.Default
+    String type = "TEXT";
+
+    String attachmentUrl;
+    Integer referenceId;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "conversation_id", nullable = false)
     Conversation conversation;
