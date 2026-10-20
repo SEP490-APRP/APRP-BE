@@ -14,9 +14,6 @@ public interface ConversationRepository extends JpaRepository<Conversation, Inte
 
     Optional<Conversation> findByRoomKey(String roomKey);
 
-    @Query("SELECT c FROM Conversation c WHERE (c.user1.id = :user1Id AND c.user2.id = :user2Id) OR (c.user1.id = :user2Id AND c.user2.id = :user1Id)")
-    Optional<Conversation> findBetweenUsers(@Param("user1Id") int user1Id, @Param("user2Id") int user2Id);
-
     @Query("SELECT c FROM Conversation c WHERE c.user1.id = :userId OR c.user2.id = :userId ORDER BY c.lastMessageAt DESC NULLS LAST, c.createdAt DESC")
     List<Conversation> findAllByUserIdOrderByLastMessageAtDesc(@Param("userId") int userId);
 }

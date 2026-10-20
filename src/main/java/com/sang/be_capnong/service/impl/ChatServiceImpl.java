@@ -7,6 +7,7 @@ import com.sang.be_capnong.dto.response.PageResponse;
 import com.sang.be_capnong.entity.ChatMessage;
 import com.sang.be_capnong.entity.Conversation;
 import com.sang.be_capnong.entity.User;
+import com.sang.be_capnong.enums.UserStatus;
 import com.sang.be_capnong.exception.AppException;
 import com.sang.be_capnong.exception.ErrorCode;
 import com.sang.be_capnong.repository.ChatMessageRepository;
@@ -15,6 +16,7 @@ import com.sang.be_capnong.repository.UserRepository;
 import com.sang.be_capnong.service.ChatService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -26,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
@@ -49,24 +52,10 @@ public class ChatServiceImpl implements ChatService {
         User receiver = userRepository.findById(receiverId)
                 .orElseThrow(() -> new AppException(ErrorCode.RECEIVER_NOT_FOUND));
 
-        int minId = Math.min(currentUserId, receiverId);
-        int maxId = Math.max(currentUserId, receiverId);
-        String roomKey = minId + "_" + maxId;
+        validateUserActive(currentUser);
+        validateUserActive(receiver);
 
-        Conversation conversation = conversationRepository.findByRoomKey(roomKey)
-                .orElseGet(() -> {
-                    log.info("Creating new conversation roomKey: {}", roomKey);
-                    return conversationRepository.save(
-                            Conversation.builder()
-                                    .roomKey(roomKey)
-                                    .user1(minId == currentUserId ? currentUser : receiver)
-                                    .user2(maxId == currentUserId ? currentUser : receiver)
-                                    .createdAt(LocalDateTime.now())
-                                    .lastMessageAt(LocalDateTime.now())
-                                    .build()
-                    );
-                });
-
+        Conversation conversation = findOrCreateConversationEntity(currentUserId, receiverId, currentUser, receiver);
         return mapToConversationResponse(conversation, currentUserId);
     }
 
@@ -86,25 +75,22 @@ public class ChatServiceImpl implements ChatService {
             throw new AppException(ErrorCode.EMPTY_MESSAGE_CONTENT);
         }
 
+        if (hasAttachment) {
+            String url = request.getAttachmentUrl().trim();
+            if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                throw new AppException(ErrorCode.FILE_INVALID);
+            }
+        }
+
         User sender = userRepository.findById(senderId)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
         User receiver = userRepository.findById(request.getReceiverId())
                 .orElseThrow(() -> new AppException(ErrorCode.RECEIVER_NOT_FOUND));
 
-        int minId = Math.min(senderId, request.getReceiverId());
-        int maxId = Math.max(senderId, request.getReceiverId());
-        String roomKey = minId + "_" + maxId;
+        validateUserActive(sender);
+        validateUserActive(receiver);
 
-        Conversation conversation = conversationRepository.findByRoomKey(roomKey)
-                .orElseGet(() -> conversationRepository.save(
-                        Conversation.builder()
-                                .roomKey(roomKey)
-                                .user1(minId == senderId ? sender : receiver)
-                                .user2(maxId == senderId ? sender : receiver)
-                                .createdAt(LocalDateTime.now())
-                                .lastMessageAt(LocalDateTime.now())
-                                .build()
-                ));
+        Conversation conversation = findOrCreateConversationEntity(senderId, request.getReceiverId(), sender, receiver);
 
         ChatMessage message = ChatMessage.builder()
                 .conversation(conversation)
@@ -124,44 +110,60 @@ public class ChatServiceImpl implements ChatService {
 
         ChatMessageResponse response = mapToChatMessageResponse(message, request.getReceiverId());
 
-        // 1. Gửi tin nhắn real-time tới người nhận qua private queue
-        messagingTemplate.convertAndSendToUser(
-                String.valueOf(request.getReceiverId()),
-                "/queue/messages",
-                response
-        );
-
-        // 2. Gửi ack real-time về cho chính người gửi để cập nhật UI
-        messagingTemplate.convertAndSendToUser(
-                String.valueOf(senderId),
-                "/queue/messages",
-                response
-        );
-
-        // 3. Gửi tới topic của phòng chat nếu 2 bên đang mở phòng
-        messagingTemplate.convertAndSend(
-                "/topic/conversation." + conversation.getId(),
-                response
-        );
-
-        // 4. Bắn push notification cho người nhận kèm tổng số tin chưa đọc
         long unreadCount = chatMessageRepository.countTotalUnreadForUser(request.getReceiverId());
         String senderDisplayName = sender.getFullName() != null && !sender.getFullName().isBlank()
                 ? sender.getFullName()
                 : (sender.getEmail() != null ? sender.getEmail() : "Người dùng");
 
-        messagingTemplate.convertAndSendToUser(
-                String.valueOf(request.getReceiverId()),
-                "/queue/notifications",
-                Map.of(
-                        "type", "NEW_MESSAGE",
-                        "conversationId", conversation.getId(),
-                        "senderId", senderId,
-                        "senderName", senderDisplayName,
-                        "content", message.getContent(),
-                        "unreadCount", unreadCount
-                )
+        Map<String, Object> notificationPayload = Map.of(
+                "type", "NEW_MESSAGE",
+                "conversationId", conversation.getId(),
+                "senderId", senderId,
+                "senderName", senderDisplayName,
+                "content", message.getContent(),
+                "unreadCount", unreadCount
         );
+
+        Runnable sendWebSockets = () -> {
+            try {
+                // 1. Gửi tin nhắn real-time tới người nhận qua private queue an toàn
+                messagingTemplate.convertAndSendToUser(
+                        String.valueOf(request.getReceiverId()),
+                        "/queue/messages",
+                        response
+                );
+
+                // 2. Gửi echo tin nhắn real-time về cho chính người gửi để đồng bộ đa thiết bị/tab
+                messagingTemplate.convertAndSendToUser(
+                        String.valueOf(senderId),
+                        "/queue/messages",
+                        response
+                );
+
+                // 3. Bắn push notification cho người nhận kèm tổng số tin chưa đọc
+                messagingTemplate.convertAndSendToUser(
+                        String.valueOf(request.getReceiverId()),
+                        "/queue/notifications",
+                        notificationPayload
+                );
+            } catch (Exception e) {
+                log.error("Failed to deliver WebSocket message for conv {}: {}", conversation.getId(), e.getMessage());
+            }
+        };
+
+        // Chỉ phát WebSocket SAU KHI transaction DB commit thành công để tránh Phantom Messages
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            sendWebSockets.run();
+                        }
+                    }
+            );
+        } else {
+            sendWebSockets.run();
+        }
 
         log.info("Message sent from {} to {} in conversation {}", senderId, request.getReceiverId(), conversation.getId());
         return response;
@@ -194,7 +196,11 @@ public class ChatServiceImpl implements ChatService {
                 ? conversation.getUser2().getId()
                 : conversation.getUser1().getId();
 
-        Pageable pageable = PageRequest.of(Math.max(0, page), Math.max(1, size), Sort.by("sentAt").descending());
+        Pageable pageable = PageRequest.of(
+                Math.max(0, page),
+                Math.max(1, size),
+                Sort.by(Sort.Order.desc("sentAt"), Sort.Order.desc("id"))
+        );
         Page<ChatMessage> messagePage = chatMessageRepository.findByConversation_IdOrderBySentAtDesc(conversationId, pageable);
 
         Page<ChatMessageResponse> responsePage = messagePage.map(m -> mapToChatMessageResponse(m, otherUserId));
@@ -218,18 +224,80 @@ public class ChatServiceImpl implements ChatService {
                 ? conversation.getUser2().getId()
                 : conversation.getUser1().getId();
 
-        // Gửi thông báo read receipt tới người gửi đối phương
-        messagingTemplate.convertAndSendToUser(
-                String.valueOf(otherUserId),
-                "/queue/read",
-                Map.of("conversationId", conversationId, "readBy", userId)
-        );
+        Runnable sendReadReceipt = () -> {
+            try {
+                // Gửi thông báo read receipt tới người gửi đối phương
+                messagingTemplate.convertAndSendToUser(
+                        String.valueOf(otherUserId),
+                        "/queue/read",
+                        Map.of("conversationId", conversationId, "readBy", userId)
+                );
+            } catch (Exception e) {
+                log.error("Failed to deliver read receipt for conv {}: {}", conversationId, e.getMessage());
+            }
+        };
+
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            sendReadReceipt.run();
+                        }
+                    }
+            );
+        } else {
+            sendReadReceipt.run();
+        }
     }
 
     @Override
     @Transactional(readOnly = true)
     public long getTotalUnreadCount(int userId) {
         return chatMessageRepository.countTotalUnreadForUser(userId);
+    }
+
+    private void validateUserActive(User user) {
+        if (user.getStatus() == UserStatus.LOCKED) {
+            throw new AppException(ErrorCode.USER_LOCKED);
+        }
+        if (user.getStatus() == UserStatus.INACTIVE) {
+            throw new AppException(ErrorCode.USER_NOT_ACTIVE);
+        }
+        if (user.getStatus() == UserStatus.PENDING) {
+            throw new AppException(ErrorCode.USER_PENDING_APPROVAL);
+        }
+    }
+
+    /**
+     * Tìm hoặc tạo Conversation với cơ chế an toàn chống Race Condition
+     */
+    private Conversation findOrCreateConversationEntity(int userAId, int userBId, User userA, User userB) {
+        int minId = Math.min(userAId, userBId);
+        int maxId = Math.max(userAId, userBId);
+        String roomKey = minId + "_" + maxId;
+
+        Optional<Conversation> existing = conversationRepository.findByRoomKey(roomKey);
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+
+        try {
+            log.info("Creating new conversation roomKey: {}", roomKey);
+            return conversationRepository.save(
+                    Conversation.builder()
+                            .roomKey(roomKey)
+                            .user1(minId == userAId ? userA : userB)
+                            .user2(maxId == userAId ? userA : userB)
+                            .createdAt(LocalDateTime.now())
+                            .lastMessageAt(LocalDateTime.now())
+                            .build()
+            );
+        } catch (DataIntegrityViolationException e) {
+            log.warn("Concurrent conversation creation detected for roomKey: {}. Falling back to fetch.", roomKey);
+            return conversationRepository.findByRoomKey(roomKey)
+                    .orElseThrow(() -> new AppException(ErrorCode.CONVERSATION_NOT_FOUND));
+        }
     }
 
     private ConversationResponse mapToConversationResponse(Conversation conv, int currentUserId) {
