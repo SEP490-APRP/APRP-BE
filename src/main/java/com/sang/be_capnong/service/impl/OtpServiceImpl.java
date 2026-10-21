@@ -53,6 +53,27 @@ public class OtpServiceImpl implements OtpService {
 
     @Override
     @Transactional
+    public void generateAndSendForgotPasswordOtp(String email) {
+        int otp = 100000 + secureRandom.nextInt(900000);
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime expirationTime = now.plusMinutes(5);
+
+        OtpVerification otpVerification = otpVerificationRepository
+                .findTopByEmailOrderByCreatedAtDesc(email)
+                .orElse(OtpVerification.builder().email(email).build());
+
+        otpVerification.setOtp(otp);
+        otpVerification.setCreatedAt(now);
+        otpVerification.setExpirationTime(expirationTime);
+
+        otpVerificationRepository.save(otpVerification);
+        log.info("Saved Forgot Password OTP for email: {}", email);
+
+        emailService.sendForgotPasswordOtpEmail(email, otp);
+    }
+
+    @Override
+    @Transactional
     public void verifyOtp(String email, int otp) {
         log.info("Verifying OTP for email: {}", email);
 

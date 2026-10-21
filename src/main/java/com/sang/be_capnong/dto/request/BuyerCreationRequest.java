@@ -36,4 +36,8 @@ public class BuyerCreationRequest {
 
     DietPreference dietPreference;
     Boolean emailVerified;
+
+    String bankAccount;
+    String bankAccountHolder;
+    String bankName;
 }
