@@ -22,7 +22,7 @@ public class HealthProfileController {
     HealthProfileService healthProfileService;
     com.sang.be_capnong.service.HealthProfileExtractService healthProfileExtractService;
 
-    @GetMapping
+    @GetMapping("/me")
     @PreAuthorize("hasRole('BUYER')")
     public ApiResponse<UserHealthProfileResponse> getMyHealthProfile() {
         log.info("REST request to get current buyer health profile");
@@ -31,7 +31,7 @@ public class HealthProfileController {
                 .build();
     }
 
-    @PutMapping("/manual")
+    @PutMapping("/me")
     @PreAuthorize("hasRole('BUYER')")
     public ApiResponse<UserHealthProfileResponse> updateMyHealthProfileManual(
             @RequestBody @Valid ManualHealthProfileUpdateRequest request

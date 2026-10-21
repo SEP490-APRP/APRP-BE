@@ -25,6 +25,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,6 +43,7 @@ public class BuildPlanServiceImpl implements BuildPlanService {
     BuildComboRepository buildComboRepository;
     UserRepository userRepository;
     BuildPlanMapper buildPlanMapper;
+    com.sang.be_capnong.service.mealplan.DietPolicy dietPolicy;
     com.sang.be_capnong.service.mealplan.CandidateSelector candidateSelector;
     com.sang.be_capnong.service.mealplan.PlanValidator planValidator;
     com.sang.be_capnong.service.mealplan.ai.MealPlanAiClient mealPlanAiClient;
@@ -53,6 +55,155 @@ public class BuildPlanServiceImpl implements BuildPlanService {
     NutritionInfoRepository nutritionInfoRepository;
     com.fasterxml.jackson.databind.ObjectMapper objectMapper;
     com.sang.be_capnong.service.CartService cartService;
+
+    @Override
+    @Transactional(readOnly = true)
+    public com.sang.be_capnong.dto.response.PlanPreCheckResponse preCheckPlan(com.sang.be_capnong.dto.request.PlanPreCheckRequest request) {
+        Integer buyerId = SecurityUtils.getCurrentUserId();
+        User buyer = userRepository.findById(buyerId)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+
+        int days = request.getNumberOfDays() != null && request.getNumberOfDays() > 0 ? request.getNumberOfDays() : 7;
+        int people = request.getNumberOfPeople() != null && request.getNumberOfPeople() > 0 ? request.getNumberOfPeople() : 2;
+        int combosPerMeal = Math.max(1, (int) Math.ceil((double) people / 3.0));
+
+        int mealsPerDay = (request.getMealTypes() != null && !request.getMealTypes().isEmpty())
+                ? request.getMealTypes().size()
+                : 3;
+        int totalMeals = days * mealsPerDay;
+        int totalCombosNeeded = totalMeals * combosPerMeal;
+
+        // Fetch active combos
+        List<BuildCombo> allActiveCombos = buildComboRepository.findAll().stream()
+                .filter(c -> "ACTIVE".equalsIgnoreCase(c.getStatus()))
+                .filter(c -> c.getShop() != null && Boolean.TRUE.equals(c.getShop().getShopActive()))
+                .filter(c -> (c.getTotalQuantity() != null ? c.getTotalQuantity() : 0) - (c.getSoldQuantity() != null ? c.getSoldQuantity() : 0) > 0)
+                .toList();
+
+        // Filter compatible with diet preference if any
+        if (buyer.getDietPreference() != null) {
+            allActiveCombos = allActiveCombos.stream()
+                    .filter(c -> dietPolicy.isCompatible(c, buyer.getDietPreference()))
+                    .toList();
+        }
+
+        double minPrice = 60000.0;
+        double avgPrice = 75000.0;
+        if (!allActiveCombos.isEmpty()) {
+            minPrice = allActiveCombos.stream()
+                    .mapToDouble(c -> c.getPrice() != null ? c.getPrice().doubleValue() : 70000.0)
+                    .min()
+                    .orElse(60000.0);
+            avgPrice = allActiveCombos.stream()
+                    .mapToDouble(c -> c.getPrice() != null ? c.getPrice().doubleValue() : 75000.0)
+                    .average()
+                    .orElse(75000.0);
+        }
+
+        BigDecimal estimatedMinCost = BigDecimal.valueOf(Math.round(totalCombosNeeded * minPrice));
+        BigDecimal estimatedStandardCost = BigDecimal.valueOf(Math.round(totalCombosNeeded * avgPrice));
+
+        boolean hasPortionWarning = people <= 2;
+        String portionAdvice = hasPortionWarning
+                ? String.format("Các combo nông sản được đóng gói định lượng cho mâm cơm 3–4 người (~1kg rau củ). Với khẩu phần %d người, mỗi combo sẽ dôi dư khoảng 40–50%%. Bạn có thể nấu 1 combo chia làm 2 bữa (ví dụ trưa và tối) hoặc bảo quản tủ lạnh.", people)
+                : null;
+
+        BigDecimal budget = request.getTargetBudget();
+        boolean hasBudgetWarning = false;
+        String budgetAdvice = null;
+        boolean isFeasible = true;
+
+        if (budget != null && budget.compareTo(BigDecimal.ZERO) > 0) {
+            if (budget.compareTo(estimatedMinCost) < 0) {
+                hasBudgetWarning = true;
+                isFeasible = false;
+                budgetAdvice = String.format("Ngân sách %,dđ cho %d người ăn %d ngày (%d bữa) thấp hơn mức chi phí tối thiểu của nông sản sạch (khoảng %,dđ – %,dđ).",
+                        budget.longValue(), people, days, totalMeals, estimatedMinCost.longValue(), estimatedStandardCost.longValue());
+            }
+        }
+
+        List<com.sang.be_capnong.dto.response.PlanPreCheckResponse.ScenarioOption> scenarios = new ArrayList<>();
+        if (!isFeasible || hasPortionWarning) {
+            // Scenario 1: Tối ưu 2 bữa chính (Trưa & Tối), bữa sáng tự túc
+            int optMeals = days * 2;
+            int optCombos = optMeals * combosPerMeal;
+            BigDecimal optCost = BigDecimal.valueOf(Math.round(optCombos * avgPrice));
+            scenarios.add(com.sang.be_capnong.dto.response.PlanPreCheckResponse.ScenarioOption.builder()
+                    .scenarioId("OPTIMIZE_MEALS")
+                    .scenarioKey("OPTIMIZE_MEALS")
+                    .title("Tối ưu 2 bữa chính (Trưa & Tối)")
+                    .description("Lên thực đơn cho bữa Trưa và Tối đầy đủ món canh/xào, bữa sáng gia đình tự túc nhẹ nhàng.")
+                    .estimatedCost(optCost)
+                    .adjustedDays(days)
+                    .suggestedDays(days)
+                    .adjustedPeople(people)
+                    .adjustedMealTypes(List.of("LUNCH", "DINNER"))
+                    .suggestedMealTypes(List.of("LUNCH", "DINNER"))
+                    .adjustedBudget(budget)
+                    .suggestedBudget(budget)
+                    .build());
+
+            // Scenario 2: Rút ngắn số ngày cho vừa ngân sách
+            int reducedDays = budget != null && budget.compareTo(BigDecimal.ZERO) > 0
+                    ? Math.max(2, (int) Math.floor(budget.doubleValue() / (mealsPerDay * combosPerMeal * avgPrice)))
+                    : 3;
+            if (reducedDays >= days) reducedDays = Math.max(2, days - 2);
+            int reducedCombos = reducedDays * mealsPerDay * combosPerMeal;
+            BigDecimal reducedCost = BigDecimal.valueOf(Math.round(reducedCombos * avgPrice));
+            List<String> currentMealTypeNames = request.getMealTypes() != null
+                    ? request.getMealTypes().stream().map(Enum::name).toList()
+                    : List.of("BREAKFAST", "LUNCH", "DINNER");
+
+            scenarios.add(com.sang.be_capnong.dto.response.PlanPreCheckResponse.ScenarioOption.builder()
+                    .scenarioId("REDUCE_DAYS")
+                    .scenarioKey("REDUCE_DAYS")
+                    .title("Rút ngắn còn " + reducedDays + " ngày trọn vẹn")
+                    .description(String.format("Giữ trọn vẹn %d bữa/ngày với thực đơn tươi ngon chuẩn ngân sách của bạn.", mealsPerDay))
+                    .estimatedCost(reducedCost)
+                    .adjustedDays(reducedDays)
+                    .suggestedDays(reducedDays)
+                    .adjustedPeople(people)
+                    .adjustedMealTypes(currentMealTypeNames)
+                    .suggestedMealTypes(currentMealTypeNames)
+                    .adjustedBudget(budget)
+                    .suggestedBudget(budget)
+                    .build());
+
+            // Scenario 3: Giữ nguyên số ngày và nâng ngân sách lên mức thực tế
+            scenarios.add(com.sang.be_capnong.dto.response.PlanPreCheckResponse.ScenarioOption.builder()
+                    .scenarioId("REALISTIC_BUDGET")
+                    .scenarioKey("REALISTIC_BUDGET")
+                    .title(String.format("Giữ đủ %d ngày theo chi phí thực tế", days))
+                    .description("Điều chỉnh ngân sách lên mức tiêu chuẩn để cả nhà có thực đơn phong phú, đa dạng món mỗi ngày.")
+                    .estimatedCost(estimatedStandardCost)
+                    .adjustedDays(days)
+                    .suggestedDays(days)
+                    .adjustedPeople(people)
+                    .adjustedMealTypes(currentMealTypeNames)
+                    .suggestedMealTypes(currentMealTypeNames)
+                    .adjustedBudget(estimatedStandardCost)
+                    .suggestedBudget(estimatedStandardCost)
+                    .build());
+        }
+
+        return com.sang.be_capnong.dto.response.PlanPreCheckResponse.builder()
+                .isFeasible(isFeasible)
+                .hasPortionWarning(hasPortionWarning)
+                .hasBudgetWarning(hasBudgetWarning)
+                .numberOfDays(days)
+                .numberOfPeople(people)
+                .targetBudget(budget)
+                .estimatedMinCost(estimatedMinCost)
+                .estimatedStandardCost(estimatedStandardCost)
+                .combosPerMeal(combosPerMeal)
+                .totalMeals(totalMeals)
+                .totalCombosNeeded(totalCombosNeeded)
+                .portionAdvice(portionAdvice)
+                .budgetAdvice(budgetAdvice)
+                .suggestedScenarios(scenarios)
+                .scenarios(scenarios)
+                .build();
+    }
 
     @Override
     @Transactional
@@ -242,10 +393,16 @@ public class BuildPlanServiceImpl implements BuildPlanService {
                             for (com.sang.be_capnong.service.mealplan.GeneratedPlan.GeneratedItem gItem : gMeal.getItems()) {
                                 BuildCombo combo = comboEntityMap.get(gItem.getComboId());
                                 if (combo != null) {
+                                    int people = request.getNumberOfPeople() != null && request.getNumberOfPeople() > 0 ? request.getNumberOfPeople() : 1;
+                                    int combosNeeded = Math.max(1, (int) Math.ceil((double) people / 3.0));
+                                    int finalQty = (gItem.getQuantity() != null && gItem.getQuantity() > 0 && gItem.getQuantity() <= combosNeeded + 1)
+                                            ? gItem.getQuantity()
+                                            : combosNeeded;
+
                                     PlanMealItem item = PlanMealItem.builder()
                                             .planMeal(meal)
                                             .buildCombo(combo)
-                                            .quantity(gItem.getQuantity() != null ? gItem.getQuantity() : request.getNumberOfPeople())
+                                            .quantity(finalQty)
                                             .unitPriceSnapshot(combo.getPrice())
                                             .isAiSuggested(true)
                                             .userOverride(false)
@@ -376,7 +533,7 @@ public class BuildPlanServiceImpl implements BuildPlanService {
     public void deletePlan(int planId) {
         BuildPlan plan = findPlanAndCheckOwnership(planId);
         if (plan.getStatus() != PlanStatus.DRAFT && plan.getStatus() != PlanStatus.AI_DRAFT) {
-            throw new AppException(ErrorCode.INVALID_STATUS_TRANSITION);
+            throw new AppException(ErrorCode.PLAN_CANNOT_DELETE_CONFIRMED);
         }
         buildPlanRepository.delete(plan);
     }
@@ -389,7 +546,7 @@ public class BuildPlanServiceImpl implements BuildPlanService {
             return buildPlanMapper.toBuildPlanResponse(plan); // Idempotent
         }
         if (plan.getStatus() == PlanStatus.ARCHIVED) {
-            throw new AppException(ErrorCode.INVALID_STATUS_TRANSITION);
+            throw new AppException(ErrorCode.PLAN_ALREADY_ARCHIVED);
         }
         plan.setStatus(PlanStatus.CONFIRMED);
         plan.setUpdatedAt(LocalDateTime.now());
@@ -419,7 +576,7 @@ public class BuildPlanServiceImpl implements BuildPlanService {
 
         BuildPlan plan = meal.getPlanDay().getBuildPlan();
         if (plan.getStatus() != PlanStatus.CONFIRMED) {
-            throw new AppException(ErrorCode.INVALID_STATUS_TRANSITION);
+            throw new AppException(ErrorCode.PLAN_NOT_CONFIRMED);
         }
 
         meal.setCompleted(completed);
@@ -538,6 +695,9 @@ public class BuildPlanServiceImpl implements BuildPlanService {
 
     private PlanMeal findMealInPlanAndCheckOwnership(int planId, int mealId) {
         BuildPlan plan = findPlanAndCheckOwnership(planId);
+        if (plan.getStatus() == PlanStatus.ARCHIVED) {
+            throw new AppException(ErrorCode.PLAN_ALREADY_ARCHIVED);
+        }
         return plan.getPlanDays().stream()
                 .flatMap(d -> d.getPlanMeals().stream())
                 .filter(m -> m.getId() == mealId)
@@ -563,8 +723,13 @@ public class BuildPlanServiceImpl implements BuildPlanService {
             throw new AppException(ErrorCode.STOCK_INSUFFICIENT);
         }
 
-        if (expectedMealType != null && combo.getMealType() != null && combo.getMealType() != expectedMealType) {
-            throw new AppException(ErrorCode.MEAL_TYPE_REQUIRED);
+        if (expectedMealType != null && combo.getMealType() != null) {
+            boolean isCompatible = (combo.getMealType() == expectedMealType)
+                    || (expectedMealType == MealType.LUNCH && combo.getMealType() == MealType.DINNER)
+                    || (expectedMealType == MealType.DINNER && combo.getMealType() == MealType.LUNCH);
+            if (!isCompatible) {
+                throw new AppException(ErrorCode.MEAL_TYPE_MISMATCH);
+            }
         }
 
         return combo;
@@ -618,12 +783,20 @@ public class BuildPlanServiceImpl implements BuildPlanService {
             java.math.BigDecimal subtotal = unitPrice.multiply(java.math.BigDecimal.valueOf(totalQty));
             totalEstimatedPrice = totalEstimatedPrice.add(subtotal);
 
+            String region = combo.getRegion();
+            String regionDisplay = buildPlanMapper.formatRegionDisplayName(region);
+            String cookingSuggestion = buildPlanMapper.resolveCookingSuggestion(combo);
+
             items.add(com.sang.be_capnong.dto.response.ShoppingListItemResponse.builder()
                     .comboId(combo.getComboId())
                     .comboName(combo.getComboName())
                     .imageUrl(combo.getImageUrl())
                     .shopId(combo.getShop() != null ? combo.getShop().getId() : null)
                     .shopName(combo.getShop() != null ? combo.getShop().getShopName() : null)
+                    .region(region)
+                    .regionDisplayName(regionDisplay)
+                    .comboType(combo.getType() != null ? combo.getType() : "Rau củ quả tươi")
+                    .cookingSuggestion(cookingSuggestion)
                     .totalQuantity(totalQty)
                     .unitPrice(unitPrice)
                     .subtotal(subtotal)
@@ -719,7 +892,8 @@ public class BuildPlanServiceImpl implements BuildPlanService {
         BuildCombo chosenEntity = buildComboRepository.findById(chosen.getComboId())
                 .orElseThrow(() -> new AppException(ErrorCode.COMBO_NOT_FOUND));
 
-        int qty = plan.getNumberOfPeople() != null && plan.getNumberOfPeople() > 0 ? plan.getNumberOfPeople() : 2;
+        int people = plan.getNumberOfPeople() != null && plan.getNumberOfPeople() > 0 ? plan.getNumberOfPeople() : 2;
+        int qty = Math.max(1, (int) Math.ceil((double) people / 3.0));
 
         List<PlanMealItem> oldItems = new java.util.ArrayList<>(meal.getPlanMealItems());
         meal.getPlanMealItems().clear();

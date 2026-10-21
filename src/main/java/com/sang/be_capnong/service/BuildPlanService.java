@@ -7,6 +7,7 @@ import com.sang.be_capnong.dto.response.PlanMealResponse;
 import com.sang.be_capnong.enums.PlanStatus;
 
 public interface BuildPlanService {
+    com.sang.be_capnong.dto.response.PlanPreCheckResponse preCheckPlan(PlanPreCheckRequest request);
     BuildPlanResponse generateAiPlan(PlanGenerateRequest request);
     BuildPlanResponse createManualPlan(ManualPlanCreateRequest request);
     BuildPlanResponse getPlanById(int planId);

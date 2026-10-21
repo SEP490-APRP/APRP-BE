@@ -177,7 +177,11 @@ public enum ErrorCode {
     AI_INVALID_RESPONSE(11014, "AI returned an invalid response structure", HttpStatus.BAD_GATEWAY),
     REQUEST_ALREADY_CONFIRMED(11015, "Profile update request has already been confirmed", HttpStatus.CONFLICT),
     REQUEST_NOT_FOUND(11016, "Profile update request not found", HttpStatus.NOT_FOUND),
-    SLOT_NOT_FOUND(11017, "Meal slot not found in plan", HttpStatus.NOT_FOUND)
+    SLOT_NOT_FOUND(11017, "Meal slot not found in plan", HttpStatus.NOT_FOUND),
+    MEAL_TYPE_MISMATCH(11018, "Loại combo không phù hợp với bữa ăn (Bữa sáng không thể dùng combo trưa/tối và ngược lại)", HttpStatus.BAD_REQUEST),
+    PLAN_NOT_CONFIRMED(11019, "Thực đơn đang ở trạng thái nháp. Vui lòng bấm 'Xác nhận thực đơn' để bắt đầu theo dõi bữa ăn!", HttpStatus.BAD_REQUEST),
+    PLAN_ALREADY_ARCHIVED(11020, "Thực đơn này đã được lưu trữ, không thể chỉnh sửa thêm!", HttpStatus.BAD_REQUEST),
+    PLAN_CANNOT_DELETE_CONFIRMED(11021, "Thực đơn đã xác nhận không thể xóa. Vui lòng chọn 'Lưu trữ' thay thế!", HttpStatus.BAD_REQUEST)
     ;
 
     private final int code;

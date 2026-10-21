@@ -6,6 +6,7 @@ import com.sang.be_capnong.dto.request.HealthProfileExtractRequest;
 import com.sang.be_capnong.dto.response.HealthProfileExtractResponse;
 import com.sang.be_capnong.dto.response.UserHealthProfileResponse;
 import com.sang.be_capnong.entity.*;
+import com.sang.be_capnong.enums.DietPreference;
 import com.sang.be_capnong.exception.AppException;
 import com.sang.be_capnong.exception.ErrorCode;
 import com.sang.be_capnong.repository.*;
@@ -23,6 +24,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -134,7 +137,7 @@ public class HealthProfileExtractServiceImpl implements HealthProfileExtractServ
         if (diff != null) {
             // Apply add conditions
             if (diff.getAddConditions() != null) {
-                for (String condName : diff.getAddConditions()) {
+                for (String condName : splitTokens(diff.getAddConditions())) {
                     if (condName == null || condName.isBlank()) continue;
                     String cleanName = condName.trim();
                     HealthCondition condition = healthConditionRepository.findByNameIgnoreCase(cleanName)
@@ -151,7 +154,7 @@ public class HealthProfileExtractServiceImpl implements HealthProfileExtractServ
 
             // Apply remove conditions
             if (diff.getRemoveConditions() != null) {
-                for (String condName : diff.getRemoveConditions()) {
+                for (String condName : splitTokens(diff.getRemoveConditions())) {
                     if (condName == null || condName.isBlank()) continue;
                     healthConditionRepository.findByNameIgnoreCase(condName.trim())
                             .ifPresent(c -> userHealthConditionRepository.deleteByBuyer_IdAndCondition_Id(buyerId, c.getId()));
@@ -160,7 +163,7 @@ public class HealthProfileExtractServiceImpl implements HealthProfileExtractServ
 
             // Apply add allergies
             if (diff.getAddAllergies() != null) {
-                for (String aName : diff.getAddAllergies()) {
+                for (String aName : splitTokens(diff.getAddAllergies())) {
                     if (aName == null || aName.isBlank()) continue;
                     String cleanName = aName.trim();
                     Allergen allergen = allergenRepository.findByNameIgnoreCase(cleanName)
@@ -177,10 +180,21 @@ public class HealthProfileExtractServiceImpl implements HealthProfileExtractServ
 
             // Apply remove allergies
             if (diff.getRemoveAllergies() != null) {
-                for (String aName : diff.getRemoveAllergies()) {
+                for (String aName : splitTokens(diff.getRemoveAllergies())) {
                     if (aName == null || aName.isBlank()) continue;
                     allergenRepository.findByNameIgnoreCase(aName.trim())
                             .ifPresent(a -> userAllergyRepository.deleteByBuyer_IdAndAllergen_Id(buyerId, a.getId()));
+                }
+            }
+
+            // Apply diet preference if suggested and confirmed
+            if (diff.getDietPreference() != null && !diff.getDietPreference().isBlank()) {
+                try {
+                    DietPreference dp = DietPreference.valueOf(diff.getDietPreference().trim().toUpperCase());
+                    buyer.setDietPreference(dp);
+                    userRepository.save(buyer);
+                } catch (IllegalArgumentException e) {
+                    log.warn("Invalid diet preference from diff: {}", diff.getDietPreference());
                 }
             }
         }
@@ -189,5 +203,21 @@ public class HealthProfileExtractServiceImpl implements HealthProfileExtractServ
         profileUpdateRequestRepository.save(audit);
 
         return healthProfileService.getMyHealthProfile();
+    }
+
+    private List<String> splitTokens(List<String> rawList) {
+        if (rawList == null) return Collections.emptyList();
+        List<String> out = new ArrayList<>();
+        for (String item : rawList) {
+            if (item == null || item.isBlank()) continue;
+            String[] parts = item.split("[,;\\n]+");
+            for (String part : parts) {
+                String clean = part.trim();
+                if (!clean.isEmpty() && !out.contains(clean)) {
+                    out.add(clean);
+                }
+            }
+        }
+        return out;
     }
 }

@@ -16,6 +16,10 @@ public class ShoppingListItemResponse {
     String imageUrl;
     Integer shopId;
     String shopName;
+    String region;
+    String regionDisplayName;
+    String comboType;
+    String cookingSuggestion;
     int totalQuantity;
     BigDecimal unitPrice;
     BigDecimal subtotal;

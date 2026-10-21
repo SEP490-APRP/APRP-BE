@@ -13,12 +13,14 @@ import java.util.regex.Pattern;
 public class ConfigurableDietPolicyImpl implements DietPolicy {
 
     private static final List<String> MEAT_SEAFOOD_KEYWORDS = List.of(
-            "thit", "ca", "tom", "muc", "cua", "nghieu", "so", "oc", "ghe",
-            "bo", "heo", "ga", "vit", "cha lua", "xuc xich", "gan", "hai san"
+            "thit", "hai san", "xuc xich", "cha lua", "cha ca", "gio lua", "lap xuong",
+            "thit bo", "thit heo", "thit ga", "thit vit", "thit ca",
+            "ca hoi", "ca thu", "ca chep", "ca basa", "ca loc", "ca dieu hong", "ca bien", "ca dong",
+            "nghieu", "cua dong", "cua bien", "tom kho", "tom tuoi", "muc tuoi", "muc kho"
     );
 
     private static final List<String> DAIRY_EGG_KEYWORDS = List.of(
-            "trung", "sua", "pho mai", "bo sua", "mayonnaise"
+            "trung ga", "trung vit", "trung cut", "sua bo", "sua dac", "pho mai", "bo sua", "mayonnaise"
     );
 
     @Override
@@ -34,9 +36,12 @@ public class ConfigurableDietPolicyImpl implements DietPolicy {
         // If combo type explicitly declares vegan/chay
         String comboType = stripAccents(combo.getType() != null ? combo.getType() : "");
         boolean taggedVegan = comboType.contains("chay") || comboType.contains("vegan");
+        if (taggedVegan) {
+            return true;
+        }
 
         if (combo.getProductCombos() == null || combo.getProductCombos().isEmpty()) {
-            return taggedVegan;
+            return true;
         }
 
         for (ProductCombo pc : combo.getProductCombos()) {
@@ -44,8 +49,8 @@ public class ConfigurableDietPolicyImpl implements DietPolicy {
 
             String productName = stripAccents(pc.getProduct().getProductName());
 
-            // Both VEGETARIAN and VEGAN exclude meat and seafood
-            if (containsAnyWord(productName, MEAT_SEAFOOD_KEYWORDS)) {
+            // Check if product is explicitly meat or seafood
+            if (isMeatOrSeafood(productName)) {
                 return false;
             }
 
@@ -58,6 +63,20 @@ public class ConfigurableDietPolicyImpl implements DietPolicy {
         }
 
         return true;
+    }
+
+    private boolean isMeatOrSeafood(String productName) {
+        // Safe produce that often contains overlapping letters ("ca chua", "ca rot", "ca tim", "cai", "bong cai", "trai bo")
+        if (productName.contains("ca chua") || productName.contains("ca rot") ||
+                productName.contains("ca tim") || productName.contains("cai ") ||
+                productName.contains("cai") || productName.contains("cu cai") ||
+                productName.contains("trai bo") || productName.contains("qua bo") ||
+                productName.contains("bong cai") || productName.contains("rau ")) {
+            // Still check if it explicitly contains meat keywords like "thit", "hai san"
+            return productName.contains("thit") || productName.contains("hai san");
+        }
+
+        return containsAnyWord(productName, MEAT_SEAFOOD_KEYWORDS);
     }
 
     private boolean containsAnyWord(String text, List<String> keywords) {

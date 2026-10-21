@@ -25,6 +25,19 @@ import org.springframework.web.bind.annotation.*;
 public class BuildPlanController {
 
     BuildPlanService buildPlanService;
+    com.sang.be_capnong.service.PlanCopilotService planCopilotService;
+
+    @PostMapping("/pre-check")
+    @PreAuthorize("hasRole('BUYER')")
+    public ApiResponse<com.sang.be_capnong.dto.response.PlanPreCheckResponse> preCheckPlan(
+            @RequestBody @Valid com.sang.be_capnong.dto.request.PlanPreCheckRequest request
+    ) {
+        log.info("REST request to pre-check build plan: days={}, people={}, budget={}",
+                request.getNumberOfDays(), request.getNumberOfPeople(), request.getTargetBudget());
+        return ApiResponse.<com.sang.be_capnong.dto.response.PlanPreCheckResponse>builder()
+                .result(buildPlanService.preCheckPlan(request))
+                .build();
+    }
 
     @PostMapping("/generate")
     @ResponseStatus(HttpStatus.CREATED)
@@ -191,6 +204,30 @@ public class BuildPlanController {
         log.info("REST request to regenerate meal id: {} in plan id: {}", mealId, planId);
         return ApiResponse.<PlanMealResponse>builder()
                 .result(buildPlanService.regenerateMeal(planId, mealId))
+                .build();
+    }
+
+    @PostMapping("/{planId}/copilot-chat")
+    @PreAuthorize("hasRole('BUYER')")
+    public ApiResponse<com.sang.be_capnong.dto.response.PlanCopilotChatResponse> copilotChat(
+            @PathVariable("planId") Integer planId,
+            @RequestBody @Valid com.sang.be_capnong.dto.request.PlanCopilotChatRequest request
+    ) {
+        log.info("REST request to chat with copilot for plan id: {}", planId);
+        return ApiResponse.<com.sang.be_capnong.dto.response.PlanCopilotChatResponse>builder()
+                .result(planCopilotService.chat(planId, request))
+                .build();
+    }
+
+    @PostMapping("/{planId}/copilot-apply")
+    @PreAuthorize("hasRole('BUYER')")
+    public ApiResponse<BuildPlanResponse> copilotApply(
+            @PathVariable("planId") Integer planId,
+            @RequestBody @Valid com.sang.be_capnong.dto.request.PlanCopilotApplyRequest request
+    ) {
+        log.info("REST request to apply copilot action for plan id: {}", planId);
+        return ApiResponse.<BuildPlanResponse>builder()
+                .result(planCopilotService.applyAction(planId, request))
                 .build();
     }
 }

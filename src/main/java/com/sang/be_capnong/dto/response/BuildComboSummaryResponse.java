@@ -17,7 +17,11 @@ public class BuildComboSummaryResponse {
     BigDecimal price;
     MealType mealType;
     String type;
+    String region;
+    String regionDisplayName;
+    String cookingSuggestion;
     String imageUrl;
+    String description;
     Integer shopId;
     String shopName;
     Integer remainingStock;

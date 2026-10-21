@@ -43,10 +43,9 @@ public class NutritionCalculator {
                 continue;
             }
 
-            // productQuantity (e.g. 200g -> 2.0x ratio). If null or <= 0, treat as 100g (1.0x ratio)
-            int qtyGrams = (pc.getProductQuantity() != null && pc.getProductQuantity() > 0)
-                    ? pc.getProductQuantity()
-                    : 100;
+            // productQuantity in grams (e.g. 200g). If stored as pack units (<= 10, e.g. 1 pack), convert to 150g per unit
+            int rawQty = (pc.getProductQuantity() != null && pc.getProductQuantity() > 0) ? pc.getProductQuantity() : 1;
+            int qtyGrams = rawQty <= 10 ? rawQty * 150 : rawQty;
 
             BigDecimal ratio = BigDecimal.valueOf(qtyGrams).divide(HUNDRED, 4, RoundingMode.HALF_UP);
 

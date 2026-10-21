@@ -40,7 +40,17 @@ public class CandidateSelector {
             for (Allergen a : buyerAllergies) {
                 if (a != null) {
                     buyerAllergenIds.add(a.getId());
-                    buyerAllergenNames.add(stripAccents(a.getName()));
+                    if (a.getName() != null) {
+                        buyerAllergenNames.add(stripAccents(a.getName()));
+                        // Bóc tách thêm các từ khóa con nếu chuỗi có dấu phẩy, gạch chéo (VD: "Đậu phộng / Lạc", "cà rốt, dưa leo")
+                        String[] parts = a.getName().split("[,;/\\n]+");
+                        for (String p : parts) {
+                            String subNorm = stripAccents(p);
+                            if (!subNorm.isBlank()) {
+                                buyerAllergenNames.add(subNorm);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -64,7 +74,12 @@ public class CandidateSelector {
 
             // Rule 8: Meal type match
             if (targetMealTypes != null && !targetMealTypes.isEmpty()) {
-                if (combo.getMealType() == null || !targetMealTypes.contains(combo.getMealType())) {
+                boolean match = combo.getMealType() != null && (
+                        targetMealTypes.contains(combo.getMealType()) ||
+                        (targetMealTypes.contains(MealType.DINNER) && combo.getMealType() == MealType.LUNCH) ||
+                        (targetMealTypes.contains(MealType.LUNCH) && combo.getMealType() == MealType.DINNER)
+                );
+                if (!match) {
                     continue;
                 }
             }
