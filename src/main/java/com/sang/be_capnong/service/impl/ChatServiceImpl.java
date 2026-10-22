@@ -177,9 +177,14 @@ public class ChatServiceImpl implements ChatService {
         }
 
         List<Conversation> conversations = conversationRepository.findAllByUserIdOrderByLastMessageAtDesc(userId);
-        return conversations.stream()
-                .map(conv -> mapToConversationResponse(conv, userId))
-                .toList();
+        
+        // Loại bỏ trùng lặp theo otherUserId, chỉ giữ lại hội thoại mới nhất cho mỗi người dùng/nhà vườn
+        Map<Integer, ConversationResponse> uniqueMap = new java.util.LinkedHashMap<>();
+        for (Conversation conv : conversations) {
+            ConversationResponse resp = mapToConversationResponse(conv, userId);
+            uniqueMap.putIfAbsent(resp.getOtherUserId(), resp);
+        }
+        return new java.util.ArrayList<>(uniqueMap.values());
     }
 
     @Override
