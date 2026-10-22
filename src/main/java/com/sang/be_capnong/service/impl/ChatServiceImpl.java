@@ -170,7 +170,7 @@ public class ChatServiceImpl implements ChatService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public List<ConversationResponse> getUserConversations(int userId) {
         if (!userRepository.existsById(userId)) {
             throw new AppException(ErrorCode.USER_NOT_EXISTED);
@@ -184,6 +184,49 @@ public class ChatServiceImpl implements ChatService {
             ConversationResponse resp = mapToConversationResponse(conv, userId);
             uniqueMap.putIfAbsent(resp.getOtherUserId(), resp);
         }
+
+        User currentUser = userRepository.findById(userId).orElse(null);
+        boolean isCurrentUserAdmin = currentUser != null && currentUser.getRole() != null 
+                && "ADMIN".equalsIgnoreCase(currentUser.getRole().getName());
+
+        if (isCurrentUserAdmin) {
+            // Đối với Admin: Chỉ hiển thị các hội thoại đã có tin nhắn thực tế từ người dùng/nhà vườn
+            return uniqueMap.values().stream()
+                    .filter(c -> c.getLastMessage() != null && !c.getLastMessage().isBlank())
+                    .collect(java.util.stream.Collectors.toList());
+        }
+
+        // Đối với Shop và Người mua (Buyer): Luôn đảm bảo có sẵn liên hệ Ban Quản Trị (Admin)
+        boolean hasAdmin = uniqueMap.values().stream()
+                .anyMatch(c -> "ADMIN".equalsIgnoreCase(c.getOtherUserRole()));
+
+        if (!hasAdmin && currentUser != null) {
+            Page<User> adminPage = userRepository.findByRole_NameInAndStatus(
+                    List.of("ADMIN"), UserStatus.ACTIVE, PageRequest.of(0, 1)
+            );
+            User admin = !adminPage.isEmpty() ? adminPage.getContent().get(0) : null;
+            if (admin == null) {
+                Page<User> anyAdminPage = userRepository.findByRole_NameIn(
+                        List.of("ADMIN"), PageRequest.of(0, 1)
+                );
+                if (!anyAdminPage.isEmpty()) {
+                    admin = anyAdminPage.getContent().get(0);
+                }
+            }
+
+            if (admin != null && admin.getId() != userId) {
+                Conversation adminConv = findOrCreateConversationEntity(userId, admin.getId(), currentUser, admin);
+                ConversationResponse adminResp = mapToConversationResponse(adminConv, userId);
+                if (adminResp.getLastMessage() == null || adminResp.getLastMessage().isBlank()) {
+                    adminResp.setLastMessage("Liên hệ Ban Quản Trị CapNong để được hỗ trợ 24/7");
+                }
+                Map<Integer, ConversationResponse> finalMap = new java.util.LinkedHashMap<>();
+                finalMap.put(adminResp.getOtherUserId(), adminResp);
+                finalMap.putAll(uniqueMap);
+                return new java.util.ArrayList<>(finalMap.values());
+            }
+        }
+
         return new java.util.ArrayList<>(uniqueMap.values());
     }
 
@@ -322,6 +365,12 @@ public class ChatServiceImpl implements ChatService {
                 : "";
 
         String role = otherUser.getRole() != null ? otherUser.getRole().getName() : "BUYER";
+        if ("ADMIN".equalsIgnoreCase(role)) {
+            otherName = "Ban Quản Trị CapNong";
+            if (avatar == null || avatar.isBlank()) {
+                avatar = "https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252968/brands/vxm3b2gvixlqzf7xocoy.jpg";
+            }
+        }
 
         return ConversationResponse.builder()
                 .id(conv.getId())
