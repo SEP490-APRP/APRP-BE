@@ -24,6 +24,7 @@ public class BuildComboResponse {
     Integer totalQuantity;
     Integer soldQuantity;
     String status;
+    String cookingSuggestion;
     String imageUrl;
     ShopSummaryResponse shop;
     List<ProductComboResponse> items;
