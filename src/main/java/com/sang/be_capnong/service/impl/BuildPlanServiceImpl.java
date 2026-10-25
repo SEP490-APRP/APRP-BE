@@ -113,6 +113,18 @@ public class BuildPlanServiceImpl implements BuildPlanService {
         String budgetAdvice = null;
         boolean isFeasible = true;
 
+        boolean hasStockShortage = false;
+        String stockShortageMessage = null;
+        if (allActiveCombos.isEmpty()) {
+            hasStockShortage = true;
+            isFeasible = false;
+            stockShortageMessage = "Kho nông sản hiện tại chưa có combo rau củ nào sẵn sàng để lên thực đơn (các nhà vườn đang chuẩn bị vụ thu hoạch mới). Bạn vui lòng quay lại sau ít phút!";
+        } else if (allActiveCombos.size() < totalCombosNeeded) {
+            hasStockShortage = true;
+            stockShortageMessage = String.format("Kho nông sản hiện có %d combo còn hàng, trong khi thực đơn %d ngày (%d bữa) cần tối thiểu %d combo. Bạn có thể giảm số ngày hoặc chọn ít bữa hơn để đảm bảo đủ nguyên liệu tươi.",
+                    allActiveCombos.size(), days, totalMeals, totalCombosNeeded);
+        }
+
         if (budget != null && budget.compareTo(BigDecimal.ZERO) > 0) {
             if (budget.compareTo(estimatedMinCost) < 0) {
                 hasBudgetWarning = true;
@@ -123,7 +135,7 @@ public class BuildPlanServiceImpl implements BuildPlanService {
         }
 
         List<com.sang.be_capnong.dto.response.PlanPreCheckResponse.ScenarioOption> scenarios = new ArrayList<>();
-        if (!isFeasible || hasPortionWarning) {
+        if (!isFeasible || hasPortionWarning || hasStockShortage) {
             // Scenario 1: Tối ưu 2 bữa chính (Trưa & Tối), bữa sáng tự túc
             int optMeals = days * 2;
             int optCombos = optMeals * combosPerMeal;
@@ -139,8 +151,8 @@ public class BuildPlanServiceImpl implements BuildPlanService {
                     .adjustedPeople(people)
                     .adjustedMealTypes(List.of("LUNCH", "DINNER"))
                     .suggestedMealTypes(List.of("LUNCH", "DINNER"))
-                    .adjustedBudget(budget)
-                    .suggestedBudget(budget)
+                    .adjustedBudget(optCost)
+                    .suggestedBudget(optCost)
                     .build());
 
             // Scenario 2: Rút ngắn số ngày cho vừa ngân sách
@@ -165,8 +177,8 @@ public class BuildPlanServiceImpl implements BuildPlanService {
                     .adjustedPeople(people)
                     .adjustedMealTypes(currentMealTypeNames)
                     .suggestedMealTypes(currentMealTypeNames)
-                    .adjustedBudget(budget)
-                    .suggestedBudget(budget)
+                    .adjustedBudget(reducedCost)
+                    .suggestedBudget(reducedCost)
                     .build());
 
             // Scenario 3: Giữ nguyên số ngày và nâng ngân sách lên mức thực tế
@@ -187,9 +199,11 @@ public class BuildPlanServiceImpl implements BuildPlanService {
         }
 
         return com.sang.be_capnong.dto.response.PlanPreCheckResponse.builder()
-                .isFeasible(isFeasible)
+                .isFeasible(isFeasible && !hasStockShortage)
                 .hasPortionWarning(hasPortionWarning)
                 .hasBudgetWarning(hasBudgetWarning)
+                .hasStockShortage(hasStockShortage)
+                .stockShortageMessage(stockShortageMessage)
                 .numberOfDays(days)
                 .numberOfPeople(people)
                 .targetBudget(budget)
@@ -287,7 +301,24 @@ public class BuildPlanServiceImpl implements BuildPlanService {
 
         if (candidates.isEmpty()) {
             log.warn("No suitable combos found for buyer {} constraints", buyerId);
-            throw new AppException(ErrorCode.NO_SUITABLE_COMBOS);
+            String specificReason = "Kho nông sản hiện không có đủ combo rau củ còn hàng phù hợp với các tiêu chí (ngân sách, khẩu phần hoặc loại bữa) bạn đã chọn.";
+            if (allCombos.isEmpty()) {
+                specificReason = "Hiện tại kho nông sản chưa có combo rau củ nào trên hệ thống. Vui lòng quay lại sau ít phút!";
+            } else {
+                long activeInStock = allCombos.stream()
+                        .filter(c -> "ACTIVE".equalsIgnoreCase(c.getStatus()))
+                        .filter(c -> c.getShop() != null && Boolean.TRUE.equals(c.getShop().getShopActive()))
+                        .filter(c -> (c.getTotalQuantity() != null ? c.getTotalQuantity() : 0) - (c.getSoldQuantity() != null ? c.getSoldQuantity() : 0) > 0)
+                        .count();
+                if (activeInStock == 0) {
+                    specificReason = "Tất cả combo rau củ trên sàn hiện đang tạm hết hàng. Nhà vườn đang thu hoạch vụ mùa mới, bạn vui lòng quay lại sau nhé!";
+                } else if (buyerAllergies != null && !buyerAllergies.isEmpty()) {
+                    specificReason = "Các combo rau củ còn hàng trong kho đều chứa thành phần nằm trong danh mục dị ứng trong hồ sơ sức khỏe của bạn. Bạn hãy thử kiểm tra lại hồ sơ dị ứng hoặc chọn các bữa ăn khác!";
+                } else if (buyer.getDietPreference() != null) {
+                    specificReason = "Không tìm thấy combo rau củ còn hàng nào phù hợp với chế độ ăn " + buyer.getDietPreference() + " và các bữa ăn bạn chọn.";
+                }
+            }
+            throw new AppException(ErrorCode.NO_SUITABLE_COMBOS, specificReason);
         }
 
         java.util.Map<Integer, com.sang.be_capnong.service.mealplan.CandidateComboDto> candidateMap = candidates.stream()
@@ -380,6 +411,9 @@ public class BuildPlanServiceImpl implements BuildPlanService {
                 if (gDay.getMeals() != null) {
                     for (com.sang.be_capnong.service.mealplan.GeneratedPlan.GeneratedMeal gMeal : gDay.getMeals()) {
                         MealType mt = MealType.valueOf(gMeal.getMealType().toUpperCase().trim());
+                        if (targetMealTypes != null && !targetMealTypes.isEmpty() && !targetMealTypes.contains(mt)) {
+                            continue; // Skip any meal type not requested by buyer
+                        }
                         PlanMeal meal = PlanMeal.builder()
                                 .mealType(mt)
                                 .sortOrder(sortOrder++)

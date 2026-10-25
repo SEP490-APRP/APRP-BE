@@ -210,6 +210,7 @@ public class GeminiMealPlanAiClient implements MealPlanAiClient {
                     - Goal / Style: %s
                     - Buyer diet preference: %s
                     - Buyer health conditions: %s
+                    - Requested meal types per day: %s (STRICT: For each day, you MUST generate ONLY these requested meal types. DO NOT generate unrequested meals!)
                     - Combos recently consumed in past plans (avoid repeating these unless necessary): %s
                     
                     Available candidate combos:
@@ -259,6 +260,9 @@ public class GeminiMealPlanAiClient implements MealPlanAiClient {
                     in.getConstraints().getGoal(),
                     in.getBuyer().getDietPreference(),
                     in.getBuyer().getConditions(),
+                    in.getConstraints().getMealTypes() != null && !in.getConstraints().getMealTypes().isEmpty()
+                            ? in.getConstraints().getMealTypes().toString()
+                            : "[BREAKFAST, LUNCH, DINNER]",
                     in.getBuyer().getRecentComboIds() != null ? in.getBuyer().getRecentComboIds().toString() : "None",
                     candidatesJson,
                     combosPerMeal,

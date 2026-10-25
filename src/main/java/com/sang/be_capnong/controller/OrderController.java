@@ -50,6 +50,7 @@ public class OrderController {
 
     @Operation(summary = "Xem chi tiết đơn hàng")
     @GetMapping("/{id}")
+    @PreAuthorize("isAuthenticated()")
     public ApiResponse<OrderResponse> getOrderById(@PathVariable("id") int orderId) {
         return ApiResponse.<OrderResponse>builder()
                 .result(orderService.getOrderById(orderId))

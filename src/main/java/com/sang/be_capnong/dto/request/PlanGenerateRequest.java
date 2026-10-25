@@ -38,6 +38,8 @@ public class PlanGenerateRequest {
     BigDecimal targetBudget;
 
     @NotEmpty(message = "Meal types must not be empty")
+    @com.fasterxml.jackson.annotation.JsonProperty("mealTypes")
+    @com.fasterxml.jackson.annotation.JsonAlias({"preferredMealTypes", "mealTypes"})
     @Builder.Default
     List<MealType> mealTypes = List.of(MealType.BREAKFAST, MealType.LUNCH, MealType.DINNER);
 

@@ -1078,6 +1078,21 @@ public class OrderServiceImpl implements OrderService {
     @Override
     public OrderResponse getOrderById(int orderId) {
         Order order = findOrderById(orderId);
+        User currentUser = getCurrentUser();
+
+        boolean isBuyer = order.getBuyer() != null && Objects.equals(order.getBuyer().getId(), currentUser.getId());
+        boolean isShop = order.getShop() != null && Objects.equals(order.getShop().getId(), currentUser.getId());
+        boolean isShipper = order.getShipper() != null && Objects.equals(order.getShipper().getId(), currentUser.getId());
+        boolean isAdminOrStaff = currentUser.getRole() != null && (
+                "ADMIN".equalsIgnoreCase(currentUser.getRole().getName()) ||
+                "STAFF".equalsIgnoreCase(currentUser.getRole().getName())
+        );
+
+        if (!isBuyer && !isShop && !isShipper && !isAdminOrStaff) {
+            log.warn("Access Denied: User id {} has no permission to view order id {}", currentUser.getId(), orderId);
+            throw new AppException(ErrorCode.FORBIDDEN);
+        }
+
         List<OrderDetail> details = order.getOrderDetails() != null ? order.getOrderDetails() : Collections.emptyList();
         return buildOrderResponse(order, details);
     }
