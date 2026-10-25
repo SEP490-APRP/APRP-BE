@@ -43,6 +43,9 @@ public class BuildComboCreationRequest {
     @Size(max = 500, message = "IMAGE_URL_TOO_LONG_COMBO")
     String imageUrl;
 
+    @Size(max = 500, message = "COOKING_SUGGESTION_TOO_LONG")
+    String cookingSuggestion;
+
     @NotEmpty(message = "COMBO_ITEMS_REQUIRED")
     @Valid
     List<ProductComboItemRequest> items;

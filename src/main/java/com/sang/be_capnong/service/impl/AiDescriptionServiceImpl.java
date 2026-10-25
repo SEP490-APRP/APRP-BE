@@ -55,8 +55,8 @@ public class AiDescriptionServiceImpl implements AiDescriptionService {
     @Value("${google.gemini.api-key:}")
     String defaultApiKey;
 
-    @Value("${google.gemini.model:gemini-1.5-flash}")
-    String model = "gemini-1.5-flash";
+    @Value("${google.gemini.model:gemini-2.5-flash}")
+    String model = "gemini-2.5-flash";
 
     @Value("${google.gemini.timeout-seconds:8}")
     int timeoutSeconds = 8;
