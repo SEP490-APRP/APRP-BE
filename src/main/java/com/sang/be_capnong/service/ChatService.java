@@ -20,4 +20,6 @@ public interface ChatService {
     void markAsRead(int conversationId, int userId);
 
     long getTotalUnreadCount(int userId);
+
+    void deleteMessage(int messageId, int userId);
 }

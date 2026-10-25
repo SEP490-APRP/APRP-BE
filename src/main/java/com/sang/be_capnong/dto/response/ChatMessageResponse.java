@@ -1,5 +1,6 @@
 package com.sang.be_capnong.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
 
@@ -23,5 +24,7 @@ public class ChatMessageResponse {
     String attachmentUrl;
     Integer referenceId;
     boolean isRead;
+
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss")
     LocalDateTime sentAt;
 }

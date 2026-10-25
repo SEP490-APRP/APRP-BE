@@ -172,7 +172,9 @@ public enum ErrorCode {
     CANNOT_CHAT_WITH_SELF(11002, "You cannot chat with yourself", HttpStatus.BAD_REQUEST),
     RECEIVER_NOT_FOUND(11003, "Recipient user not found", HttpStatus.NOT_FOUND),
     CHAT_UNAUTHORIZED(11004, "You are not a participant in this conversation", HttpStatus.FORBIDDEN),
-    EMPTY_MESSAGE_CONTENT(11005, "Message content or attachment cannot be empty", HttpStatus.BAD_REQUEST)
+    EMPTY_MESSAGE_CONTENT(11005, "Message content or attachment cannot be empty", HttpStatus.BAD_REQUEST),
+    MESSAGE_NOT_FOUND(11006, "Message not found", HttpStatus.NOT_FOUND),
+    NOT_MESSAGE_SENDER(11007, "You can only delete messages sent by yourself", HttpStatus.FORBIDDEN)
     ;
 
     private final int code;

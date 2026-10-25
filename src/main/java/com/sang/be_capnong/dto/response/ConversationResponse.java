@@ -1,5 +1,6 @@
 package com.sang.be_capnong.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
 
@@ -19,6 +20,9 @@ public class ConversationResponse {
     String otherUserAvatar;
     String otherUserRole;
     String lastMessage;
+
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss")
     LocalDateTime lastMessageTime;
+
     long unreadCount;
 }

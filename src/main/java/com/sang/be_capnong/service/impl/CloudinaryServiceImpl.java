@@ -30,9 +30,19 @@ public class CloudinaryServiceImpl implements CloudinaryService {
             throw new AppException(ErrorCode.FILE_INVALID);
         }
 
-        // Limit file size (e.g. 10MB)
-        if (file.getSize() > 10 * 1024 * 1024) {
-            log.error("Upload failed: File size {} exceeds 10MB limit", file.getSize());
+        boolean isVideo = false;
+        if (file.getContentType() != null && file.getContentType().startsWith("video/")) {
+            isVideo = true;
+        } else if (file.getOriginalFilename() != null) {
+            String name = file.getOriginalFilename().toLowerCase();
+            if (name.endsWith(".mp4") || name.endsWith(".mov") || name.endsWith(".webm") || name.endsWith(".avi") || name.endsWith(".mkv")) {
+                isVideo = true;
+            }
+        }
+
+        long maxSize = isVideo ? 50L * 1024 * 1024 : 10L * 1024 * 1024;
+        if (file.getSize() > maxSize) {
+            log.error("Upload failed: File size {} exceeds {}MB limit", file.getSize(), isVideo ? 50 : 10);
             throw new AppException(ErrorCode.FILE_TOO_LARGE);
         }
 
@@ -64,14 +74,21 @@ public class CloudinaryServiceImpl implements CloudinaryService {
 
     @Override
     public void deleteImage(String publicId) {
+        deleteMedia(publicId, false);
+    }
+
+    public void deleteMedia(String publicId, boolean isVideo) {
         if (publicId == null || publicId.isBlank()) {
             return;
         }
         try {
-            log.info("Deleting image from Cloudinary: {}", publicId);
-            cloudinary.uploader().destroy(publicId, ObjectUtils.emptyMap());
+            log.info("Deleting {} from Cloudinary: {}", isVideo ? "video" : "image", publicId);
+            java.util.Map<String, Object> params = isVideo
+                    ? java.util.Map.of("resource_type", "video")
+                    : ObjectUtils.emptyMap();
+            cloudinary.uploader().destroy(publicId, params);
         } catch (Exception e) {
-            log.warn("Failed to delete image from Cloudinary with publicId: {}", publicId, e);
+            log.warn("Failed to delete media from Cloudinary with publicId: {}", publicId, e);
         }
     }
 
@@ -82,7 +99,9 @@ public class CloudinaryServiceImpl implements CloudinaryService {
         }
         String publicId = extractPublicId(imageUrl);
         if (publicId != null && !publicId.isBlank()) {
-            deleteImage(publicId);
+            boolean isVideo = imageUrl.contains("/video/upload/") ||
+                    imageUrl.toLowerCase().matches(".*\\.(mp4|mov|webm|avi|mkv)(\\?.*)?$");
+            deleteMedia(publicId, isVideo);
         } else {
             log.debug("Skipping Cloudinary deletion: URL is not a recognized Cloudinary resource: {}", imageUrl);
         }

@@ -89,4 +89,14 @@ public class ChatController {
                 .result(Map.of("unreadCount", chatService.getTotalUnreadCount(currentUserId)))
                 .build();
     }
+
+    @DeleteMapping("/messages/{messageId}")
+    public ApiResponse<Void> deleteMessage(@PathVariable int messageId) {
+        int currentUserId = SecurityUtils.getCurrentUserId();
+        chatService.deleteMessage(messageId, currentUserId);
+        return ApiResponse.<Void>builder()
+                .code(200)
+                .message("Message deleted successfully")
+                .build();
+    }
 }

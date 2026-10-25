@@ -1,6 +1,7 @@
 package com.sang.be_capnong.repository;
 
 import com.sang.be_capnong.entity.ChatMessage;
+import com.sang.be_capnong.entity.Conversation;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -26,4 +27,8 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, Intege
     @Modifying
     @Query("UPDATE ChatMessage m SET m.isRead = true WHERE m.conversation.id = :conversationId AND m.sender.id <> :userId AND m.isRead = false")
     int markAllAsReadInConversation(@Param("conversationId") int conversationId, @Param("userId") int userId);
+
+    @Modifying
+    @Query("UPDATE ChatMessage m SET m.conversation = :targetConv WHERE m.conversation.id = :oldConvId")
+    int reassignMessagesToConversation(@Param("oldConvId") int oldConvId, @Param("targetConv") Conversation targetConv);
 }

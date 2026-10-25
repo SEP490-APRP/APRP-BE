@@ -14,6 +14,7 @@ import com.sang.be_capnong.repository.ChatMessageRepository;
 import com.sang.be_capnong.repository.ConversationRepository;
 import com.sang.be_capnong.repository.UserRepository;
 import com.sang.be_capnong.service.ChatService;
+import com.sang.be_capnong.service.CloudinaryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -39,6 +40,7 @@ public class ChatServiceImpl implements ChatService {
     private final ChatMessageRepository chatMessageRepository;
     private final UserRepository userRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    private final CloudinaryService cloudinaryService;
 
     @Override
     @Transactional
@@ -92,11 +94,20 @@ public class ChatServiceImpl implements ChatService {
 
         Conversation conversation = findOrCreateConversationEntity(senderId, request.getReceiverId(), sender, receiver);
 
+        String msgType = request.getType() != null && !request.getType().isBlank() ? request.getType() : "TEXT";
+        if (request.getAttachmentUrl() != null && !request.getAttachmentUrl().isBlank()) {
+            if ("TEXT".equalsIgnoreCase(msgType)) {
+                String attach = request.getAttachmentUrl().toLowerCase();
+                boolean isVideo = attach.endsWith(".mp4") || attach.endsWith(".mov") || attach.endsWith(".webm") || attach.endsWith(".avi") || attach.endsWith(".mkv");
+                msgType = isVideo ? "VIDEO" : "IMAGE";
+            }
+        }
+
         ChatMessage message = ChatMessage.builder()
                 .conversation(conversation)
                 .sender(sender)
                 .content(hasContent ? request.getContent().trim() : "")
-                .type(request.getType() != null && !request.getType().isBlank() ? request.getType() : "TEXT")
+                .type(msgType)
                 .attachmentUrl(request.getAttachmentUrl())
                 .referenceId(request.getReferenceId())
                 .isRead(false)
@@ -115,12 +126,17 @@ public class ChatServiceImpl implements ChatService {
                 ? sender.getFullName()
                 : (sender.getEmail() != null ? sender.getEmail() : "Người dùng");
 
+        String notifContent = message.getContent();
+        if (notifContent == null || notifContent.isBlank()) {
+            notifContent = "VIDEO".equalsIgnoreCase(message.getType()) ? "[Video]" : "[Hình ảnh]";
+        }
+
         Map<String, Object> notificationPayload = Map.of(
                 "type", "NEW_MESSAGE",
                 "conversationId", conversation.getId(),
                 "senderId", senderId,
                 "senderName", senderDisplayName,
-                "content", message.getContent(),
+                "content", notifContent,
                 "unreadCount", unreadCount
         );
 
@@ -178,11 +194,22 @@ public class ChatServiceImpl implements ChatService {
 
         List<Conversation> conversations = conversationRepository.findAllByUserIdOrderByLastMessageAtDesc(userId);
         
-        // Loại bỏ trùng lặp theo otherUserId, chỉ giữ lại hội thoại mới nhất cho mỗi người dùng/nhà vườn
-        Map<Integer, ConversationResponse> uniqueMap = new java.util.LinkedHashMap<>();
+        // Loại bỏ trùng lặp theo otherUserId và hợp nhất tin nhắn nếu có nhiều hội thoại của cùng một người dùng
+        Map<Integer, Conversation> primaryConvMap = new java.util.LinkedHashMap<>();
         for (Conversation conv : conversations) {
-            ConversationResponse resp = mapToConversationResponse(conv, userId);
-            uniqueMap.putIfAbsent(resp.getOtherUserId(), resp);
+            int otherId = conv.getUser1().getId() == userId ? conv.getUser2().getId() : conv.getUser1().getId();
+            if (!primaryConvMap.containsKey(otherId)) {
+                primaryConvMap.put(otherId, conv);
+            } else {
+                Conversation mainConv = primaryConvMap.get(otherId);
+                chatMessageRepository.reassignMessagesToConversation(conv.getId(), mainConv);
+                conversationRepository.delete(conv);
+            }
+        }
+
+        Map<Integer, ConversationResponse> uniqueMap = new java.util.LinkedHashMap<>();
+        for (Map.Entry<Integer, Conversation> entry : primaryConvMap.entrySet()) {
+            uniqueMap.put(entry.getKey(), mapToConversationResponse(entry.getValue(), userId));
         }
 
         User currentUser = userRepository.findById(userId).orElse(null);
@@ -192,7 +219,7 @@ public class ChatServiceImpl implements ChatService {
         if (isCurrentUserAdmin) {
             // Đối với Admin: Chỉ hiển thị các hội thoại đã có tin nhắn thực tế từ người dùng/nhà vườn
             return uniqueMap.values().stream()
-                    .filter(c -> c.getLastMessage() != null && !c.getLastMessage().isBlank())
+                    .filter(c -> (c.getLastMessage() != null && !c.getLastMessage().isBlank()) || c.getUnreadCount() > 0)
                     .collect(java.util.stream.Collectors.toList());
         }
 
@@ -330,6 +357,21 @@ public class ChatServiceImpl implements ChatService {
             return existing.get();
         }
 
+        // Fallback: Kiểm tra cặp user đã từng có hội thoại nào trước đó chưa để tránh tạo trùng
+        List<Conversation> pairList = conversationRepository.findByUserPair(minId, maxId);
+        if (!pairList.isEmpty()) {
+            Conversation conv = pairList.get(0);
+            conv.setRoomKey(roomKey);
+            if (pairList.size() > 1) {
+                for (int i = 1; i < pairList.size(); i++) {
+                    Conversation dup = pairList.get(i);
+                    chatMessageRepository.reassignMessagesToConversation(dup.getId(), conv);
+                    conversationRepository.delete(dup);
+                }
+            }
+            return conversationRepository.save(conv);
+        }
+
         try {
             log.info("Creating new conversation roomKey: {}", roomKey);
             return conversationRepository.save(
@@ -372,6 +414,18 @@ public class ChatServiceImpl implements ChatService {
             }
         }
 
+        String lastMsgContent = "";
+        if (lastMsg != null) {
+            if (lastMsg.getContent() != null && !lastMsg.getContent().isBlank()) {
+                lastMsgContent = lastMsg.getContent();
+            } else if (lastMsg.getAttachmentUrl() != null && !lastMsg.getAttachmentUrl().isBlank()) {
+                String attach = lastMsg.getAttachmentUrl().toLowerCase();
+                boolean isVideo = "VIDEO".equalsIgnoreCase(lastMsg.getType())
+                        || attach.endsWith(".mp4") || attach.endsWith(".mov") || attach.endsWith(".webm") || attach.endsWith(".avi") || attach.endsWith(".mkv");
+                lastMsgContent = isVideo ? "[Video]" : "[Hình ảnh]";
+            }
+        }
+
         return ConversationResponse.builder()
                 .id(conv.getId())
                 .roomKey(conv.getRoomKey())
@@ -379,7 +433,7 @@ public class ChatServiceImpl implements ChatService {
                 .otherUserName(otherName)
                 .otherUserAvatar(avatar)
                 .otherUserRole(role)
-                .lastMessage(lastMsg != null ? lastMsg.getContent() : "")
+                .lastMessage(lastMsgContent)
                 .lastMessageTime(lastMsg != null ? lastMsg.getSentAt() : conv.getLastMessageAt())
                 .unreadCount(unreadCount)
                 .build();
@@ -405,5 +459,113 @@ public class ChatServiceImpl implements ChatService {
                 .isRead(Boolean.TRUE.equals(msg.getIsRead()))
                 .sentAt(msg.getSentAt())
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public void deleteMessage(int messageId, int userId) {
+        ChatMessage message = chatMessageRepository.findById(messageId)
+                .orElseThrow(() -> new AppException(ErrorCode.MESSAGE_NOT_FOUND));
+
+        User currentUser = userRepository.findById(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+
+        boolean isAdmin = currentUser.getRole() != null && "ADMIN".equalsIgnoreCase(currentUser.getRole().getName());
+
+        // Chỉ cho phép người gửi tin nhắn HOẶC Admin xóa tin nhắn
+        if (message.getSender().getId() != userId && !isAdmin) {
+            throw new AppException(ErrorCode.NOT_MESSAGE_SENDER);
+        }
+
+        Conversation conversation = message.getConversation();
+        int convId = conversation.getId();
+        int senderId = message.getSender().getId();
+        int receiverId = conversation.getUser1().getId() == senderId
+                ? conversation.getUser2().getId()
+                : conversation.getUser1().getId();
+
+        boolean wasUnread = Boolean.FALSE.equals(message.getIsRead());
+        String attachmentUrl = message.getAttachmentUrl();
+
+        // 1. Dọn dẹp tệp đính kèm trên Cloudinary nếu có (ảnh hoặc video)
+        if (attachmentUrl != null && !attachmentUrl.isBlank()) {
+            try {
+                cloudinaryService.deleteImageByUrl(attachmentUrl);
+            } catch (Exception e) {
+                log.warn("Failed to delete attachment from Cloudinary for message {}: {}", messageId, e.getMessage());
+            }
+        }
+
+        // 2. Xóa tin nhắn khỏi cơ sở dữ liệu
+        chatMessageRepository.delete(message);
+        chatMessageRepository.flush();
+
+        // 3. Cập nhật lại lastMessageAt và preview của conversation theo tin nhắn mới nhất còn lại
+        ChatMessage newLastMsg = chatMessageRepository.findFirstByConversation_IdOrderBySentAtDesc(convId)
+                .orElse(null);
+
+        String newLastContent = "";
+        LocalDateTime newLastTime = null;
+
+        if (newLastMsg != null) {
+            conversation.setLastMessageAt(newLastMsg.getSentAt());
+            if (newLastMsg.getContent() != null && !newLastMsg.getContent().isBlank()) {
+                newLastContent = newLastMsg.getContent();
+            } else if (newLastMsg.getAttachmentUrl() != null) {
+                boolean isVideo = "VIDEO".equalsIgnoreCase(newLastMsg.getType()) ||
+                        newLastMsg.getAttachmentUrl().toLowerCase().matches(".*\\.(mp4|mov|webm|avi|mkv)(\\?.*)?$");
+                newLastContent = isVideo ? "[Video]" : "[Hình ảnh]";
+            }
+            newLastTime = newLastMsg.getSentAt();
+        } else {
+            conversation.setLastMessageAt(conversation.getCreatedAt());
+            newLastTime = conversation.getCreatedAt();
+        }
+        conversationRepository.save(conversation);
+
+        // 4. Nếu tin nhắn bị xóa chưa được đọc, gửi cập nhật lại unreadCount cho người nhận
+        if (wasUnread) {
+            long newUnreadTotal = chatMessageRepository.countTotalUnreadForUser(receiverId);
+            long convUnread = chatMessageRepository.countByConversation_IdAndSender_IdNotAndIsReadFalse(convId, receiverId);
+            try {
+                messagingTemplate.convertAndSendToUser(
+                        String.valueOf(receiverId),
+                        "/queue/notifications",
+                        Map.of(
+                                "type", "UNREAD_COUNT",
+                                "conversationId", convId,
+                                "conversationUnread", convUnread,
+                                "unreadCount", newUnreadTotal
+                        )
+                );
+            } catch (Exception e) {
+                log.warn("[WS Chat] Error broadcasting unread update to user {}: {}", receiverId, e.getMessage());
+            }
+        }
+
+        // 5. Phát tín hiệu thông báo xóa tin nhắn kèm newLastMessage tới cả 2 người qua WebSocket
+        Map<String, Object> deleteNotif = new java.util.HashMap<>();
+        deleteNotif.put("type", "DELETE_MESSAGE");
+        deleteNotif.put("messageId", messageId);
+        deleteNotif.put("conversationId", convId);
+        deleteNotif.put("newLastMessage", newLastContent);
+        if (newLastTime != null) {
+            deleteNotif.put("newLastMessageTime", newLastTime.toString());
+        }
+
+        try {
+            messagingTemplate.convertAndSendToUser(
+                    String.valueOf(receiverId),
+                    "/queue/notifications",
+                    deleteNotif
+            );
+            messagingTemplate.convertAndSendToUser(
+                    String.valueOf(userId),
+                    "/queue/notifications",
+                    deleteNotif
+            );
+        } catch (Exception e) {
+            log.warn("[WS Chat] Error broadcasting delete notification: {}", e.getMessage());
+        }
     }
 }
