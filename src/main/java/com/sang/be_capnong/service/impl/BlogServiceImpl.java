@@ -31,6 +31,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,12 +43,14 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
+@Slf4j
 public class BlogServiceImpl implements BlogService {
 
     BlogRepository blogRepository;
     BlogLikeRepository blogLikeRepository;
     BlogCommentRepository blogCommentRepository;
     UserRepository userRepository;
+    SimpMessagingTemplate messagingTemplate;
 
     // ===================== CRUD APIs (SHOP & ADMIN) =====================
 
@@ -186,19 +190,38 @@ public class BlogServiceImpl implements BlogService {
         }
 
         Optional<BlogLike> existingLike = blogLikeRepository.findByBlog_BlogIdAndUser_Id(blogId, user.getId());
+        String action;
+        String message;
 
         if (existingLike.isPresent()) {
             blogLikeRepository.delete(existingLike.get());
-            return ApiResponse.<String>builder().message("Đã bỏ thích bài viết").result("UNLIKED").build();
+            blogLikeRepository.flush();
+            action = "UNLIKED";
+            message = "Đã bỏ thích bài viết";
         } else {
             BlogLike like = BlogLike.builder()
                     .blog(blog)
                     .user(user)
                     .createAt(LocalDateTime.now())
                     .build();
-            blogLikeRepository.save(like);
-            return ApiResponse.<String>builder().message("Đã thích bài viết").result("LIKED").build();
+            blogLikeRepository.saveAndFlush(like);
+            action = "LIKED";
+            message = "Đã thích bài viết";
         }
+
+        long likeCount = blogLikeRepository.countByBlog_BlogId(blogId);
+        long commentCount = blogCommentRepository.countByBlog_BlogId(blogId);
+
+        broadcastBlogEvent(blogId, Map.of(
+                "type", "LIKE_UPDATED",
+                "blogId", blogId,
+                "likeCount", likeCount,
+                "commentCount", commentCount,
+                "userId", user.getId(),
+                "action", action
+        ));
+
+        return ApiResponse.<String>builder().message(message).result(action).build();
     }
 
     @Transactional
@@ -219,7 +242,21 @@ public class BlogServiceImpl implements BlogService {
                 .createAt(LocalDateTime.now())
                 .build();
 
-        return mapToCommentResponse(blogCommentRepository.save(comment));
+        BlogComment savedComment = blogCommentRepository.save(comment);
+        BlogCommentResponse commentResponse = mapToCommentResponse(savedComment);
+
+        long likeCount = blogLikeRepository.countByBlog_BlogId(blogId);
+        long commentCount = blogCommentRepository.countByBlog_BlogId(blogId);
+
+        broadcastBlogEvent(blogId, Map.of(
+                "type", "COMMENT_ADDED",
+                "blogId", blogId,
+                "comment", commentResponse,
+                "commentCount", commentCount,
+                "likeCount", likeCount
+        ));
+
+        return commentResponse;
     }
 
     @Transactional(readOnly = true)
@@ -253,8 +290,48 @@ public class BlogServiceImpl implements BlogService {
             throw new AppException(ErrorCode.NOT_COMMENT_OWNER);
         }
 
+        int blogId = comment.getBlog().getBlogId();
         blogCommentRepository.delete(comment);
+
+        long likeCount = blogLikeRepository.countByBlog_BlogId(blogId);
+        long commentCount = blogCommentRepository.countByBlog_BlogId(blogId);
+
+        broadcastBlogEvent(blogId, Map.of(
+                "type", "COMMENT_DELETED",
+                "blogId", blogId,
+                "commentId", commentId,
+                "commentCount", commentCount,
+                "likeCount", likeCount
+        ));
+
         return ApiResponse.<Void>builder().message("Xoá bình luận thành công").build();
+    }
+
+    private void broadcastBlogEvent(int blogId, Map<String, Object> payload) {
+        Runnable broadcast = () -> {
+            try {
+                // Broadcast tới topic chi tiết của bài viết
+                messagingTemplate.convertAndSend("/topic/blogs." + blogId, payload);
+                // Broadcast tới topic chung toàn sàn (cho trang feed danh sách)
+                messagingTemplate.convertAndSend("/topic/blogs", payload);
+                log.info("[WS Blog] Broadcasted event {} for blogId={}", payload.get("type"), blogId);
+            } catch (Exception e) {
+                log.warn("[WS Blog] Failed to broadcast blog event: {}", e.getMessage());
+            }
+        };
+
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            broadcast.run();
+                        }
+                    }
+            );
+        } else {
+            broadcast.run();
+        }
     }
 
     // ===================== HELPER METHODS =====================
