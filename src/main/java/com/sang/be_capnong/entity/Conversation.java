@@ -9,7 +9,11 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 @Entity
-@Table(name = "conversations")
+@Table(name = "conversations", indexes = {
+    @Index(name = "idx_conv_user1", columnList = "user1_id"),
+    @Index(name = "idx_conv_user2", columnList = "user2_id"),
+    @Index(name = "idx_conv_last_msg", columnList = "lastMessageAt")
+})
 @Getter
 @Setter
 @NoArgsConstructor
@@ -22,6 +26,7 @@ public class Conversation {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     int id;
 
+    @Column(name = "room_key", unique = true, length = 50, nullable = false)
     String roomKey;
     LocalDateTime createdAt;
     LocalDateTime lastMessageAt;

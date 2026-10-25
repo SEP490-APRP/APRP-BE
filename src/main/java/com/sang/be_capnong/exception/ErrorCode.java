@@ -168,6 +168,15 @@ public enum ErrorCode {
     MAX_ADDRESSES_REACHED(9502, "You have reached the maximum limit of 10 saved addresses", HttpStatus.BAD_REQUEST),
     ADDRESS_UNAUTHORIZED(9503, "You do not have permission to access or modify this address", HttpStatus.FORBIDDEN),
 
+    // Chat Errors (Series 12000)
+    CONVERSATION_NOT_FOUND(12001, "Conversation not found", HttpStatus.NOT_FOUND),
+    CANNOT_CHAT_WITH_SELF(12002, "You cannot chat with yourself", HttpStatus.BAD_REQUEST),
+    RECEIVER_NOT_FOUND(12003, "Recipient user not found", HttpStatus.NOT_FOUND),
+    CHAT_UNAUTHORIZED(12004, "You are not a participant in this conversation", HttpStatus.FORBIDDEN),
+    EMPTY_MESSAGE_CONTENT(12005, "Message content or attachment cannot be empty", HttpStatus.BAD_REQUEST),
+    MESSAGE_NOT_FOUND(12006, "Message not found", HttpStatus.NOT_FOUND),
+    NOT_MESSAGE_SENDER(12007, "You can only delete messages sent by yourself", HttpStatus.FORBIDDEN),
+
     // AI Build Plan & Health Profile Errors (Series 11000)
     ALLERGEN_NOT_FOUND(11001, "Allergen not found", HttpStatus.NOT_FOUND),
     ALLERGEN_NAME_EXISTED(11002, "Allergen name already exists", HttpStatus.BAD_REQUEST),
