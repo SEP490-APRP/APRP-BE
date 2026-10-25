@@ -2,7 +2,7 @@
 -- CAPNONG (SEP490) - FULL DATABASE SCHEMA & SEED DATA (sep.sql)
 -- Chuẩn hóa theo 100% Entity Spring Boot (APRP-BE)
 -- Tham khảo cấu trúc và dữ liệu từ swd.sql và exe.sql
--- Mật khẩu mặc định tất cả tài khoản test: Admin@123 (hoặc 123456)
+-- Mật khẩu mặc định tất cả tài khoản test: Admin@123
 -- BCrypt hash: $2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K (Admin@123)
 -- ==============================================================================
 

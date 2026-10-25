@@ -17,6 +17,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.Principal;
 import java.time.LocalDateTime;
 
 @Service
@@ -95,6 +96,38 @@ public class ShipperServiceImpl implements ShipperService {
                 .orElse(ShipperStatusResponse.builder()
                         .isOnline(false)
                         .build());
+    }
+
+    @Override
+    @Transactional
+    public com.sang.be_capnong.dto.response.ShipperLocationResponse updateLocation(com.sang.be_capnong.dto.request.ShipperLocationRequest request, Principal principal) {
+        User shipper = null;
+        if (principal != null) {
+            try {
+                int userId = Integer.parseInt(principal.getName());
+                shipper = userRepository.findById(userId).orElse(null);
+            } catch (Exception e) {
+                log.warn("[ShipperService] Could not parse principal userId: {}", principal.getName());
+            }
+        }
+
+        // Fallback: nếu không có principal thì lấy shipper được gán cho order
+        if (shipper == null && request.getOrderId() != null) {
+            com.sang.be_capnong.entity.Order order = orderRepository.findById(request.getOrderId()).orElse(null);
+            if (order != null && order.getShipper() != null) {
+                shipper = userRepository.findById(order.getShipper().getId()).orElse(null);
+            }
+        }
+
+        if (shipper == null) {
+            log.warn("[ShipperService] No shipper found for location update on order {}", request.getOrderId());
+            return null;
+        }
+
+        log.debug("[ShipperService] Location update: orderId={}, shipperId={}, lat={}, lng={}, isFake={}",
+                request.getOrderId(), shipper.getId(), request.getLatitude(), request.getLongitude(), request.getIsFake());
+
+        return updateLocationByShipper(shipper, request);
     }
 
     @Override

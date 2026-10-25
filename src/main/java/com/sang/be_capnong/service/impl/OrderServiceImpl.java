@@ -262,10 +262,19 @@ public class OrderServiceImpl implements OrderService {
             }
         }
 
-        // 5. Dọn dẹp giỏ hàng — CHỈ xoá những món đã được tick mua (FE gửi cartItemIds)
-        //    Những món không tick vẫn được giữ lại trong giỏ
+        // 5. Dọn dẹp giỏ hàng — CHỈ xoá những món đã được tick mua VÀ thuộc về buyer hiện tại
+        //    (Chống lỗ hổng IDOR xóa nhầm/xóa trộm giỏ hàng của người khác khi Checkout)
         if (request.getCartItemIds() != null && !request.getCartItemIds().isEmpty()) {
-            cartItemRepository.deleteAllById(request.getCartItemIds());
+            List<CartItem> itemsToDelete = cartItemRepository.findAllById(request.getCartItemIds())
+                    .stream()
+                    .filter(item -> item.getCart() != null
+                            && item.getCart().getUser() != null
+                            && Objects.equals(item.getCart().getUser().getId(), buyer.getId()))
+                    .toList();
+
+            if (!itemsToDelete.isEmpty()) {
+                cartItemRepository.deleteAll(itemsToDelete);
+            }
         }
 
         return responses;
