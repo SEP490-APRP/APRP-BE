@@ -42,12 +42,23 @@ public class Review {
 
     BigDecimal ratingStar;
 
-    @Column(length = 255)
+    @Column(columnDefinition = "TEXT")
     String comment;
+
+    @Column(length = 500)
+    String evidence;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "mystery_id")
+    MysteryBox mysteryBox;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "combo_id")
+    BuildCombo buildCombo;
 
     LocalDateTime createAt;
 
-    @Column(length = 255)
+    @Column(columnDefinition = "TEXT")
     String replyFromShop;
 
     @OneToMany(mappedBy = "review", cascade = CascadeType.ALL, orphanRemoval = true)

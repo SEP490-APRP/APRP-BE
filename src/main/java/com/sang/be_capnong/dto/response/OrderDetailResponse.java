@@ -18,4 +18,5 @@ public class OrderDetailResponse {
     Integer quantity;
     BigDecimal unitPrice;
     BigDecimal subtotal; // unitPrice * quantity
+    Boolean isReviewed;
 }

@@ -172,7 +172,17 @@ public enum ErrorCode {
     CANNOT_CHAT_WITH_SELF(11002, "You cannot chat with yourself", HttpStatus.BAD_REQUEST),
     RECEIVER_NOT_FOUND(11003, "Recipient user not found", HttpStatus.NOT_FOUND),
     CHAT_UNAUTHORIZED(11004, "You are not a participant in this conversation", HttpStatus.FORBIDDEN),
-    EMPTY_MESSAGE_CONTENT(11005, "Message content or attachment cannot be empty", HttpStatus.BAD_REQUEST)
+    EMPTY_MESSAGE_CONTENT(11005, "Message content or attachment cannot be empty", HttpStatus.BAD_REQUEST),
+
+    // Review Errors (Series 12000)
+    REVIEW_NOT_FOUND(12001, "Review not found", HttpStatus.NOT_FOUND),
+    REVIEW_ALREADY_EXISTS(12002, "This order item has already been reviewed", HttpStatus.BAD_REQUEST),
+    ORDER_NOT_DELIVERED(12003, "Order must be delivered before writing a review", HttpStatus.BAD_REQUEST),
+    NOT_ORDER_BUYER(12004, "You do not have permission to review this order item", HttpStatus.FORBIDDEN),
+    NOT_REVIEW_SHOP(12005, "You do not have permission to reply to this review", HttpStatus.FORBIDDEN),
+    INVALID_RATING(12006, "Rating star must be between 1 and 5", HttpStatus.BAD_REQUEST),
+    ORDER_DETAIL_NOT_FOUND(12007, "Order item not found", HttpStatus.NOT_FOUND),
+    INVALID_REVIEW_TARGET(12008, "Either orderDetailId or mysteryBoxId must be provided", HttpStatus.BAD_REQUEST)
     ;
 
     private final int code;

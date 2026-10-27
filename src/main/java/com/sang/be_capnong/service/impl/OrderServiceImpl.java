@@ -1199,6 +1199,7 @@ public class OrderServiceImpl implements OrderService {
                     .quantity(d.getQuantity())
                     .unitPrice(d.getUnitPrice())
                     .subtotal(subtotal)
+                    .isReviewed(d.getReviews() != null && !d.getReviews().isEmpty())
                     .build());
         }
 
