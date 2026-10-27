@@ -32,4 +32,17 @@ public class UploadController {
                 .result(UploadResponse.builder().url(url).build())
                 .build();
     }
+
+    @PostMapping(value = {"/video", "/media"}, consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<UploadResponse> uploadMedia(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "folder", defaultValue = "chat") String folder
+    ) {
+        log.info("REST request to upload video/media to folder: {}", folder);
+        String url = cloudinaryService.uploadImage(file, folder);
+
+        return ApiResponse.<UploadResponse>builder()
+                .result(UploadResponse.builder().url(url).build())
+                .build();
+    }
 }

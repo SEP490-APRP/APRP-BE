@@ -302,6 +302,7 @@ CREATE TABLE build_combos (
     sold_quantity INT DEFAULT 0,
     image_url VARCHAR(500),
     status VARCHAR(50) DEFAULT 'ACTIVE',
+    cooking_suggestion VARCHAR(500),
     CONSTRAINT fk_combos_shop FOREIGN KEY (shop_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -697,8 +698,8 @@ CREATE TABLE build_plans (
     number_of_people INT,
     meal_type VARCHAR(50),
     target_budget DECIMAL(18,2),
-    status ENUM('DRAFT', 'ACTIVE', 'COMPLETED', 'CANCELLED') DEFAULT 'ACTIVE',
-    source ENUM('AI_GENERATED', 'MANUAL') DEFAULT 'AI_GENERATED',
+    status VARCHAR(50) DEFAULT 'AI_DRAFT',
+    source VARCHAR(50) DEFAULT 'AI',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_plan_buyer FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE
@@ -759,19 +760,19 @@ ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description);
 
 -- 3.2 USERS
 -- Mật khẩu mặc định: Admin@123 ($2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K)
-INSERT INTO users (id, email, password, role_id, status, full_name, phone_number, address, shop_name, shop_active, bank_name, bank_account, bank_account_holder, rating_average, description, logo_url, achievement, license, vehicle_number, create_at) VALUES
-(1, 'admin@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 4, 'ACTIVE', 'Quản Trị Viên Hệ Thống', '0900000000', '1 Công Xã Paris, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh', NULL, 0, 'Vietcombank', '0011001234567', 'CAPNONG ADMIN', 5.0, 'Quản trị viên toàn hệ thống CapNong', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252968/brands/vxm3b2gvixlqzf7xocoy.jpg', 'SuperAdmin', NULL, NULL, NOW()),
+INSERT INTO users (id, email, password, role_id, status, full_name, phone_number, address, shop_name, shop_active, bank_name, bank_account, bank_account_holder, rating_average, description, logo_url, achievement, license, vehicle_number, diet_preference, create_at) VALUES
+(1, 'admin@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 4, 'ACTIVE', 'Quản Trị Viên Hệ Thống', '0900000000', '1 Công Xã Paris, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh', NULL, 0, 'Vietcombank', '0011001234567', 'CAPNONG ADMIN', 5.0, 'Quản trị viên toàn hệ thống CapNong', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252968/brands/vxm3b2gvixlqzf7xocoy.jpg', 'SuperAdmin', NULL, NULL, NULL, NOW()),
 
-(2, 'buyer1@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 1, 'ACTIVE', 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', NULL, 0, 'VietinBank', '101888888888', 'NGO GIA SANG', 5.0, 'Khách hàng thân thiết', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252968/brands/vxm3b2gvixlqzf7xocoy.jpg', NULL, NULL, NULL, NOW()),
+(2, 'buyer1@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 1, 'ACTIVE', 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', NULL, 0, 'VietinBank', '101888888888', 'NGO GIA SANG', 5.0, 'Khách hàng thân thiết', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252968/brands/vxm3b2gvixlqzf7xocoy.jpg', NULL, NULL, NULL, 'VEGETARIAN', NOW()),
 
-(3, 'buyer2@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 1, 'ACTIVE', 'Trần Thị Mai', '0911111112', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', NULL, 0, 'MBBank', '970422888888', 'TRAN THI MAI', 5.0, 'Khách hàng', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252968/brands/vxm3b2gvixlqzf7xocoy.jpg', NULL, NULL, NULL, NOW()),
+(3, 'buyer2@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 1, 'ACTIVE', 'Trần Thị Mai', '0911111112', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', NULL, 0, 'MBBank', '970422888888', 'TRAN THI MAI', 5.0, 'Khách hàng', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252968/brands/vxm3b2gvixlqzf7xocoy.jpg', NULL, NULL, NULL, 'VEGAN', NOW()),
 
-(4, 'shop1@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 2, 'ACTIVE', 'Trần Văn Kiệt (Nhà Vườn 1)', '0933333333', 'Số 1 Võ Văn Ngân, Phường Linh Chiểu, Thành phố Thủ Đức, TP. Hồ Chí Minh', 'Nông Sản Xấu Mã - Vườn Đà Lạt', 1, 'Vietcombank', '0071000123456', 'TRAN VAN KIET', 4.9, 'Chuyên rau củ quả organic sạch từ Đà Lạt và các vùng nông nghiệp sạch chuẩn VietGAP.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252594/brands/srflhqfol1ckwavsaa1n.jpg', 'Hạt Giống Vàng', NULL, NULL, NOW()),
+(4, 'shop1@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 2, 'ACTIVE', 'Trần Văn Kiệt (Nhà Vườn 1)', '0933333333', 'Số 1 Võ Văn Ngân, Phường Linh Chiểu, Thành phố Thủ Đức, TP. Hồ Chí Minh', 'Nông Sản Xấu Mã - Vườn Đà Lạt', 1, 'Vietcombank', '0071000123456', 'TRAN VAN KIET', 4.9, 'Chuyên rau củ quả organic sạch từ Đà Lạt và các vùng nông nghiệp sạch chuẩn VietGAP.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252594/brands/srflhqfol1ckwavsaa1n.jpg', 'Hạt Giống Vàng', NULL, NULL, NULL, NOW()),
 
-(5, 'shop2@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 2, 'ACTIVE', 'Lê Thị Ngọc (Nhà Vườn 2)', '0944444444', 'Đường Nguyễn Du, Khu Đô thị Đại học Quốc gia, Dĩ An, Bình Dương', 'Vườn Xanh Bình Dương & Miền Tây', 1, 'Techcombank', '19034567890123', 'LE THI NGOC', 4.8, 'Chuyên rau củ quả tươi miền Nam, trái cây đặc sản miền Tây chất lượng cao, thu hái trong ngày.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252337/brands/t9muel0yqmqfzfu3ndij.jpg', 'Nông Dân Tinh Hoa', NULL, NULL, NOW()),
+(5, 'shop2@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 2, 'ACTIVE', 'Lê Thị Ngọc (Nhà Vườn 2)', '0944444444', 'Đường Nguyễn Du, Khu Đô thị Đại học Quốc gia, Dĩ An, Bình Dương', 'Vườn Xanh Bình Dương & Miền Tây', 1, 'Techcombank', '19034567890123', 'LE THI NGOC', 4.8, 'Chuyên rau củ quả tươi miền Nam, trái cây đặc sản miền Tây chất lượng cao, thu hái trong ngày.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252337/brands/t9muel0yqmqfzfu3ndij.jpg', 'Nông Dân Tinh Hoa', NULL, NULL, NULL, NOW()),
 
-(6, 'shipper1@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 3, 'ACTIVE', 'Nguyễn Văn Hoàng (Shipper)', '0922222222', 'Số 1 Võ Văn Ngân, Phường Linh Chiểu, Thành phố Thủ Đức, TP. Hồ Chí Minh', NULL, 0, 'VietinBank', '101899999999', 'NGUYEN VAN HOANG', 4.9, 'Shipper nhiệt tình chuyên nghiệp thùng cách nhiệt bảo quản rau tươi', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252921/brands/xu1pv9ty2njacb3bhozh.jpg', NULL, 'A1-99999999', '59-X1 123.45', NOW())
-ON DUPLICATE KEY UPDATE email=VALUES(email);
+(6, 'shipper1@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 3, 'ACTIVE', 'Nguyễn Văn Hoàng (Shipper)', '0922222222', 'Số 1 Võ Văn Ngân, Phường Linh Chiểu, Thành phố Thủ Đức, TP. Hồ Chí Minh', NULL, 0, 'VietinBank', '101899999999', 'NGUYEN VAN HOANG', 4.9, 'Shipper nhiệt tình chuyên nghiệp thùng cách nhiệt bảo quản rau tươi', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252921/brands/xu1pv9ty2njacb3bhozh.jpg', NULL, 'A1-99999999', '59-X1 123.45', NULL, NOW())
+ON DUPLICATE KEY UPDATE email=VALUES(email), diet_preference=VALUES(diet_preference);
 
 -- 3.3 CATEGORIES
 INSERT INTO categories (category_id, name, description) VALUES
@@ -784,7 +785,7 @@ ON DUPLICATE KEY UPDATE name=VALUES(name);
 
 -- 3.4 PRODUCTS (ĐƯỢC GẮN VỚI SHOP 4 VÀ SHOP 5)
 INSERT INTO products (product_id, shop_id, category_id, product_name, unit, selling_price, stock_quantity, description, status, expiry_date, discount_percent) VALUES
--- Shop 1 (id: 4)
+-- Shop 1 (id: 4) - Vườn Đà Lạt
 (101, 4, 1, 'Rau muống sạch Đà Lạt', 'bó', 12000, 100, 'Rau muống tươi xanh ngọn non mướt, thu hoạch sáng sớm từ vườn hữu cơ Đà Lạt.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 5 DAY), 0),
 (102, 4, 1, 'Cải ngọt tươi giòn', 'bó', 15000, 80, 'Cải ngọt trồng theo hướng hữu cơ, lá mướt xanh không dập nát, phù hợp xào nấu canh.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 4 DAY), 10),
 (103, 4, 1, 'Xà lách mỡ giòn ngọt', 'túi', 18000, 60, 'Xà lách mỡ tươi rửa sạch ăn sống ngay, thích hợp làm salad giải nhiệt.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 6 DAY), 0),
@@ -794,8 +795,14 @@ INSERT INTO products (product_id, shop_id, category_id, product_name, unit, sell
 (107, 4, 2, 'Khoai lang mật tím', 'kg', 28000, 75, 'Khoai lang mật tím dẻo ngọt, nướng hoặc hấp thơm lừng.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 15 DAY), 0),
 (108, 4, 3, 'Cà chua bi ngọt mọng nước', 'kg', 35000, 60, 'Cà chua chín cây đỏ mọng, giàu vitamin C và chất chống oxy hóa lycopene.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
 (109, 4, 3, 'Dâu tây giống Nhật Đà Lạt', 'kg', 180000, 30, 'Dâu tây đỏ mọng hái sáng sớm tại nhà kính Đà Lạt, ngọt thanh chua nhẹ.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 3 DAY), 15),
+(209, 4, 4, 'Nấm đùi gà hữu cơ Đà Lạt', 'khay', 32000, 80, 'Nấm đùi gà thịt dày dai ngọt, giàu đạm thực vật và khoáng chất, tuyệt hảo cho món xào nướng lẩu.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
+(210, 4, 4, 'Nấm rơm tươi Đồng Nai', 'khay', 28000, 60, 'Nấm rơm tròn búp tươi ngon, vị ngọt thanh tự nhiên, phù hợp nấu súp, canh chay, kho quẹt.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 4 DAY), 0),
+(211, 4, 4, 'Đậu hũ non organic đậu nành', 'hộp', 14000, 100, 'Đậu hũ non mềm mịn béo ngậy từ 100% đậu nành không biến đổi gen, giàu protein thực vật.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 6 DAY), 0),
+(214, 4, 1, 'Bông cải xanh (Broccoli) Đà Lạt', 'kg', 38000, 70, 'Bông cải xanh đậm màu tươi giòn, giàu chất chống oxy hóa và chất xơ cao.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 6 DAY), 0),
+(217, 4, 2, 'Bí ngòi xanh Đà Lạt', 'kg', 26000, 65, 'Bí ngòi xanh vỏ bóng giòn ngọt, ít calo giàu nước, phù hợp xào tỏi hoặc nấu canh.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
+(218, 4, 3, 'Ớt chuông đỏ ngọt Đà Lạt', 'kg', 42000, 55, 'Ớt chuông đỏ dày cùi giòn ngọt, giàu vitamin C gấp 3 lần cam, lý tưởng làm salad.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 8 DAY), 0),
 
--- Shop 2 (id: 5)
+-- Shop 2 (id: 5) - Vườn Miền Tây
 (201, 5, 1, 'Rau ngót vườn hữu cơ', 'bó', 10000, 80, 'Rau ngót lá nhỏ xanh đậm, nấu canh thịt bằm ngọt mát.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 4 DAY), 0),
 (202, 5, 1, 'Mồng tơi ngọn non', 'bó', 10000, 90, 'Mồng tơi xanh non, thích hợp nấu canh cua rau đay mồng tơi thanh mát.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 3 DAY), 0),
 (203, 5, 2, 'Bí đỏ hồ lô dẻo ngọt', 'kg', 22000, 70, 'Bí đỏ hồ lô hạt lép thịt dày, giàu vitamin A, nấu chè hầm canh đều ngon.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 30 DAY), 0),
@@ -803,7 +810,11 @@ INSERT INTO products (product_id, shop_id, category_id, product_name, unit, sell
 (205, 5, 3, 'Bưởi da xanh Bến Tre', 'kg', 65000, 50, 'Bưởi da xanh tép hồng mọng nước, vị ngọt thanh không chua, múi tróc vỏ.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 20 DAY), 0),
 (206, 5, 3, 'Cam sành Tiền Giang', 'kg', 35000, 150, 'Cam sành vỏ mỏng mọng nước, vị chua ngọt tự nhiên giàu vitamin C giải khát.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 12 DAY), 0),
 (207, 5, 3, 'Xoài cát Hòa Lộc Tiền Giang', 'kg', 85000, 40, 'Xoài cát Hòa Lộc nức tiếng thịt vàng ươm, thơm ngát, vị ngọt đậm đà.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 8 DAY), 10),
-(208, 5, 3, 'Dưa hấu ruột đỏ ngọt lịm', 'kg', 14000, 180, 'Dưa hấu vỏ mỏng ruột đỏ đặc ruột, ngọt lịm giải nhiệt.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 14 DAY), 0)
+(208, 5, 3, 'Dưa hấu ruột đỏ ngọt lịm', 'kg', 14000, 180, 'Dưa hấu vỏ mỏng ruột đỏ đặc ruột, ngọt lịm giải nhiệt.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 14 DAY), 0),
+(212, 5, 2, 'Hạt sen tươi Đồng Tháp Mười', 'gói', 45000, 50, 'Hạt sen tươi bỏ tâm không đắng, vị bùi bở thơm mát, bổ tâm an thần, tốt cho giấc ngủ.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 10 DAY), 0),
+(213, 5, 2, 'Bắp ngọt vàng Tiền Giang', 'trái', 12000, 120, 'Bắp ngọt hạt đều căng mọng, vị ngọt tự nhiên đậm đà, luộc hay nấu canh đều ngon.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 8 DAY), 0),
+(215, 5, 3, 'Bơ sáp Đắk Lắk dẻo béo', 'kg', 45000, 90, 'Bơ sáp loại 1 thịt vàng dẻo quánh, giàu chất béo tốt không bão hòa và vitamin E.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
+(216, 5, 3, 'Chuối già Nam Mỹ hữu cơ', 'nải', 25000, 80, 'Chuối chín thơm ngon dẻo ngọt, nguồn kali và năng lượng lành mạnh tự nhiên.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 6 DAY), 0)
 ON DUPLICATE KEY UPDATE product_name=VALUES(product_name), selling_price=VALUES(selling_price);
 
 -- 3.5 MYSTERY BOXES & BUILD COMBOS (REFERENCED FROM EXE.SQL / SWD.SQL)
@@ -827,35 +838,81 @@ INSERT INTO product_mystery (product_id, mystery_id, product_quantity) VALUES
 (208, @box_shop2_2, 2), (205, @box_shop2_2, 1), (206, @box_shop2_2, 1)
 ON DUPLICATE KEY UPDATE product_quantity=VALUES(product_quantity);
 
-INSERT INTO build_combos (combo_id, shop_id, combo_name, price, description, type, meal_type, region, total_quantity, sold_quantity, image_url, status) VALUES
-(1, 4, 'Combo Detox Củ Quả Sáng', 70000, 'Bộ củ quả giải độc buổi sáng: cà rốt tươi ngọt, cần tây giòn mát, gừng ấm bụng, dưa leo thanh mát.', 'Available', 'BREAKFAST', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916721/brands/uj1eoinkwvthfjvtpvpq.jpg', 'ACTIVE'),
-(2, 4, 'Combo Salad Eat Clean Đà Lạt', 75000, 'Bộ rau củ cho bữa salad eat clean: dưa leo giòn mát, cà chua đỏ ngọt, ớt chuông nhiều vitamin C, cần tây ít calo.', 'Available', 'BREAKFAST', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917431/brands/yif2icgotbydg5qvzvbf.jpg', 'ACTIVE'),
-(3, 4, 'Combo Hầm Súp Củ Quả', 85000, 'Rau củ đầy đủ để hầm nồi súp bổ dưỡng: cà rốt, khoai tây, bí đỏ, hành tây.', 'Available', 'LUNCH', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916676/brands/bmgnazybi0rro8bnxhwp.jpg', 'ACTIVE'),
-(4, 4, 'Combo Xào Củ Quả Thập Cẩm', 75000, 'Hỗn hợp củ quả để xào nhanh: hành tây, cà chua, mướp, tỏi.', 'Available', 'LUNCH', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917463/brands/xjz74sedvolg7woxywpo.jpg', 'ACTIVE'),
-(5, 4, 'Combo Tráng Miệng Trái Cây Đà Lạt', 175000, 'Bộ trái cây Đà Lạt tươi cho bữa tráng miệng: dâu tây, táo, chuối.', 'Available', 'SNACK', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773943061/brands/qtspypfmdjcxtsbme7xi.jpg', 'ACTIVE'),
-(6, 5, 'Combo Ép Vitamin C Buổi Sáng', 110000, 'Trái cây giàu vitamin C cho buổi sáng: cam, bưởi, ổi.', 'Available', 'BREAKFAST', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916481/brands/s5ld5232nl4s4fwczawr.jpg', 'ACTIVE'),
-(7, 5, 'Combo Xào Cà Tím Sả Ớt', 60000, 'Nguyên liệu xào cà tím đặc sản miền Nam: cà tím, hành tím, sả, ớt đỏ.', 'Available', 'LUNCH', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773943685/brands/sn8j7wqbpp6uhtitk5nf.jpg', 'ACTIVE'),
-(8, 5, 'Combo Giải Nhiệt Mùa Hè', 75000, 'Trái cây giải nhiệt mùa hè: dưa hấu, thanh long, cam.', 'Available', 'SNACK', 'MIEN_NAM', 20, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917373/brands/h0mivuwgipa6hssaawfi.jpg', 'ACTIVE')
-ON DUPLICATE KEY UPDATE combo_name=VALUES(combo_name), price=VALUES(price), description=VALUES(description), status=VALUES(status);
+-- 20 COMBOS PHỤC VỤ ĐẦY ĐỦ CÁC BỮA (SÁNG, TRƯA, TỐI, PHỤ) & CÁC CHẾ ĐỘ ĂN (CHAY, EAT CLEAN, TIẾT KIỆM)
+INSERT INTO build_combos (combo_id, shop_id, combo_name, price, description, type, meal_type, region, total_quantity, sold_quantity, image_url, status, cooking_suggestion) VALUES
+-- BỮA SÁNG (BREAKFAST)
+(1, 4, 'Combo Detox Củ Quả Sáng', 70000, 'Bộ củ quả giải độc buổi sáng: cà rốt tươi ngọt, cải ngọt giòn mát, khoai lang bùi ngọt và xà lách sạch.', 'Nước Ép & Luộc', 'BREAKFAST', 'MIEN_NAM', 50, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916721/brands/uj1eoinkwvthfjvtpvpq.jpg', 'ACTIVE', 'Ép nước tươi uống giải độc hoặc luộc chấm muối mè; có thể ăn kèm 1 quả trứng luộc hoặc lát bánh mì nguyên cám.'),
+(2, 4, 'Combo Salad Eat Clean Đà Lạt', 75000, 'Bộ rau củ cho bữa salad eat clean: xà lách mỡ, cà chua bi, cải bó xôi và ớt chuông đỏ giàu vitamin C.', 'Salad Eat Clean', 'BREAKFAST', 'DA_LAT', 50, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917431/brands/yif2icgotbydg5qvzvbf.jpg', 'ACTIVE', 'Trộn trực tiếp với sốt mè rang hoặc dầu giấm balsamic; gợi ý thêm 100g ức gà áp chảo hoặc đậu hũ cắt hạt lựu.'),
+(6, 5, 'Combo Ép Vitamin C Buổi Sáng', 85000, 'Trái cây giàu vitamin C khởi đầu ngày mới: cam sành mọng nước, bưởi da xanh và xoài cát thanh mát.', 'Nước Ép / Sinh Tố', 'BREAKFAST', 'MIEN_TAY', 50, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916481/brands/s5ld5232nl4s4fwczawr.jpg', 'ACTIVE', 'Vắt nước cam hoặc ép bưởi da xanh uống tươi nguyên chất, không cần thêm nguyên liệu bên ngoài.'),
+(9, 4, 'Combo Súp Nấm Hạt Sen Dưỡng Thần', 80000, 'Bữa sáng ấm bụng nhẹ nhàng: nấm đùi gà dai ngọt, hạt sen tươi bổ dưỡng, bắp ngọt và cà rốt bùi.', 'Món Canh / Súp', 'BREAKFAST', 'MIEN_BAC', 50, 0, 'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=600&h=400&fit=crop', 'ACTIVE', 'Nấu súp ngọt tự nhiên từ nấm và bắp ngọt; có thể thêm ức gà xé sợi hoặc nấu thuần chay thanh tịnh.'),
+(10, 4, 'Combo Canh Nấm Đậu Hũ Thanh Đạm', 75000, 'Bữa sáng ấm nóng: nấm rơm búp, đậu hũ non béo mềm, cải bó xôi và cà rốt giàu protein thực vật.', 'Món Canh', 'BREAKFAST', 'MIEN_TRUNG', 50, 0, 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&h=400&fit=crop', 'ACTIVE', 'Món chay hoàn chỉnh giàu đạm thực vật từ đậu hũ non và nấm rơm; rắc hành ngò tiêu xay, không cần thêm thịt cá.'),
 
-SET @combo_detox = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Detox Củ Quả Sáng' AND shop_id=4);
-SET @combo_salad = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Salad Eat Clean Đà Lạt' AND shop_id=4);
-SET @combo_sup = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Hầm Súp Củ Quả' AND shop_id=4);
-SET @combo_xao = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Xào Củ Quả Thập Cẩm' AND shop_id=4);
-SET @combo_fruit = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Tráng Miệng Trái Cây Đà Lạt' AND shop_id=4);
-SET @combo_vitamin = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Ép Vitamin C Buổi Sáng' AND shop_id=5);
-SET @combo_ca_tim = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Xào Cà Tím Sả Ớt' AND shop_id=5);
-SET @combo_cool = (SELECT combo_id FROM build_combos WHERE combo_name='Combo Giải Nhiệt Mùa Hè' AND shop_id=5);
+-- BỮA TRƯA (LUNCH)
+(3, 4, 'Combo Hầm Súp Củ Quả Đà Lạt', 85000, 'Rau củ đầy đủ hầm nồi súp trưa dinh dưỡng: khoai tây ruột vàng, cà rốt hữu cơ, khoai lang và cải bó xôi.', 'Món Kho / Hầm', 'LUNCH', 'DA_LAT', 50, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916676/brands/bmgnazybi0rro8bnxhwp.jpg', 'ACTIVE', 'Hầm lấy nước ngọt tự nhiên từ củ quả Đà Lạt; rất hợp ninh cùng 200g sườn non heo hoặc thịt bắp bò mua ngoài chợ.'),
+(7, 5, 'Combo Xào Cà Tím & Canh Rau Ngót', 60000, 'Cơm trưa đậm vị quê nhà miền Tây: bí đỏ hồ lô, củ cải trắng ngọt mát, mồng tơi và rau ngót non.', 'Món Xào & Canh', 'LUNCH', 'MIEN_TAY', 50, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773943685/brands/sn8j7wqbpp6uhtitk5nf.jpg', 'ACTIVE', 'Cà tím xào thơm với tía tô hoặc thịt băm; rau ngót nấu canh tôm đồng hoặc thịt nạc dăm ngọt mát.'),
+(11, 5, 'Combo Canh Chua Nông Sản Nam Bộ', 70000, 'Canh chua thanh tịnh: cà chua bi chín cây, củ cải trắng thanh ngọt, bắp ngọt Tiền Giang và mồng tơi tươi.', 'Món Canh', 'LUNCH', 'MIEN_NAM', 50, 0, 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&h=400&fit=crop', 'ACTIVE', 'Rất hợp nấu canh chua cùng cá lóc hoặc tôm sông (mua ngoài chợ); hoặc nấu canh chua chay với đậu hũ non.'),
+(12, 4, 'Combo Rau Củ Kho Quẹt & Đậu Hũ', 80000, 'Đậu hũ non organic áp chảo ăn kèm đĩa rau củ hấp ngũ sắc: bông cải xanh, cà rốt và cải ngọt Đà Lạt.', 'Món Hấp / Luộc', 'LUNCH', 'MIEN_NAM', 50, 0, 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=600&h=400&fit=crop', 'ACTIVE', 'Hấp chín ngũ sắc chấm kèm kho quẹt tôm thịt hoặc kho quẹt nấm chay; đậu hũ áp chảo vàng giòn.'),
+(13, 4, 'Combo Nấm Xào Ngũ Sắc Dinh Dưỡng', 85000, 'Nấm đùi gà, nấm rơm xào cùng bông cải xanh giòn ngọt và cà rốt giàu chất xơ, đạm lành mạnh.', 'Món Xào', 'LUNCH', 'DA_LAT', 50, 0, 'https://images.unsplash.com/photo-1543339308-43e59d6b73a6?w=600&h=400&fit=crop', 'ACTIVE', 'Nấm và bông cải xào tỏi dầu hào; có thể xào cùng 150g thịt bò nạc thái mỏng hoặc giữ thuần chay ăn thanh đạm.'),
+(19, 4, 'Combo Cơm Nhà Đậu Sốt Cà & Rau Luộc', 75000, 'Mâm cơm trưa truyền thống ấm cúng: đậu hũ non sốt cà chua bi, canh rau muống luộc và bí ngòi xanh ngọt mát.', 'Món Mặn & Canh', 'LUNCH', 'MIEN_BAC', 50, 0, 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&h=400&fit=crop', 'ACTIVE', 'Mâm cơm thanh đạm đạm thực vật hoàn chỉnh: Đậu hũ sốt cà chua, canh rau muống luộc dầm sấu/chanh, không cần thêm thịt cá.'),
+
+-- BỮA TỐI (DINNER)
+(4, 4, 'Combo Xào Củ Quả Thập Cẩm', 75000, 'Món xào tối ấm nóng nhanh gọn: bông cải xanh, cà chua bi mọng nước, khoai lang và cà rốt Đà Lạt.', 'Món Xào', 'DINNER', 'DA_LAT', 50, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917463/brands/xjz74sedvolg7woxywpo.jpg', 'ACTIVE', 'Xào nhanh với tỏi và dầu hào giòn ngọt; có thể xào kèm mực tươi, thịt thăn heo hoặc xào chay.'),
+(14, 5, 'Combo Hầm Bí Đỏ Hạt Sen Hạnh Phúc', 85000, 'Món hầm tối bổ dưỡng an thần: bí đỏ hồ lô bùi dẻo, hạt sen tươi Đồng Tháp, cà rốt và nấm đùi gà.', 'Món Kho / Hầm', 'DINNER', 'MIEN_TAY', 50, 0, 'https://images.unsplash.com/photo-1505576399279-565b52d4ac71?w=600&h=400&fit=crop', 'ACTIVE', 'Món canh hầm bổ dưỡng an thần; rất thích hợp ninh cùng 200g sườn sụn heo hoặc hầm chay thanh nhẹ cho bữa tối.'),
+(15, 4, 'Combo Lẩu Nấm Thanh Tịnh Gia Đình', 110000, 'Set lẩu tối ấm cúng sum vầy: nấm đùi gà, nấm rơm búp, bắp ngọt, đậu hũ non mềm mịn và cải ngọt non.', 'Món Lẩu', 'DINNER', 'MIEN_BAC', 50, 0, 'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=600&h=400&fit=crop', 'ACTIVE', 'Set lẩu sum họp cuối tuần ngọt nước từ củ quả; có thể nhúng thêm bò cuộn nấm kim châm, tôm tươi hoặc chả nấm chay.'),
+(16, 5, 'Combo Rau Củ Hầm Canh Ngọt Lành', 70000, 'Canh tối thanh nhẹ dễ tiêu hóa: khoai lang tím bùi, bắp ngọt vàng, củ cải trắng và mồng tơi xanh.', 'Món Canh', 'DINNER', 'MIEN_TRUNG', 50, 0, 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&h=400&fit=crop', 'ACTIVE', 'Canh tối thanh ngọt dễ tiêu; hợp nấu cùng 150g tôm sông băm nhỏ hoặc sườn non, giúp ấm bụng ngủ sâu giấc.'),
+(20, 4, 'Combo Bí Ngòi Xào Nấm & Canh Mồng Tơi', 75000, 'Bữa tối nhẹ nhàng ít calo: bí ngòi xanh ngọt giòn, nấm đùi gà xào thơm, canh mồng tơi thanh nhiệt.', 'Món Xào & Canh', 'DINNER', 'MIEN_BAC', 50, 0, 'https://images.unsplash.com/photo-1543339308-43e59d6b73a6?w=600&h=400&fit=crop', 'ACTIVE', 'Bí ngòi xào nấm đùi gà thơm ngậy; mồng tơi nấu canh cua đồng hoặc tôm băm ngọt mát thanh nhiệt.'),
+
+-- BỮA PHỤ / TRÁNG MIỆNG (SNACK)
+(5, 4, 'Combo Tráng Miệng Trái Cây Đà Lạt', 75000, 'Đĩa trái cây tươi bổ sung năng lượng: dâu tây giống Nhật chua ngọt, chuối già giàu kali và cà chua bi.', 'Tráng Miệng', 'SNACK', 'DA_LAT', 50, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773943061/brands/qtspypfmdjcxtsbme7xi.jpg', 'ACTIVE', 'Trái cây tươi Đà Lạt rửa sạch ăn liền trực tiếp, hoặc dầm với sữa chua không đường và hạt granola.'),
+(8, 5, 'Combo Giải Nhiệt Mùa Hè', 65000, 'Trái cây giải khát mọng nước miền Tây: dưa hấu ruột đỏ ngọt lịm, cam sành mọng nước và bưởi da xanh.', 'Tráng Miệng', 'SNACK', 'MIEN_TAY', 50, 0, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917373/brands/h0mivuwgipa6hssaawfi.jpg', 'ACTIVE', 'Đĩa trái cây giải khát mọng nước miền Tây ăn tráng miệng sau bữa trưa hoặc ướp lạnh ăn xế chiều.'),
+(17, 5, 'Combo Sinh Tố Bơ Sáp Dinh Dưỡng', 65000, 'Bữa phụ giàu chất béo tốt và vitamin: bơ sáp Đắk Lắk dẻo béo, chuối chín thơm và cam sành tươi.', 'Nước Ép / Sinh Tố', 'SNACK', 'MIEN_TRUNG', 50, 0, 'https://images.unsplash.com/photo-1523049673857-eb18f1d7b578?w=600&h=400&fit=crop', 'ACTIVE', 'Xay sinh tố bơ sáp chuối cùng sữa tươi ít đường và đá nhuyễn, bổ sung chất béo lành mạnh cho bữa phụ.'),
+(18, 5, 'Combo Đĩa Trái Cây Miền Tây Tươi Mát', 70000, 'Trái cây đặc sản miền Tây ngọt lịm: bưởi da xanh Bến Tre, dưa hấu đỏ và xoài cát Hòa Lộc thơm nức.', 'Tráng Miệng', 'SNACK', 'MIEN_TAY', 50, 0, 'https://images.unsplash.com/photo-1519996529931-28324d5a630e?w=600&h=400&fit=crop', 'ACTIVE', 'Đĩa trái cây đặc sản miền Tây ngọt lịm, bổ sung vitamin C và chất xơ tự nhiên cho cả gia đình.')
+ON DUPLICATE KEY UPDATE combo_name=VALUES(combo_name), price=VALUES(price), type=VALUES(type), meal_type=VALUES(meal_type), region=VALUES(region), description=VALUES(description), cooking_suggestion=VALUES(cooking_suggestion), image_url=VALUES(image_url), status=VALUES(status);
+
+-- ĐỊNH LƯỢNG NGUYÊN LIỆU CHO TỪNG COMBO THEO GRAM (150g - 400g) ĐỂ TÍNH TOÁN CALO & MACRO CHUẨN XÁC
+DELETE FROM product_combo WHERE combo_id > 0;
 
 INSERT INTO product_combo (combo_id, product_id, product_quantity) VALUES
-(@combo_detox, 105, 1), (@combo_detox, 102, 1), (@combo_detox, 107, 1), (@combo_detox, 103, 1),
-(@combo_salad, 103, 1), (@combo_salad, 108, 1), (@combo_salad, 104, 1), (@combo_salad, 105, 1),
-(@combo_sup, 105, 1), (@combo_sup, 106, 1), (@combo_sup, 107, 1), (@combo_sup, 104, 1),
-(@combo_xao, 104, 1), (@combo_xao, 108, 1), (@combo_xao, 107, 1), (@combo_xao, 109, 1),
-(@combo_fruit, 109, 1), (@combo_fruit, 101, 1), (@combo_fruit, 102, 1),
-(@combo_vitamin, 206, 1), (@combo_vitamin, 205, 1), (@combo_vitamin, 207, 1),
-(@combo_ca_tim, 204, 1), (@combo_ca_tim, 203, 1), (@combo_ca_tim, 202, 1), (@combo_ca_tim, 201, 1),
-(@combo_cool, 208, 2), (@combo_cool, 206, 1), (@combo_cool, 205, 1)
+-- Combo 1: Detox Củ Quả Sáng (~308 kcal)
+(1, 105, 200), (1, 102, 200), (1, 107, 200), (1, 103, 150),
+-- Combo 2: Salad Eat Clean Đà Lạt (~151 kcal)
+(2, 103, 200), (2, 108, 200), (2, 104, 200), (2, 218, 150),
+-- Combo 3: Hầm Súp Củ Quả Đà Lạt (~480 kcal)
+(3, 106, 250), (3, 105, 200), (3, 107, 200), (3, 104, 150),
+-- Combo 4: Xào Củ Quả Thập Cẩm (~354 kcal)
+(4, 214, 250), (4, 108, 200), (4, 107, 200), (4, 105, 150),
+-- Combo 5: Tráng Miệng Trái Cây Đà Lạt (~269 kcal)
+(5, 109, 200), (5, 216, 200), (5, 108, 150),
+-- Combo 6: Ép Vitamin C Buổi Sáng (~375 kcal)
+(6, 206, 300), (6, 205, 300), (6, 207, 200),
+-- Combo 7: Xào Cà Tím & Canh Rau Ngót (~190 kcal)
+(7, 203, 300), (7, 204, 200), (7, 202, 200), (7, 201, 150),
+-- Combo 8: Giải Nhiệt Mùa Hè (~332 kcal)
+(8, 208, 400), (8, 206, 250), (8, 205, 250),
+-- Combo 9: Súp Nấm Hạt Sen Dưỡng Thần (~481 kcal)
+(9, 209, 200), (9, 212, 200), (9, 213, 200), (9, 105, 150),
+-- Combo 10: Canh Nấm Đậu Hũ Thanh Đạm (~361 kcal)
+(10, 210, 200), (10, 211, 250), (10, 104, 200), (10, 105, 150),
+-- Combo 11: Canh Chua Nông Sản Nam Bộ (~268 kcal)
+(11, 108, 200), (11, 204, 200), (11, 213, 200), (11, 202, 200),
+-- Combo 12: Rau Củ Kho Quẹt & Đậu Hũ (~343 kcal)
+(12, 211, 250), (12, 214, 200), (12, 105, 150), (12, 102, 150),
+-- Combo 13: Nấm Xào Ngũ Sắc Dinh Dưỡng (~263 kcal)
+(13, 209, 200), (13, 210, 200), (13, 214, 200), (13, 105, 150),
+-- Combo 14: Hầm Bí Đỏ Hạt Sen Hạnh Phúc (~369 kcal)
+(14, 203, 300), (14, 212, 200), (14, 105, 150), (14, 209, 150),
+-- Combo 15: Lẩu Nấm Thanh Tịnh Gia Đình (~545 kcal)
+(15, 209, 250), (15, 210, 200), (15, 213, 200), (15, 211, 250), (15, 102, 200),
+-- Combo 16: Rau Củ Hầm Canh Ngọt Lành (~440 kcal)
+(16, 107, 250), (16, 213, 200), (16, 204, 200), (16, 202, 150),
+-- Combo 17: Sinh Tố Bơ Sáp Dinh Dưỡng (~523 kcal)
+(17, 215, 200), (17, 216, 150), (17, 206, 150),
+-- Combo 18: Đĩa Trái Cây Miền Tây Tươi Mát (~324 kcal)
+(18, 205, 300), (18, 208, 300), (18, 207, 200),
+-- Combo 19: Cơm Nhà Đậu Sốt Cà & Rau Luộc (~298 kcal)
+(19, 211, 250), (19, 108, 200), (19, 101, 200), (19, 217, 200),
+-- Combo 20: Bí Ngòi Xào Nấm & Canh Mồng Tơi (~201 kcal)
+(20, 217, 250), (20, 209, 200), (20, 202, 200), (20, 105, 150)
 ON DUPLICATE KEY UPDATE product_quantity=VALUES(product_quantity);
 
 -- 3.6 PRODUCT IMAGES
@@ -869,7 +926,6 @@ INSERT INTO product_images (product_id, image_url, is_primary, display_order) VA
 (107, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774249499/brands/pgdvlccom3lid5t24pnk.jpg', 1, 1),
 (108, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916530/brands/xjiiaehe5evwybwhmpmu.jpg', 1, 1),
 (109, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773943061/brands/qtspypfmdjcxtsbme7xi.jpg', 1, 1),
-
 (201, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774250103/brands/qlsbgtgno3kvconpo0c3.jpg', 1, 1),
 (202, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774250212/brands/mtbfbygr3tmlctmfdg0x.jpg', 1, 1),
 (203, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917463/brands/xjz74sedvolg7woxywpo.jpg', 1, 1),
@@ -877,17 +933,49 @@ INSERT INTO product_images (product_id, image_url, is_primary, display_order) VA
 (205, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917344/brands/c2i9gkbkl8vx7iwulwsz.png', 1, 1),
 (206, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916481/brands/s5ld5232nl4s4fwczawr.jpg', 1, 1),
 (207, 'https://images.unsplash.com/photo-1553279768-865429fa0078?w=600&h=400&fit=crop', 1, 1),
-(208, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917373/brands/h0mivuwgipa6hssaawfi.jpg', 1, 1);
+(208, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917373/brands/h0mivuwgipa6hssaawfi.jpg', 1, 1),
+(209, 'https://images.unsplash.com/photo-1504544750208-dc0358e63f7f?w=600&h=400&fit=crop', 1, 1),
+(210, 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&h=400&fit=crop', 1, 1),
+(211, 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&h=400&fit=crop', 1, 1),
+(212, 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&h=400&fit=crop', 1, 1),
+(213, 'https://images.unsplash.com/photo-1551754655-cd27e38d2076?w=600&h=400&fit=crop', 1, 1),
+(214, 'https://images.unsplash.com/photo-1459411621453-7b03977f4bfc?w=600&h=400&fit=crop', 1, 1),
+(215, 'https://images.unsplash.com/photo-1523049673857-eb18f1d7b578?w=600&h=400&fit=crop', 1, 1),
+(216, 'https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=600&h=400&fit=crop', 1, 1),
+(217, 'https://images.unsplash.com/photo-1582515073490-39981397c445?w=600&h=400&fit=crop', 1, 1),
+(218, 'https://images.unsplash.com/photo-1563565375-f3fdfdbefa83?w=600&h=400&fit=crop', 1, 1)
+ON DUPLICATE KEY UPDATE is_primary=VALUES(is_primary);
 
--- 3.6 NUTRITION INFO
+-- 3.6 NUTRITION INFO (ĐẦY ĐỦ 100% CHO 22 SẢN PHẨM TRÊN 100g)
 INSERT INTO nutrition_info (product_id, calories, protein_g, carbs_g, fat_g) VALUES
-(101, 19.0, 2.6, 3.1, 0.2),
-(102, 16.0, 1.5, 2.8, 0.2),
-(105, 41.0, 0.9, 9.6, 0.2),
-(106, 77.0, 2.0, 17.5, 0.1),
-(108, 18.0, 0.9, 3.9, 0.2),
-(109, 32.0, 0.7, 7.7, 0.3)
-ON DUPLICATE KEY UPDATE calories=VALUES(calories);
+(101, 19.0, 2.6, 3.1, 0.2),  -- Rau muống
+(102, 16.0, 1.5, 2.8, 0.2),  -- Cải ngọt
+(103, 15.0, 1.4, 2.8, 0.2),  -- Xà lách mỡ
+(104, 23.0, 2.9, 3.6, 0.4),  -- Cải bó xôi (Spinach)
+(105, 41.0, 0.9, 9.6, 0.2),  -- Cà rốt Đà Lạt
+(106, 77.0, 2.0, 17.5, 0.1), -- Khoai tây vàng
+(107, 86.0, 1.6, 20.1, 0.1), -- Khoai lang mật tím
+(108, 18.0, 0.9, 3.9, 0.2),  -- Cà chua bi
+(109, 32.0, 0.7, 7.7, 0.3),  -- Dâu tây giống Nhật
+(201, 35.0, 5.3, 3.4, 0.5),  -- Rau ngót hữu cơ
+(202, 14.0, 1.9, 2.7, 0.2),  -- Mồng tơi ngọn non
+(203, 26.0, 1.0, 6.5, 0.1),  -- Bí đỏ hồ lô
+(204, 16.0, 0.7, 3.4, 0.1),  -- Củ cải trắng
+(205, 38.0, 0.8, 9.6, 0.1),  -- Bưởi da xanh
+(206, 47.0, 0.9, 11.8, 0.1), -- Cam sành Tiền Giang
+(207, 60.0, 0.8, 15.0, 0.4), -- Xoài cát Hòa Lộc
+(208, 30.0, 0.6, 7.6, 0.2),  -- Dưa hấu ruột đỏ
+(209, 35.0, 3.3, 5.0, 0.4),  -- Nấm đùi gà
+(210, 32.0, 3.8, 4.5, 0.5),  -- Nấm rơm
+(211, 76.0, 8.1, 1.9, 4.8),  -- Đậu hũ non
+(212, 89.0, 4.1, 17.2, 0.5), -- Hạt sen tươi
+(213, 86.0, 3.2, 19.0, 1.2), -- Bắp ngọt
+(214, 34.0, 2.8, 7.0, 0.4),  -- Bông cải xanh
+(215, 160.0, 2.0, 8.5, 14.7),-- Bơ sáp
+(216, 89.0, 1.1, 22.8, 0.3), -- Chuối già
+(217, 17.0, 1.2, 3.1, 0.3),  -- Bí ngòi xanh
+(218, 26.0, 1.0, 6.0, 0.3)   -- Ớt chuông đỏ
+ON DUPLICATE KEY UPDATE calories=VALUES(calories), protein_g=VALUES(protein_g), carbs_g=VALUES(carbs_g), fat_g=VALUES(fat_g);
 
 -- 3.7 VOUCHERS (ĐỦ CÁC LOẠI: TOÀN SÀN, FREESHIP, SHOP, %, CỐ ĐỊNH)
 INSERT INTO vouchers (voucher_id, shop_id, voucher_code, discount_value, max_discount, min_order_value, usage_limit, expiry_date, voucher_type, voucher_scope, voucher_target, claim_limit, claimed_count, used_count, per_user_limit, active) VALUES
@@ -1016,15 +1104,150 @@ ON DUPLICATE KEY UPDATE user_id=VALUES(user_id);
 
 -- 3.10 ALLERGENS & HEALTH CONDITIONS
 INSERT INTO allergens (id, name) VALUES
-(1, 'Đậu phộng / Lạc'), (2, 'Phấn hoa thực vật'), (3, 'Đậu nành'), (4, 'Gluten')
+(1, 'Đậu phộng / Lạc'), (2, 'Phấn hoa thực vật'), (3, 'Đậu nành'), (4, 'Gluten'),
+(5, 'Hải sản / Tôm cua'), (6, 'Trứng gà'), (7, 'Sữa bò / Lactose'), (8, 'Mè / Vừng'),
+(9, 'Cà rốt'), (10, 'Dưa leo'), (11, 'Nấm các loại'), (12, 'Cá biển')
 ON DUPLICATE KEY UPDATE name=VALUES(name);
 
 INSERT INTO health_conditions (id, name) VALUES
 (1, 'Tiểu đường type 2 (Cần giảm đường bột)'),
 (2, 'Huyết áp cao (Ăn nhạt, nhiều kali)'),
 (3, 'Đau dạ dày / Tiêu hóa nhạy cảm'),
-(4, 'Ăn kiêng giảm cân (Keto / Low-carb)')
+(4, 'Ăn kiêng giảm cân (Keto / Low-carb)'),
+(5, 'Trào ngược dạ dày thực quản (GERD)'),
+(6, 'Gout / Tăng acid uric máu'),
+(7, 'Mỡ máu cao / Tim mạch'),
+(8, 'Suy thận nhẹ (Hạn chế kali, đạm cao)'),
+(9, 'Viêm xoang / Hạn chế đồ lạnh'),
+(10, 'Hội chứng ruột kích thích (IBS)')
 ON DUPLICATE KEY UPDATE name=VALUES(name);
+
+-- Gán dị ứng cho sản phẩm: Đậu hũ non organic (211) chứa Đậu nành (3)
+INSERT INTO product_allergens (product_id, allergen_id) VALUES
+(211, 3)
+ON DUPLICATE KEY UPDATE allergen_id=VALUES(allergen_id);
+
+-- Dị ứng & tình trạng sức khỏe mẫu cho người dùng để test AI Plan
+INSERT INTO user_allergies (buyer_id, allergen_id) VALUES
+(2, 3), -- Buyer 1 (Sang): Dị ứng Đậu nành
+(2, 1), -- Buyer 1 (Sang): Dị ứng Đậu phộng / Lạc
+(3, 1)  -- Buyer 2 (Mai): Dị ứng Đậu phộng / Lạc
+ON DUPLICATE KEY UPDATE allergen_id=VALUES(allergen_id);
+
+INSERT INTO user_health_conditions (buyer_id, condition_id) VALUES
+(2, 3), -- Buyer 1 (Sang): Đau dạ dày / Tiêu hóa nhạy cảm
+(2, 2), -- Buyer 1 (Sang): Huyết áp cao (Ăn nhạt, nhiều kali)
+(3, 4)  -- Buyer 2 (Mai): Ăn kiêng giảm cân (Keto / Low-carb)
+ON DUPLICATE KEY UPDATE condition_id=VALUES(condition_id);
+
+-- Lịch sử trích xuất hồ sơ sức khỏe bằng AI (Profile Update Requests)
+INSERT INTO profile_update_requests (id, buyer_id, raw_input_text, extracted_diff, confirmed_at, created_at) VALUES
+(1, 2, 'Tôi bị đau dạ dày, huyết áp cao và dị ứng với đậu phộng, đậu nành', '{"add_conditions":["Đau dạ dày / Tiêu hóa nhạy cảm","Huyết áp cao (Ăn nhạt, nhiều kali)"],"add_allergies":["Đậu nành","Đậu phộng / Lạc"],"diet_preference":"VEGETARIAN"}', NOW(), DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(2, 3, 'Tôi muốn ăn kiêng giảm cân low-carb, không ăn được đậu phộng', '{"add_conditions":["Ăn kiêng giảm cân (Keto / Low-carb)"],"add_allergies":["Đậu phộng / Lạc"],"diet_preference":"VEGAN"}', NOW(), DATE_SUB(NOW(), INTERVAL 2 DAY))
+ON DUPLICATE KEY UPDATE buyer_id=VALUES(buyer_id);
+
+-- ==============================================================================
+-- 3.10b SEED DỮ LIỆU BUILD PLANS, PLAN DAYS, PLAN MEALS & PLAN MEAL ITEMS
+-- Phục vụ kiểm thử toàn diện luồng Thực đơn dinh dưỡng & AI Co-pilot:
+-- - Plan 1: AI_DRAFT (Kế hoạch 3 ngày đang nháp, test AI Copilot chat & action cards đổi món)
+-- - Plan 2: CONFIRMED (Kế hoạch 7 ngày đã chốt, test tracking hoàn thành bữa ăn & shopping list)
+-- - Plan 3: ARCHIVED (Kế hoạch 5 ngày đã lưu trữ, test quyền hạn chỉ đọc)
+-- ==============================================================================
+
+INSERT INTO build_plans (plan_id, buyer_id, plan_name, number_of_days, number_of_people, meal_type, target_budget, status, source, created_at, updated_at) VALUES
+(1, 2, 'Thực Đơn Ăn Chay Thanh Lọc 3 Ngày (AI Draft)', 3, 2, 'BREAKFAST,LUNCH,DINNER', 750000, 'AI_DRAFT', 'AI', NOW(), NOW()),
+(2, 2, 'Kế Hoạch Dinh Dưỡng Eat Clean 7 Ngày (Đã Xác Nhận)', 7, 3, 'LUNCH,DINNER', 1150000, 'CONFIRMED', 'AI', DATE_SUB(NOW(), INTERVAL 2 DAY), NOW()),
+(3, 3, 'Thực Đơn Giảm Cân Tuần Trước (Lưu Trữ)', 5, 1, 'LUNCH,DINNER', 650000, 'ARCHIVED', 'AI', DATE_SUB(NOW(), INTERVAL 10 DAY), DATE_SUB(NOW(), INTERVAL 3 DAY))
+ON DUPLICATE KEY UPDATE plan_name=VALUES(plan_name), status=VALUES(status);
+
+-- PLAN 1: 3 NGÀY (DAYS 1 - 3)
+INSERT INTO plan_days (id, plan_id, day_index, date) VALUES
+(1, 1, 1, CURRENT_DATE),
+(2, 1, 2, DATE_ADD(CURRENT_DATE, INTERVAL 1 DAY)),
+(3, 1, 3, DATE_ADD(CURRENT_DATE, INTERVAL 2 DAY))
+ON DUPLICATE KEY UPDATE day_index=VALUES(day_index);
+
+-- PLAN 1: MEALS (3 BỮA/NGÀY = 9 MEALS)
+INSERT INTO plan_meals (id, plan_day_id, meal_type, sort_order, completed) VALUES
+(1, 1, 'BREAKFAST', 1, 0),
+(2, 1, 'LUNCH', 2, 0),
+(3, 1, 'DINNER', 3, 0),
+(4, 2, 'BREAKFAST', 1, 0),
+(5, 2, 'LUNCH', 2, 0),
+(6, 2, 'DINNER', 3, 0),
+(7, 3, 'BREAKFAST', 1, 0),
+(8, 3, 'LUNCH', 2, 0),
+(9, 3, 'DINNER', 3, 0)
+ON DUPLICATE KEY UPDATE meal_type=VALUES(meal_type);
+
+-- PLAN 1: MEAL ITEMS (GÁN CÁC COMBO THỰC TẾ)
+INSERT INTO plan_meal_items (id, plan_meal_id, combo_id, quantity, unit_price_snapshot, is_ai_suggested, position, user_override) VALUES
+-- Ngày 1: Sáng (Detox Củ Quả 70k), Trưa (Hầm Súp Củ Quả 85k), Tối (Xào Củ Quả 75k)
+(1, 1, 1, 1, 70000, 1, 1, 0),
+(2, 2, 3, 1, 85000, 1, 1, 0),
+(3, 3, 4, 1, 75000, 1, 1, 0),
+-- Ngày 2: Sáng (Salad Eat Clean 75k), Trưa (Canh Chua Nam Bộ 70k), Tối (Hầm Bí Đỏ Hạt Sen 85k)
+(4, 4, 2, 1, 75000, 1, 1, 0),
+(5, 5, 11, 1, 70000, 1, 1, 0),
+(6, 6, 14, 1, 85000, 1, 1, 0),
+-- Ngày 3: Sáng (Súp Nấm Hạt Sen 80k), Trưa (Nấm Xào Ngũ Sắc 85k), Tối (Rau Củ Hầm Canh 70k)
+(7, 7, 9, 1, 80000, 1, 1, 0),
+(8, 8, 13, 1, 85000, 1, 1, 0),
+(9, 9, 16, 1, 70000, 1, 1, 0)
+ON DUPLICATE KEY UPDATE combo_id=VALUES(combo_id);
+
+-- PLAN 2: 7 NGÀY (DAYS 4 - 10)
+INSERT INTO plan_days (id, plan_id, day_index, date) VALUES
+(4, 2, 1, DATE_SUB(CURRENT_DATE, INTERVAL 1 DAY)),
+(5, 2, 2, CURRENT_DATE),
+(6, 2, 3, DATE_ADD(CURRENT_DATE, INTERVAL 1 DAY)),
+(7, 2, 4, DATE_ADD(CURRENT_DATE, INTERVAL 2 DAY)),
+(8, 2, 5, DATE_ADD(CURRENT_DATE, INTERVAL 3 DAY)),
+(9, 2, 6, DATE_ADD(CURRENT_DATE, INTERVAL 4 DAY)),
+(10, 2, 7, DATE_ADD(CURRENT_DATE, INTERVAL 5 DAY))
+ON DUPLICATE KEY UPDATE day_index=VALUES(day_index);
+
+-- PLAN 2: MEALS (2 BỮA/NGÀY = 14 MEALS)
+INSERT INTO plan_meals (id, plan_day_id, meal_type, sort_order, completed) VALUES
+(10, 4, 'LUNCH', 1, 1), -- Đã ăn
+(11, 4, 'DINNER', 2, 1), -- Đã ăn
+(12, 5, 'LUNCH', 1, 1), -- Đã ăn
+(13, 5, 'DINNER', 2, 0),
+(14, 6, 'LUNCH', 1, 0),
+(15, 6, 'DINNER', 2, 0),
+(16, 7, 'LUNCH', 1, 0),
+(17, 7, 'DINNER', 2, 0),
+(18, 8, 'LUNCH', 1, 0),
+(19, 8, 'DINNER', 2, 0),
+(20, 9, 'LUNCH', 1, 0),
+(21, 9, 'DINNER', 2, 0),
+(22, 10, 'LUNCH', 1, 0),
+(23, 10, 'DINNER', 2, 0)
+ON DUPLICATE KEY UPDATE meal_type=VALUES(meal_type);
+
+-- PLAN 2: MEAL ITEMS
+INSERT INTO plan_meal_items (id, plan_meal_id, combo_id, quantity, unit_price_snapshot, is_ai_suggested, position, user_override) VALUES
+(10, 10, 3, 1, 85000, 1, 1, 0),
+(11, 11, 4, 1, 75000, 1, 1, 0),
+(12, 12, 11, 1, 70000, 1, 1, 0),
+(13, 13, 14, 1, 85000, 1, 1, 0),
+(14, 14, 12, 1, 80000, 1, 1, 0),
+(15, 15, 15, 1, 110000, 1, 1, 0),
+(16, 16, 13, 1, 85000, 1, 1, 0),
+(17, 17, 16, 1, 70000, 1, 1, 0),
+(18, 18, 7, 1, 60000, 1, 1, 0),
+(19, 19, 20, 1, 75000, 1, 1, 0),
+(20, 20, 19, 1, 75000, 1, 1, 0),
+(21, 21, 4, 1, 75000, 1, 1, 0),
+(22, 22, 11, 1, 70000, 1, 1, 0),
+(23, 23, 14, 1, 85000, 1, 1, 0)
+ON DUPLICATE KEY UPDATE combo_id=VALUES(combo_id);
+
+-- PLAN GENERATION REQUEST (LOG TRUY VẾT AI)
+INSERT INTO plan_generation_requests (id, plan_id, buyer_id, requested_at, input_params, raw_ai_response) VALUES
+(1, 1, 2, NOW(), '{"goal":"VEGAN","numberOfDays":3,"numberOfPeople":2,"targetBudget":750000,"preferredMealTypes":["BREAKFAST","LUNCH","DINNER"]}', '{"ai_rationale":"Thực đơn thuần chay 3 ngày giàu chất xơ từ nấm và củ quả tươi, hoàn toàn không có đậu nành và đậu phộng phù hợp hồ sơ sức khỏe."}'),
+(2, 2, 2, DATE_SUB(NOW(), INTERVAL 2 DAY), '{"goal":"HEALTHY","numberOfDays":7,"numberOfPeople":3,"targetBudget":1150000,"preferredMealTypes":["LUNCH","DINNER"]}', '{"ai_rationale":"Thực đơn 7 ngày Eat Clean cân đối calo, luân phiên canh và món xào ngũ sắc giàu vitamin."}')
+ON DUPLICATE KEY UPDATE plan_id=VALUES(plan_id);
 
 -- 3.11 BOT KNOWLEDGE
 INSERT INTO bot_knowledge (id, type, title, content, keywords, active) VALUES

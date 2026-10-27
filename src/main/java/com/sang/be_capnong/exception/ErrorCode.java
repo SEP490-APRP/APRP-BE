@@ -167,22 +167,47 @@ public enum ErrorCode {
     MAX_ADDRESSES_REACHED(9502, "You have reached the maximum limit of 10 saved addresses", HttpStatus.BAD_REQUEST),
     ADDRESS_UNAUTHORIZED(9503, "You do not have permission to access or modify this address", HttpStatus.FORBIDDEN),
 
-    // Chat Errors (Series 11000)
-    CONVERSATION_NOT_FOUND(11001, "Conversation not found", HttpStatus.NOT_FOUND),
-    CANNOT_CHAT_WITH_SELF(11002, "You cannot chat with yourself", HttpStatus.BAD_REQUEST),
-    RECEIVER_NOT_FOUND(11003, "Recipient user not found", HttpStatus.NOT_FOUND),
-    CHAT_UNAUTHORIZED(11004, "You are not a participant in this conversation", HttpStatus.FORBIDDEN),
-    EMPTY_MESSAGE_CONTENT(11005, "Message content or attachment cannot be empty", HttpStatus.BAD_REQUEST),
+    // AI Build Plan & Health Profile Errors (Series 11000)
+    ALLERGEN_NOT_FOUND(11001, "Allergen not found", HttpStatus.NOT_FOUND),
+    ALLERGEN_NAME_EXISTED(11002, "Allergen name already exists", HttpStatus.BAD_REQUEST),
+    HEALTH_CONDITION_NOT_FOUND(11003, "Health condition not found", HttpStatus.NOT_FOUND),
+    CONDITION_NAME_EXISTED(11004, "Health condition name already exists", HttpStatus.BAD_REQUEST),
+    NUTRITION_NOT_FOUND(11005, "Nutrition info not found for this product", HttpStatus.NOT_FOUND),
+    PLAN_NOT_FOUND(11006, "Build plan not found", HttpStatus.NOT_FOUND),
+    PLAN_FORBIDDEN(11007, "You do not have permission to access or modify this plan", HttpStatus.FORBIDDEN),
+    INVALID_STATUS_TRANSITION(11008, "Invalid plan status transition", HttpStatus.BAD_REQUEST),
+    NO_SUITABLE_COMBOS(11009, "No suitable combos found matching your constraints and stock availability", HttpStatus.UNPROCESSABLE_ENTITY),
+    COMBO_UNAVAILABLE(11010, "Combo is unavailable or out of stock", HttpStatus.BAD_REQUEST),
+    ALLERGEN_CONFLICT(11011, "Item contains allergens registered in buyer profile", HttpStatus.BAD_REQUEST),
+    BUDGET_EXCEEDED(11012, "Total plan price exceeds target budget", HttpStatus.BAD_REQUEST),
+    AI_UNAVAILABLE(11013, "AI service is currently unavailable", HttpStatus.SERVICE_UNAVAILABLE),
+    AI_INVALID_RESPONSE(11014, "AI returned an invalid response structure", HttpStatus.BAD_GATEWAY),
+    REQUEST_ALREADY_CONFIRMED(11015, "Profile update request has already been confirmed", HttpStatus.CONFLICT),
+    REQUEST_NOT_FOUND(11016, "Profile update request not found", HttpStatus.NOT_FOUND),
+    SLOT_NOT_FOUND(11017, "Meal slot not found in plan", HttpStatus.NOT_FOUND),
+    MEAL_TYPE_MISMATCH(11018, "Loại combo không phù hợp với bữa ăn (Bữa sáng không thể dùng combo trưa/tối và ngược lại)", HttpStatus.BAD_REQUEST),
+    PLAN_NOT_CONFIRMED(11019, "Thực đơn đang ở trạng thái nháp. Vui lòng bấm 'Xác nhận thực đơn' để bắt đầu theo dõi bữa ăn!", HttpStatus.BAD_REQUEST),
+    PLAN_ALREADY_ARCHIVED(11020, "Thực đơn này đã được lưu trữ, không thể chỉnh sửa thêm!", HttpStatus.BAD_REQUEST),
+    PLAN_CANNOT_DELETE_CONFIRMED(11021, "Thực đơn đã xác nhận không thể xóa. Vui lòng chọn 'Lưu trữ' thay thế!", HttpStatus.BAD_REQUEST),
 
-    // Review Errors (Series 12000)
-    REVIEW_NOT_FOUND(12001, "Review not found", HttpStatus.NOT_FOUND),
-    REVIEW_ALREADY_EXISTS(12002, "This order item has already been reviewed", HttpStatus.BAD_REQUEST),
-    ORDER_NOT_DELIVERED(12003, "Order must be delivered before writing a review", HttpStatus.BAD_REQUEST),
-    NOT_ORDER_BUYER(12004, "You do not have permission to review this order item", HttpStatus.FORBIDDEN),
-    NOT_REVIEW_SHOP(12005, "You do not have permission to reply to this review", HttpStatus.FORBIDDEN),
-    INVALID_RATING(12006, "Rating star must be between 1 and 5", HttpStatus.BAD_REQUEST),
-    ORDER_DETAIL_NOT_FOUND(12007, "Order item not found", HttpStatus.NOT_FOUND),
-    INVALID_REVIEW_TARGET(12008, "Either orderDetailId or mysteryBoxId must be provided", HttpStatus.BAD_REQUEST)
+    // Chat Errors (Series 12000)
+    CONVERSATION_NOT_FOUND(12001, "Conversation not found", HttpStatus.NOT_FOUND),
+    CANNOT_CHAT_WITH_SELF(12002, "You cannot chat with yourself", HttpStatus.BAD_REQUEST),
+    RECEIVER_NOT_FOUND(12003, "Recipient user not found", HttpStatus.NOT_FOUND),
+    CHAT_UNAUTHORIZED(12004, "You are not a participant in this conversation", HttpStatus.FORBIDDEN),
+    EMPTY_MESSAGE_CONTENT(12005, "Message content or attachment cannot be empty", HttpStatus.BAD_REQUEST),
+    MESSAGE_NOT_FOUND(12006, "Message not found", HttpStatus.NOT_FOUND),
+    NOT_MESSAGE_SENDER(12007, "You can only delete messages sent by yourself", HttpStatus.FORBIDDEN),
+
+    // Review Errors (Series 13000)
+    REVIEW_NOT_FOUND(13001, "Review not found", HttpStatus.NOT_FOUND),
+    REVIEW_ALREADY_EXISTS(13002, "This order item has already been reviewed", HttpStatus.BAD_REQUEST),
+    ORDER_NOT_DELIVERED(13003, "Order must be delivered before writing a review", HttpStatus.BAD_REQUEST),
+    NOT_ORDER_BUYER(13004, "You do not have permission to review this order item", HttpStatus.FORBIDDEN),
+    NOT_REVIEW_SHOP(13005, "You do not have permission to reply to this review", HttpStatus.FORBIDDEN),
+    INVALID_RATING(13006, "Rating star must be between 1 and 5", HttpStatus.BAD_REQUEST),
+    ORDER_DETAIL_NOT_FOUND(13007, "Order item not found", HttpStatus.NOT_FOUND),
+    INVALID_REVIEW_TARGET(13008, "Either orderDetailId or mysteryBoxId must be provided", HttpStatus.BAD_REQUEST)
     ;
 
     private final int code;

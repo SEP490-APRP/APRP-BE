@@ -52,6 +52,9 @@ public class BuildCombo {
     @Builder.Default
     String status = "ACTIVE";
 
+    @Column(length = 500)
+    String cookingSuggestion;
+
     @OneToMany(mappedBy = "buildCombo", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     List<ProductCombo> productCombos;

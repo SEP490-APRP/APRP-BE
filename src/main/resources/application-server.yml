@@ -4,8 +4,8 @@ spring:
 
   servlet:
     multipart:
-      max-file-size: 10MB
-      max-request-size: 10MB
+      max-file-size: 50MB
+      max-request-size: 50MB
 
   # ===============================
   # LOAD ENV FILE
@@ -101,6 +101,6 @@ google:
       key: ${GOOGLE_MAPS_API_KEY:}
   gemini:
     api-key: ${GEMINI_API_KEY:${GEMINI_KEY_1:}}
-    model: ${GEMINI_MODEL:gemini-1.5-flash}
+    model: ${GEMINI_MODEL:gemini-2.5-flash}
     timeout-seconds: 8
 
