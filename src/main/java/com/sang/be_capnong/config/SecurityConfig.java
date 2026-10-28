@@ -1,4 +1,5 @@
 package com.sang.be_capnong.config;
+import com.sang.be_capnong.config.CustomJwtDecoder;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -97,6 +98,7 @@ public class SecurityConfig {
     };
 
     @Autowired
+    @Lazy
     private CustomJwtDecoder customJwtDecoder;
 
     @Bean

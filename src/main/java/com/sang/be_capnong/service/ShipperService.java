@@ -14,6 +14,7 @@ public interface ShipperService {
     void goOfflineCurrentShipper();
     ShipperStatusResponse getCurrentShipperStatus();
 
+    ShipperLocationResponse updateLocation(ShipperLocationRequest request, java.security.Principal principal);
     ShipperLocationResponse updateLocationByShipper(User shipper, ShipperLocationRequest request);
     ShipperLocationResponse getShipperLocationByOrder(Integer orderId);
 }

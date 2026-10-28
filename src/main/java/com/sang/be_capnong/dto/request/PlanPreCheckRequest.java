@@ -30,6 +30,10 @@ public class PlanPreCheckRequest {
     Integer numberOfPeople = 2;
 
     BigDecimal targetBudget;
+
+    @com.fasterxml.jackson.annotation.JsonProperty("mealTypes")
+    @com.fasterxml.jackson.annotation.JsonAlias({"preferredMealTypes", "mealTypes"})
     List<MealType> mealTypes;
+
     String goal;
 }

@@ -16,6 +16,8 @@ public class PlanPreCheckResponse {
     Boolean isFeasible;
     Boolean hasPortionWarning;
     Boolean hasBudgetWarning;
+    Boolean hasStockShortage;
+    String stockShortageMessage;
 
     Integer numberOfDays;
     Integer numberOfPeople;

@@ -262,10 +262,19 @@ public class OrderServiceImpl implements OrderService {
             }
         }
 
-        // 5. Dọn dẹp giỏ hàng — CHỈ xoá những món đã được tick mua (FE gửi cartItemIds)
-        //    Những món không tick vẫn được giữ lại trong giỏ
+        // 5. Dọn dẹp giỏ hàng — CHỈ xoá những món đã được tick mua VÀ thuộc về buyer hiện tại
+        //    (Chống lỗ hổng IDOR xóa nhầm/xóa trộm giỏ hàng của người khác khi Checkout)
         if (request.getCartItemIds() != null && !request.getCartItemIds().isEmpty()) {
-            cartItemRepository.deleteAllById(request.getCartItemIds());
+            List<CartItem> itemsToDelete = cartItemRepository.findAllById(request.getCartItemIds())
+                    .stream()
+                    .filter(item -> item.getCart() != null
+                            && item.getCart().getUser() != null
+                            && Objects.equals(item.getCart().getUser().getId(), buyer.getId()))
+                    .toList();
+
+            if (!itemsToDelete.isEmpty()) {
+                cartItemRepository.deleteAll(itemsToDelete);
+            }
         }
 
         return responses;
@@ -1069,6 +1078,21 @@ public class OrderServiceImpl implements OrderService {
     @Override
     public OrderResponse getOrderById(int orderId) {
         Order order = findOrderById(orderId);
+        User currentUser = getCurrentUser();
+
+        boolean isBuyer = order.getBuyer() != null && Objects.equals(order.getBuyer().getId(), currentUser.getId());
+        boolean isShop = order.getShop() != null && Objects.equals(order.getShop().getId(), currentUser.getId());
+        boolean isShipper = order.getShipper() != null && Objects.equals(order.getShipper().getId(), currentUser.getId());
+        boolean isAdminOrStaff = currentUser.getRole() != null && (
+                "ADMIN".equalsIgnoreCase(currentUser.getRole().getName()) ||
+                "STAFF".equalsIgnoreCase(currentUser.getRole().getName())
+        );
+
+        if (!isBuyer && !isShop && !isShipper && !isAdminOrStaff) {
+            log.warn("Access Denied: User id {} has no permission to view order id {}", currentUser.getId(), orderId);
+            throw new AppException(ErrorCode.FORBIDDEN);
+        }
+
         List<OrderDetail> details = order.getOrderDetails() != null ? order.getOrderDetails() : Collections.emptyList();
         return buildOrderResponse(order, details);
     }
