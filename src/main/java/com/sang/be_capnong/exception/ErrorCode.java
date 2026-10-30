@@ -207,7 +207,11 @@ public enum ErrorCode {
     NOT_REVIEW_SHOP(13005, "You do not have permission to reply to this review", HttpStatus.FORBIDDEN),
     INVALID_RATING(13006, "Rating star must be between 1 and 5", HttpStatus.BAD_REQUEST),
     ORDER_DETAIL_NOT_FOUND(13007, "Order item not found", HttpStatus.NOT_FOUND),
-    INVALID_REVIEW_TARGET(13008, "Either orderDetailId or mysteryBoxId must be provided", HttpStatus.BAD_REQUEST)
+    INVALID_REVIEW_TARGET(13008, "Either orderDetailId or mysteryBoxId must be provided", HttpStatus.BAD_REQUEST),
+
+    // Notification Errors (Series 14000)
+    NOTIFICATION_NOT_FOUND(14001, "Notification not found", HttpStatus.NOT_FOUND),
+    INVALID_NOTIFICATION_REQUEST(14002, "Notification title, message, and receiver types are required", HttpStatus.BAD_REQUEST)
     ;
 
     private final int code;
