@@ -94,7 +94,12 @@ public class SecurityConfig {
             "/payments/*",
             "/v3/api-docs/**",
             "/swagger-ui/**",
-            "/swagger-ui.html"
+            "/swagger-ui.html",
+            "/reviews/{id:[0-9]+}",
+            "/reviews/product/**",
+            "/reviews/shop/{id:[0-9]+}",
+            "/reviews/shop/{id:[0-9]+}/**",
+            "/reviews/mystery-box/**"
     };
 
     @Autowired
