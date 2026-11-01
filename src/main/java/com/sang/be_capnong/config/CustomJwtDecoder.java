@@ -1,7 +1,9 @@
 package com.sang.be_capnong.config;
 
-
+import com.sang.be_capnong.repository.InvalidatedTokenRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
@@ -17,6 +19,10 @@ public class CustomJwtDecoder implements JwtDecoder {
 
     @Value("${jwt.signer-key}")
     private String signerKey;
+
+    @Autowired
+    @Lazy
+    private InvalidatedTokenRepository invalidatedTokenRepository;
 
     private NimbusJwtDecoder nimbusJwtDecoder = null;
 
@@ -37,8 +43,18 @@ public class CustomJwtDecoder implements JwtDecoder {
             }
 
             //  Decode và verify chữ ký token
-            return nimbusJwtDecoder.decode(token);
+            Jwt jwt = nimbusJwtDecoder.decode(token);
 
+            //  Kiểm tra token có nằm trong blacklist (đã logout / revoked) không
+            String jti = jwt.getId();
+            if (jti != null && invalidatedTokenRepository.existsById(jti)) {
+                throw new JwtException("Token has been revoked");
+            }
+
+            return jwt;
+
+        } catch (JwtException e) {
+            throw e;
         } catch (Exception e) {
             throw new JwtException("JWT decode failed: " + e.getMessage());
         }

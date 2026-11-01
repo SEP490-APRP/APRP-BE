@@ -557,14 +557,19 @@ CREATE TABLE reviews (
     shop_id INT,
     order_detail_id INT,
     product_id INT,
+    mystery_id INT,
+    combo_id INT,
     rating_star DECIMAL(5,2),
-    comment VARCHAR(255),
+    comment TEXT,
+    evidence VARCHAR(500),
     create_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    reply_from_shop VARCHAR(255),
+    reply_from_shop TEXT,
     CONSTRAINT fk_reviews_buyer FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_reviews_shop FOREIGN KEY (shop_id) REFERENCES users(id) ON DELETE SET NULL,
     CONSTRAINT fk_reviews_detail FOREIGN KEY (order_detail_id) REFERENCES order_details(order_detail_id) ON DELETE SET NULL,
-    CONSTRAINT fk_reviews_product FOREIGN KEY (product_id) REFERENCES products(product_id) ON DELETE SET NULL
+    CONSTRAINT fk_reviews_product FOREIGN KEY (product_id) REFERENCES products(product_id) ON DELETE SET NULL,
+    CONSTRAINT fk_reviews_mystery FOREIGN KEY (mystery_id) REFERENCES mystery_boxes(mystery_id) ON DELETE SET NULL,
+    CONSTRAINT fk_reviews_combo FOREIGN KEY (combo_id) REFERENCES build_combos(combo_id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE review_reactions (
@@ -582,7 +587,7 @@ CREATE TABLE review_reactions (
 CREATE TABLE images (
     id INT AUTO_INCREMENT PRIMARY KEY,
     image_url VARCHAR(500) NOT NULL,
-    media_type ENUM('IMAGE', 'VIDEO') DEFAULT 'IMAGE',
+    media_type ENUM('IMAGE', 'PHOTO', 'VIDEO') DEFAULT 'PHOTO',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     with_draw_id INT,
     return_id INT,
@@ -591,6 +596,7 @@ CREATE TABLE images (
     CONSTRAINT fk_images_return FOREIGN KEY (return_id) REFERENCES return_requests(return_id) ON DELETE CASCADE,
     CONSTRAINT fk_images_review FOREIGN KEY (review_id) REFERENCES reviews(review_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 
 -- 2.25 SHIPPER LOCATIONS
 CREATE TABLE shipper_locations (
@@ -1029,11 +1035,26 @@ INSERT INTO orders (order_id, buyer_id, shop_id, shipper_id, checkout_batch_id, 
 -- Đơn 105: Đang giao hàng (SHIPPING) đã gán Shipper Hoàng (id: 6) -> TEST GOOGLE MAPS REALTIME TRACKING
 (105, 2, 4, 6, 2, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Gọi trước khi đến 10 phút', 'SHIPPING', 95000, 'PAYOS', 15000, 10000, 10.7725, 106.6579, 10.7801, 106.6990, DATE_SUB(NOW(), INTERVAL 30 MINUTE)),
 
--- Đơn 106: Đã giao thành công (DELIVERED) -> Test Đánh giá / Hoàn thành
+-- Đơn 106: Đã giao thành công (DELIVERED) - Shop 2 -> Đã đánh giá (Bưởi da xanh)
 (106, 2, 5, 6, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao hàng thành công', 'DELIVERED', 135000, 'COD', 0, 15000, 10.7725, 106.6579, 10.7850, 106.7100, DATE_SUB(NOW(), INTERVAL 1 DAY)),
 
 -- Đơn 107: Đã hủy (CANCELLED)
-(107, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Khách đổi ý', 'CANCELLED', 50000, 'COD', 0, 0, 10.7725, 106.6579, 10.7801, 106.6990, DATE_SUB(NOW(), INTERVAL 2 DAY))
+(107, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Khách đổi ý', 'CANCELLED', 50000, 'COD', 0, 0, 10.7725, 106.6579, 10.7801, 106.6990, DATE_SUB(NOW(), INTERVAL 2 DAY)),
+
+-- Đơn 108: Đã giao thành công (DELIVERED) - Shop 1 -> 1 món ĐÃ đánh giá & 1 món CHƯA đánh giá để test nút Đánh giá
+(108, 2, 4, 6, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao trước 11h', 'DELIVERED', 62000, 'COD', 0, 0, 10.7725, 106.6579, 10.7801, 106.6990, DATE_SUB(NOW(), INTERVAL 2 DAY)),
+
+-- Đơn 109: Hoàn tất (COMPLETED) - Shop 1 -> Đã đánh giá, CHƯA có phản hồi từ shop (để Farmer test form reply)
+(109, 2, 4, 6, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Để ở bàn lễ tân', 'COMPLETED', 50000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.7801, 106.6990, DATE_SUB(NOW(), INTERVAL 4 DAY)),
+
+-- Đơn 110: Đã giao (DELIVERED) - Shop 2 của Buyer 2 (Trần Thị Mai) -> Đã đánh giá 5 sao (Cam sành)
+(110, 3, 5, 6, NULL, 15000, 'Trần Thị Mai', '0911111112', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', 'Giao giờ hành chính', 'DELIVERED', 120000, 'PAYOS', 0, 0, 10.7721, 106.6983, 10.7850, 106.7100, DATE_SUB(NOW(), INTERVAL 3 DAY)),
+
+-- Đơn 111: Đã giao (DELIVERED) - Shop 1 của Buyer 2 (Trần Thị Mai) -> Đã đánh giá 3 sao (Khoai tây vàng)
+(111, 3, 4, 6, NULL, 15000, 'Trần Thị Mai', '0911111112', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', 'Giao cẩn thận', 'DELIVERED', 75000, 'COD', 0, 0, 10.7721, 106.6983, 10.7801, 106.6990, DATE_SUB(NOW(), INTERVAL 5 DAY)),
+
+-- Đơn 112: Đã giao (DELIVERED) - Shop 2 của Buyer 1 -> CHƯA đánh giá (Xoài cát Hòa Lộc để test đánh giá Shop 2)
+(112, 2, 5, 6, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao buổi chiều', 'DELIVERED', 185000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.7850, 106.7100, DATE_SUB(NOW(), INTERVAL 1 DAY))
 ON DUPLICATE KEY UPDATE status=VALUES(status);
 
 -- 3.12 ORDER DETAILS (CHI TIẾT MẶT HÀNG TỪNG ĐƠN: SẢN PHẨM, TÚI MÙ, COMBO)
@@ -1046,7 +1067,13 @@ INSERT INTO order_details (order_detail_id, order_id, product_id, mystery_id, co
 (6, 104, NULL, 1, NULL, 1, 89000, 'MYSTERY_BOX'),     -- Hộp Củ Bí Ẩn Đà Lạt (Đơn 104)
 (7, 105, 105, NULL, NULL, 1, 25000, 'PRODUCT'),        -- Cà rốt (Đơn 105 đang giao)
 (8, 105, NULL, NULL, 1, 1, 70000, 'BUILD_COMBO'),     -- Combo Detox (Đơn 105 đang giao)
-(9, 106, 205, NULL, NULL, 2, 65000, 'PRODUCT')         -- Bưởi da xanh (Đơn 106 đã giao)
+(9, 106, 205, NULL, NULL, 2, 65000, 'PRODUCT'),        -- Bưởi da xanh (Đơn 106 đã giao, đã đánh giá 5 sao)
+(10, 108, 105, NULL, NULL, 2, 25000, 'PRODUCT'),       -- Cà rốt Đà Lạt (Đơn 108, đã đánh giá 5 sao)
+(11, 108, 101, NULL, NULL, 1, 12000, 'PRODUCT'),       -- Rau muống sạch Đà Lạt (Đơn 108, CHƯA ĐÁNH GIÁ -> Test nút Đánh giá)
+(12, 109, 108, NULL, NULL, 1, 35000, 'PRODUCT'),       -- Cà chua bi ngọt (Đơn 109, đã đánh giá 4 sao, CHƯA có phản hồi từ shop)
+(13, 110, 206, NULL, NULL, 3, 35000, 'PRODUCT'),       -- Cam sành Tiền Giang (Đơn 110, đã đánh giá 5 sao)
+(14, 111, 106, NULL, NULL, 2, 30000, 'PRODUCT'),       -- Khoai tây vàng Đà Lạt (Đơn 111, đã đánh giá 3 sao)
+(15, 112, 207, NULL, NULL, 2, 85000, 'PRODUCT')        -- Xoài cát Hòa Lộc (Đơn 112, CHƯA ĐÁNH GIÁ -> Test nút Đánh giá)
 ON DUPLICATE KEY UPDATE quantity=VALUES(quantity);
 
 -- 3.13 PAYMENTS (LIÊN KẾT THANH TOÁN VỚI ĐƠN HÀNG)
@@ -1235,6 +1262,37 @@ INSERT INTO saved_addresses (id, user_id, label, recipient_name, phone, address,
 (2, 2, 'Văn phòng', 'Ngô Gia Sang (Khách mua)', '0911111111', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', 10.7721, 106.6983, 0, 1),
 (3, 3, 'Nhà', 'Trần Thị Mai', '0911111112', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', 10.7721, 106.6983, 1, 1)
 ON DUPLICATE KEY UPDATE address=VALUES(address), recipient_name=VALUES(recipient_name);
+
+-- 3.16 REVIEWS & FEEDBACK (ĐÁNH GIÁ ĐƠN HÀNG VÀ PHẢN HỒI NÔNG DÂN)
+INSERT INTO reviews (review_id, buyer_id, shop_id, order_detail_id, product_id, mystery_id, combo_id, rating_star, comment, evidence, create_at, reply_from_shop) VALUES
+(1, 2, 4, 10, 105, NULL, NULL, 5.0, 'Cà rốt vỏ cam tự nhiên, ngọt đậm vị củ tươi vừa nhổ, ép nước siêu ngon! Đóng gói thùng giấy rất cẩn thận bảo vệ môi trường.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916721/brands/uj1eoinkwvthfjvtpvpq.jpg', DATE_SUB(NOW(), INTERVAL 2 DAY), 'Cảm ơn bạn Sang đã luôn ủng hộ nông sản sạch Đà Lạt của nhà vườn ạ! Vườn sẽ tiếp tục chọn những củ tươi ngon nhất gửi đến bạn nhé.'),
+
+(2, 2, 4, 12, 108, NULL, NULL, 4.0, 'Cà chua bi mọng nước, vị chua ngọt thanh mát ăn sống làm salad rất thích. Vận chuyển hơi lâu một chút xíu nhưng bù lại rau củ vẫn giữ được độ tươi ngon.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916530/brands/xjiiaehe5evwybwhmpmu.jpg', DATE_SUB(NOW(), INTERVAL 3 DAY), NULL),
+
+(3, 3, 4, 14, 106, NULL, NULL, 3.0, 'Khoai tây bở bùi thơm ngon, tuy nhiên có 1 củ bị cọ xát hơi trầy vỏ ngoài trong quá trình vận chuyển. Shop lần sau bọc thêm xốp lưới giúp mình nhé.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916676/brands/bmgnazybi0rro8bnxhwp.jpg', DATE_SUB(NOW(), INTERVAL 4 DAY), 'Dạ nhà vườn thành thật xin lỗi chị Mai ạ! Bên em đã ghi nhận phản hồi và từ đơn sau sẽ bọc thêm xốp lưới chống dập cho củ ạ.'),
+
+(4, 3, 5, 13, 206, NULL, NULL, 5.0, 'Cam sành vỏ mỏng, tép mọng nước, vắt được rất nhiều nước ngọt thanh không bị đắng. 10 điểm chất lượng cho nhà vườn Miền Tây!', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916481/brands/s5ld5232nl4s4fwczawr.jpg', DATE_SUB(NOW(), INTERVAL 2 DAY), 'Dạ cảm ơn chị Mai nhiều ạ! Cam vườn nhà em cắt cuống lá hái trong ngày nên luôn tươi mọng nước ạ.'),
+
+(5, 2, 5, 9, 205, NULL, NULL, 5.0, 'Bưởi da xanh tép hồng đều, tróc múi dễ bóc, vị ngọt lịm không chua chút nào. Rất hài lòng và sẽ tiếp tục mua ủng hộ bà con nông dân!', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917344/brands/c2i9gkbkl8vx7iwulwsz.png', DATE_SUB(NOW(), INTERVAL 1 DAY), 'Vườn Xanh cảm ơn anh Sang đã tin dùng sản phẩm bưởi da xanh Bến Tre của tụi em ạ!')
+ON DUPLICATE KEY UPDATE rating_star=VALUES(rating_star), comment=VALUES(comment), reply_from_shop=VALUES(reply_from_shop);
+
+-- 3.17 REVIEW REACTIONS (LIKE / DISLIKE)
+INSERT INTO review_reactions (id, review_id, buyer_id, reaction_type, created_at) VALUES
+(1, 1, 3, 'LIKE', DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(2, 1, 2, 'LIKE', DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(3, 2, 3, 'LIKE', DATE_SUB(NOW(), INTERVAL 2 DAY)),
+(4, 4, 2, 'LIKE', DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(5, 5, 3, 'LIKE', DATE_SUB(NOW(), INTERVAL 1 DAY))
+ON DUPLICATE KEY UPDATE reaction_type=VALUES(reaction_type);
+
+-- 3.18 REVIEW IMAGES (ĐÍNH KÈM ĐA ẢNH REVIEW)
+INSERT INTO images (id, image_url, media_type, created_at, review_id) VALUES
+(1001, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916721/brands/uj1eoinkwvthfjvtpvpq.jpg', 'PHOTO', DATE_SUB(NOW(), INTERVAL 2 DAY), 1),
+(1002, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916530/brands/xjiiaehe5evwybwhmpmu.jpg', 'PHOTO', DATE_SUB(NOW(), INTERVAL 3 DAY), 2),
+(1003, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916676/brands/bmgnazybi0rro8bnxhwp.jpg', 'PHOTO', DATE_SUB(NOW(), INTERVAL 4 DAY), 3),
+(1004, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916481/brands/s5ld5232nl4s4fwczawr.jpg', 'PHOTO', DATE_SUB(NOW(), INTERVAL 2 DAY), 4),
+(1005, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917344/brands/c2i9gkbkl8vx7iwulwsz.png', 'PHOTO', DATE_SUB(NOW(), INTERVAL 1 DAY), 5)
+ON DUPLICATE KEY UPDATE image_url=VALUES(image_url);
 
 SET FOREIGN_KEY_CHECKS = 1;
 

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
+import org.hibernate.annotations.ColumnDefault;
 
 import java.time.LocalDateTime;
 
@@ -29,10 +30,12 @@ public class ProductImage {
     LocalDateTime createdAt;
 
     @Column(name = "is_approved", nullable = false)
+    @ColumnDefault("true")
     @Builder.Default
     Boolean isApproved = true;
 
     @Column(name = "is_flagged", nullable = false)
+    @ColumnDefault("false")
     @Builder.Default
     Boolean isFlagged = false;
 
