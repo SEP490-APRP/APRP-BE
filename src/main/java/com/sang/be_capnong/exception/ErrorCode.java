@@ -212,8 +212,10 @@ public enum ErrorCode {
 
     // Notification Errors (Series 14000)
     NOTIFICATION_NOT_FOUND(14001, "Notification not found", HttpStatus.NOT_FOUND),
-    INVALID_NOTIFICATION_REQUEST(14002, "Notification title, message, and receiver types are required", HttpStatus.BAD_REQUEST)
-    ;
+    INVALID_NOTIFICATION_REQUEST(14002, "Notification title, message, and receiver types are required", HttpStatus.BAD_REQUEST),
+
+    // Bot Knowledge Errors (Series 15000)
+    BOT_KNOWLEDGE_NOT_FOUND(15001, "Bot knowledge not found", HttpStatus.NOT_FOUND);
 
     private final int code;
     private final String message;

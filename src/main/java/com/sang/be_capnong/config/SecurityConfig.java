@@ -66,7 +66,11 @@ public class SecurityConfig {
             "/payments/webhook",
             "/payments/*/confirm",
             "/payments/*/cancel",
-            "/payments/cancel"
+            "/payments/cancel",
+
+            // AI Chatbot message (hỗ trợ cả khách vãng lai và người dùng đã đăng nhập)
+            "/chatbot/message",
+            "/api/v1/chatbot/message"
     };
 
     /**
