@@ -95,6 +95,8 @@ public class Order {
     LocalDateTime shipperPaidAt;
     LocalDateTime pickedUpAt;
 
+    BigDecimal rescuedWeight;
+
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     List<OrderDetail> orderDetails;
 

@@ -93,7 +93,7 @@ public class AiDescriptionServiceImpl implements AiDescriptionService {
         if (defaultApiKey != null && !defaultApiKey.isBlank()) {
             for (String key : defaultApiKey.split(",")) {
                 String trimmed = key.trim();
-                if (!trimmed.isEmpty()) {
+                if (!trimmed.isEmpty() && !trimmed.startsWith("AQ.") && trimmed.length() >= 30) {
                     keySet.add(trimmed);
                 }
             }
@@ -103,14 +103,20 @@ public class AiDescriptionServiceImpl implements AiDescriptionService {
         if (environment != null) {
             String envKey = environment.getProperty("GEMINI_API_KEY");
             if (envKey != null && !envKey.isBlank()) {
-                keySet.add(envKey.trim());
+                String trimmed = envKey.trim();
+                if (!trimmed.startsWith("AQ.") && trimmed.length() >= 30) {
+                    keySet.add(trimmed);
+                }
             }
 
             // 3. Quét danh sách GEMINI_KEY_1 -> GEMINI_KEY_50 (cho phép xoay vòng key)
             for (int i = 1; i <= 50; i++) {
                 String rotatedKey = environment.getProperty("GEMINI_KEY_" + i);
                 if (rotatedKey != null && !rotatedKey.isBlank()) {
-                    keySet.add(rotatedKey.trim());
+                    String trimmed = rotatedKey.trim();
+                    if (!trimmed.startsWith("AQ.") && trimmed.length() >= 30) {
+                        keySet.add(trimmed);
+                    }
                 }
             }
         }

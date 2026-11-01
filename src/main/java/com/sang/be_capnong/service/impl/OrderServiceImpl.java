@@ -54,6 +54,8 @@ public class OrderServiceImpl implements OrderService {
     ProductRepository productRepository;
     MysteryBoxRepository mysteryBoxRepository;
     BuildComboRepository buildComboRepository;
+    ProductMysteryRepository productMysteryRepository;
+    ProductComboRepository productComboRepository;
     UserRepository userRepository;
     OrderMapper orderMapper;
     ShippingFeeService shippingFeeService;
@@ -908,6 +910,25 @@ public class OrderServiceImpl implements OrderService {
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
         order.setStatus(OrderStatus.DELIVERED);
+
+        // === TÍCH LŨY SỐ KG NÔNG SẢN ĐÃ GIẢI CỨU (IDEMPOTENCY GUARD) ===
+        if (order.getRescuedWeight() == null) {
+            BigDecimal orderRescuedWeight = calculateOrderRescuedWeight(order);
+            order.setRescuedWeight(orderRescuedWeight);
+
+            User buyer = order.getBuyer();
+            if (buyer != null) {
+                BigDecimal currentRescued = buyer.getTotalRescuedWeight() != null
+                        ? buyer.getTotalRescuedWeight()
+                        : BigDecimal.ZERO;
+                BigDecimal updatedRescued = currentRescued.add(orderRescuedWeight).setScale(2, java.math.RoundingMode.HALF_UP);
+                buyer.setTotalRescuedWeight(updatedRescued);
+                userRepository.save(buyer);
+                log.info("[RescuedWeight] Order #{} DELIVERED: credited {} kg to buyer id {}. New total: {} kg",
+                        orderId, orderRescuedWeight, buyer.getId(), updatedRescued);
+            }
+        }
+
         Order saved = orderRepository.save(order);
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
         return buildOrderResponse(saved, details);
@@ -1304,7 +1325,106 @@ public class OrderServiceImpl implements OrderService {
                 .shippingLatitude(destLat)
                 .shippingLongitude(destLng)
                 .distanceKm(distanceKm)
+                .rescuedWeight(order.getRescuedWeight())
                 .items(itemResponses)
                 .build();
+    }
+
+    /**
+     * Quy đổi đơn vị tính của nông sản sang kilôgam (kg)
+     */
+    private BigDecimal getKgPerUnit(String unit) {
+        if (unit == null || unit.isBlank()) {
+            return BigDecimal.valueOf(1.0);
+        }
+        String u = unit.trim().toLowerCase();
+        if (u.contains("kg") || u.contains("kilogram") || u.contains("ký") || u.contains("kí")) {
+            return BigDecimal.valueOf(1.0);
+        } else if (u.contains("gram") || u.equals("g")) {
+            return BigDecimal.valueOf(0.001);
+        } else if (u.contains("bó") || u.contains("bo")) {
+            return BigDecimal.valueOf(0.4);
+        } else if (u.contains("túi") || u.contains("gói") || u.contains("khay") || u.contains("tui") || u.contains("goi")) {
+            return BigDecimal.valueOf(0.5);
+        } else if (u.contains("trái") || u.contains("quả") || u.contains("qua") || u.contains("trai")) {
+            return BigDecimal.valueOf(1.2);
+        } else if (u.contains("hộp") || u.contains("phần") || u.contains("hop") || u.contains("phan")) {
+            return BigDecimal.valueOf(0.5);
+        }
+        return BigDecimal.valueOf(1.0);
+    }
+
+    /**
+     * Tính tổng số kg nông sản được giải cứu trong đơn hàng
+     */
+    private BigDecimal calculateOrderRescuedWeight(Order order) {
+        List<OrderDetail> details = (order.getOrderDetails() != null && !order.getOrderDetails().isEmpty())
+                ? order.getOrderDetails()
+                : orderDetailRepository.findByOrder_OrderId(order.getOrderId());
+
+        if (details == null || details.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+
+        BigDecimal totalOrderWeight = BigDecimal.ZERO;
+
+        for (OrderDetail d : details) {
+            int quantity = d.getQuantity() != null && d.getQuantity() > 0 ? d.getQuantity() : 1;
+            BigDecimal itemTotalWeight = BigDecimal.ZERO;
+
+            if ("PRODUCT".equalsIgnoreCase(d.getItemType()) || d.getProduct() != null) {
+                Product p = d.getProduct();
+                if (p != null) {
+                    BigDecimal kgPerUnit = getKgPerUnit(p.getUnit());
+                    itemTotalWeight = kgPerUnit.multiply(BigDecimal.valueOf(quantity));
+                } else {
+                    itemTotalWeight = BigDecimal.valueOf(quantity);
+                }
+            } else if ("MYSTERY_BOX".equalsIgnoreCase(d.getItemType()) || d.getMysteryBox() != null) {
+                MysteryBox box = d.getMysteryBox();
+                BigDecimal singleBoxWeight = BigDecimal.ZERO;
+                if (box != null) {
+                    List<ProductMystery> items = productMysteryRepository.findByMysteryBox_MysteryId(box.getMysteryId());
+                    if (items != null && !items.isEmpty()) {
+                        for (ProductMystery pm : items) {
+                            if (pm.getProduct() != null) {
+                                int pQty = pm.getProductQuantity() != null && pm.getProductQuantity() > 0 ? pm.getProductQuantity() : 1;
+                                BigDecimal pKg = getKgPerUnit(pm.getProduct().getUnit());
+                                singleBoxWeight = singleBoxWeight.add(pKg.multiply(BigDecimal.valueOf(pQty)));
+                            }
+                        }
+                    }
+                }
+                if (singleBoxWeight.compareTo(BigDecimal.ZERO) <= 0) {
+                    singleBoxWeight = BigDecimal.valueOf(3.0);
+                }
+                itemTotalWeight = singleBoxWeight.multiply(BigDecimal.valueOf(quantity));
+            } else if ("BUILD_COMBO".equalsIgnoreCase(d.getItemType()) || d.getBuildCombo() != null) {
+                BuildCombo combo = d.getBuildCombo();
+                BigDecimal singleComboWeight = BigDecimal.ZERO;
+                if (combo != null) {
+                    List<ProductCombo> items = productComboRepository.findByBuildComboComboId(combo.getComboId());
+                    if (items != null && !items.isEmpty()) {
+                        for (ProductCombo pc : items) {
+                            if (pc.getProduct() != null) {
+                                int pQty = pc.getProductQuantity() != null && pc.getProductQuantity() > 0 ? pc.getProductQuantity() : 1;
+                                BigDecimal pKg = getKgPerUnit(pc.getProduct().getUnit());
+                                singleComboWeight = singleComboWeight.add(pKg.multiply(BigDecimal.valueOf(pQty)));
+                            }
+                        }
+                    }
+                }
+                if (singleComboWeight.compareTo(BigDecimal.ZERO) <= 0) {
+                    singleComboWeight = BigDecimal.valueOf(2.0);
+                }
+                itemTotalWeight = singleComboWeight.multiply(BigDecimal.valueOf(quantity));
+            } else {
+                itemTotalWeight = BigDecimal.valueOf(quantity);
+            }
+
+            totalOrderWeight = totalOrderWeight.add(itemTotalWeight);
+        }
+
+        return totalOrderWeight.setScale(2, java.math.RoundingMode.HALF_UP);
     }
 }

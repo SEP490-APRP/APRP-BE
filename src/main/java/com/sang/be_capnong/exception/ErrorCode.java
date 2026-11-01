@@ -198,8 +198,10 @@ public enum ErrorCode {
     MEAL_TYPE_MISMATCH(11018, "Loại combo không phù hợp với bữa ăn (Bữa sáng không thể dùng combo trưa/tối và ngược lại)", HttpStatus.BAD_REQUEST),
     PLAN_NOT_CONFIRMED(11019, "Thực đơn đang ở trạng thái nháp. Vui lòng bấm 'Xác nhận thực đơn' để bắt đầu theo dõi bữa ăn!", HttpStatus.BAD_REQUEST),
     PLAN_ALREADY_ARCHIVED(11020, "Thực đơn này đã được lưu trữ, không thể chỉnh sửa thêm!", HttpStatus.BAD_REQUEST),
-    PLAN_CANNOT_DELETE_CONFIRMED(11021, "Thực đơn đã xác nhận không thể xóa. Vui lòng chọn 'Lưu trữ' thay thế!", HttpStatus.BAD_REQUEST)
-    ;
+    PLAN_CANNOT_DELETE_CONFIRMED(11021, "Thực đơn đã xác nhận không thể xóa. Vui lòng chọn 'Lưu trữ' thay thế!", HttpStatus.BAD_REQUEST),
+
+    // Bot Knowledge Errors (Series 12000)
+    BOT_KNOWLEDGE_NOT_FOUND(12001, "Bot knowledge not found", HttpStatus.NOT_FOUND);
 
     private final int code;
     private final String message;

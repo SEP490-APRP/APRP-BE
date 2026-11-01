@@ -67,13 +67,19 @@ public class CartServiceImpl implements CartService {
             }
 
             User shop = getShopFromCartItem(item);
-            if (shop == null) continue;
+            int shopId = (shop != null) ? shop.getId() : 0;
+            String shopName = (shop != null && shop.getShopName() != null && !shop.getShopName().isBlank())
+                    ? shop.getShopName()
+                    : ((shop != null && shop.getFullName() != null && !shop.getFullName().isBlank())
+                            ? shop.getFullName()
+                            : "Nông trại liên kết CapNong");
+            String shopAvatar = (shop != null) ? shop.getLogoUrl() : null;
 
-            ShopCartResponse shopCart = shopGroups.computeIfAbsent(shop.getId(), k -> 
+            ShopCartResponse shopCart = shopGroups.computeIfAbsent(shopId, k -> 
                 ShopCartResponse.builder()
-                    .shopId(shop.getId())
-                    .shopName(shop.getShopName() != null ? shop.getShopName() : shop.getFullName())
-                    .shopAvatar(shop.getLogoUrl())
+                    .shopId(shopId)
+                    .shopName(shopName)
+                    .shopAvatar(shopAvatar)
                     .items(new ArrayList<>())
                     .build()
             );
@@ -301,7 +307,7 @@ public class CartServiceImpl implements CartService {
             return cartItemRepository.findByCart_IdAndProduct_ProductId(cart.getId(), itemId).orElse(null);
         } else if ("MYSTERY_BOX".equalsIgnoreCase(itemType)) {
             return cartItemRepository.findByCart_IdAndMysteryBox_MysteryId(cart.getId(), itemId).orElse(null);
-        } else if ("BUILD_COMBO".equalsIgnoreCase(itemType)) {
+        } else if ("BUILD_COMBO".equalsIgnoreCase(itemType) || "COMBO".equalsIgnoreCase(itemType)) {
             return cartItemRepository.findByCart_IdAndBuildCombo_ComboId(cart.getId(), itemId).orElse(null);
         }
         return null;
@@ -327,7 +333,7 @@ public class CartServiceImpl implements CartService {
             boolean shopStatusOk = m.getShop() != null && (m.getShop().getStatus() == null || m.getShop().getStatus() == UserStatus.ACTIVE);
             boolean boxActive = m.getIsActive() == null || Boolean.TRUE.equals(m.getIsActive());
             isActive = boxActive && shopActive && shopStatusOk;
-        } else if ("BUILD_COMBO".equalsIgnoreCase(itemType)) {
+        } else if ("BUILD_COMBO".equalsIgnoreCase(itemType) || "COMBO".equalsIgnoreCase(itemType)) {
             BuildCombo b = buildComboRepository.findById(itemId).orElseThrow(() -> new AppException(ErrorCode.COMBO_NOT_FOUND));
             int total = b.getTotalQuantity() != null ? b.getTotalQuantity() : 0;
             int sold = b.getSoldQuantity() != null ? b.getSoldQuantity() : 0;
@@ -354,7 +360,7 @@ public class CartServiceImpl implements CartService {
             item.setProduct(productRepository.findById(itemId).orElseThrow(() -> new AppException(ErrorCode.PRODUCT_NOT_FOUND)));
         } else if ("MYSTERY_BOX".equalsIgnoreCase(itemType)) {
             item.setMysteryBox(mysteryBoxRepository.findById(itemId).orElseThrow(() -> new AppException(ErrorCode.MYSTERY_BOX_NOT_FOUND)));
-        } else if ("BUILD_COMBO".equalsIgnoreCase(itemType)) {
+        } else if ("BUILD_COMBO".equalsIgnoreCase(itemType) || "COMBO".equalsIgnoreCase(itemType)) {
             item.setBuildCombo(buildComboRepository.findById(itemId).orElseThrow(() -> new AppException(ErrorCode.COMBO_NOT_FOUND)));
         } else {
             throw new AppException(ErrorCode.INVALID_ITEM_TYPE);

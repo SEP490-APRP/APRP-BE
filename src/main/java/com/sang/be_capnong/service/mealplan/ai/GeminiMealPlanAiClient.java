@@ -8,20 +8,23 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
+import org.springframework.core.env.Environment;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Component
 @Primary
 @Slf4j
 public class GeminiMealPlanAiClient implements MealPlanAiClient {
 
-    private final String apiKey;
+    private final List<String> activeApiKeys = new CopyOnWriteArrayList<>();
+    private final AtomicInteger currentKeyIndex = new AtomicInteger(0);
     private final String model;
     private final int timeoutSeconds;
     private final ObjectMapper objectMapper;
@@ -33,9 +36,9 @@ public class GeminiMealPlanAiClient implements MealPlanAiClient {
             @Value("${google.gemini.model:gemini-2.5-flash}") String model,
             @Value("${google.gemini.timeout-seconds:45}") int timeoutSeconds,
             ObjectMapper objectMapper,
-            @Qualifier("fakeMealPlanAiClient") MealPlanAiClient fallbackClient
+            @Qualifier("fakeMealPlanAiClient") MealPlanAiClient fallbackClient,
+            Environment environment
     ) {
-        this.apiKey = apiKey != null ? apiKey.trim() : "";
         this.model = model != null && !model.isBlank() ? model.trim() : "gemini-2.5-flash";
         this.timeoutSeconds = timeoutSeconds > 0 ? timeoutSeconds : 45;
         this.objectMapper = objectMapper;
@@ -44,11 +47,31 @@ public class GeminiMealPlanAiClient implements MealPlanAiClient {
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
+
+        Set<String> keySet = new LinkedHashSet<>();
+        addIfValidKey(keySet, apiKey);
+        if (environment != null) {
+            addIfValidKey(keySet, environment.getProperty("GEMINI_API_KEY"));
+            for (int i = 1; i <= 50; i++) {
+                addIfValidKey(keySet, environment.getProperty("GEMINI_KEY_" + i));
+            }
+        }
+        activeApiKeys.addAll(keySet);
+        log.info("Initialized GeminiMealPlanAiClient with model '{}' and {} valid API keys for auto-rotation", this.model, activeApiKeys.size());
+    }
+
+    private void addIfValidKey(Set<String> set, String rawKey) {
+        if (rawKey == null || rawKey.isBlank()) return;
+        String trimmed = rawKey.trim();
+        if (trimmed.length() < 25) {
+            return;
+        }
+        set.add(trimmed);
     }
 
     @Override
     public ProfileExtraction extractProfile(ExtractionInput in) {
-        if (apiKey.isBlank()) {
+        if (activeApiKeys.isEmpty()) {
             log.info("Gemini API key not configured, falling back to FakeMealPlanAiClient for extraction");
             return fallbackClient.extractProfile(in);
         }
@@ -65,7 +88,7 @@ public class GeminiMealPlanAiClient implements MealPlanAiClient {
 
     @Override
     public GeneratedPlan generatePlan(GenerationInput in) {
-        if (apiKey.isBlank()) {
+        if (activeApiKeys.isEmpty()) {
             log.info("Gemini API key not configured, falling back to FakeMealPlanAiClient for plan generation");
             return fallbackClient.generatePlan(in);
         }
@@ -81,28 +104,33 @@ public class GeminiMealPlanAiClient implements MealPlanAiClient {
     }
 
     public String callGemini(String prompt) {
-        String targetModel = this.model;
-        try {
-            return executeGeminiRequest(targetModel, prompt);
-        } catch (Exception e) {
-            log.warn("Gemini call failed with model {}, attempting fallback: {}", targetModel, e.getMessage());
-            try {
-                return executeGeminiRequest("gemini-2.5-flash", prompt);
-            } catch (Exception ex) {
+        if (activeApiKeys.isEmpty()) {
+            throw new IllegalStateException("No active Gemini API keys");
+        }
+
+        int totalKeys = activeApiKeys.size();
+        List<String> candidateModels = List.of(this.model, "gemini-2.5-flash", "gemini-3.5-flash-lite", "gemini-2.5-flash-lite");
+
+        for (String targetModel : candidateModels) {
+            int attempts = 0;
+            while (attempts < totalKeys) {
+                int index = Math.abs(currentKeyIndex.get()) % totalKeys;
+                String currentKey = activeApiKeys.get(index);
                 try {
-                    return executeGeminiRequest("gemini-flash-latest", prompt);
-                } catch (Exception ex2) {
-                    throw new RuntimeException("All Gemini model requests failed: " + ex2.getMessage(), ex2);
+                    return executeGeminiRequest(targetModel, currentKey, prompt);
+                } catch (Exception e) {
+                    attempts++;
+                    log.warn("MealPlan Gemini call failed with model {} and key index {}/{}: {}. Rotating key...",
+                            targetModel, index + 1, totalKeys, e.getMessage());
+                    currentKeyIndex.incrementAndGet();
                 }
             }
         }
+        throw new RuntimeException("All Gemini keys and models failed for MealPlan");
     }
 
-    private String executeGeminiRequest(String modelName, String prompt) throws Exception {
-        String url = String.format(
-                "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s",
-                modelName, apiKey
-        );
+    private String executeGeminiRequest(String modelName, String apiKeyToUse, String prompt) throws Exception {
+        String url = String.format("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s", modelName, apiKeyToUse);
 
         Map<String, Object> requestBody = Map.of(
                 "contents", List.of(Map.of("parts", List.of(Map.of("text", prompt)))),
@@ -114,13 +142,14 @@ public class GeminiMealPlanAiClient implements MealPlanAiClient {
 
         String jsonPayload = objectMapper.writeValueAsString(requestBody);
 
-        HttpRequest httpRequest = HttpRequest.newBuilder()
+        HttpRequest.Builder reqBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .header("Content-Type", "application/json")
+                .header("x-goog-api-key", apiKeyToUse)
                 .timeout(Duration.ofSeconds(this.timeoutSeconds))
-                .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
-                .build();
+                .POST(HttpRequest.BodyPublishers.ofString(jsonPayload));
 
+        HttpRequest httpRequest = reqBuilder.build();
         HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
 
         if (response.statusCode() != 200) {
