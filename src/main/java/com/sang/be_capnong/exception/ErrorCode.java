@@ -215,7 +215,15 @@ public enum ErrorCode {
     INVALID_NOTIFICATION_REQUEST(14002, "Notification title, message, and receiver types are required", HttpStatus.BAD_REQUEST),
 
     // Bot Knowledge Errors (Series 15000)
-    BOT_KNOWLEDGE_NOT_FOUND(15001, "Bot knowledge not found", HttpStatus.NOT_FOUND);
+    BOT_KNOWLEDGE_NOT_FOUND(15001, "Bot knowledge not found", HttpStatus.NOT_FOUND),
+
+    // Wallet & Settlement Errors (Series 16000)
+    WALLET_NOT_FOUND(16001, "Wallet not found", HttpStatus.NOT_FOUND),
+    ORDER_NOT_SETTLEABLE(16002, "Order must be COMPLETED before settlement", HttpStatus.BAD_REQUEST),
+    PLATFORM_WALLET_OWNER_MISSING(16003, "No ADMIN account found to own the platform wallet", HttpStatus.INTERNAL_SERVER_ERROR),
+    COD_NOT_COLLECTED(16004, "COD cash has not been collected for this order", HttpStatus.BAD_REQUEST),
+    COD_ALREADY_SETTLED(16005, "COD cash for this order was already settled", HttpStatus.BAD_REQUEST),
+    PAYMENT_NOT_OWNER(16006, "You do not have permission to access this payment", HttpStatus.FORBIDDEN);
 
     private final int code;
     private final String message;

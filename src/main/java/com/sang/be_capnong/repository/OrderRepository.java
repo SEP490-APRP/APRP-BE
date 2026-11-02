@@ -4,10 +4,17 @@ import com.sang.be_capnong.entity.Order;
 import com.sang.be_capnong.enums.OrderStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface OrderRepository extends JpaRepository<Order, Integer> {
@@ -23,4 +30,24 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
     List<Order> findByCheckoutBatch_Id(int batchId);
     boolean existsByShipper_IdAndStatus(int shipperId, OrderStatus status);
     boolean existsByShipper_IdAndStatusIn(int shipperId, List<OrderStatus> statuses);
+
+    /** Khoá dòng đơn khi quyết toán ví để chống chia tiền 2 lần */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select o from Order o where o.orderId = :id")
+    Optional<Order> findByIdForUpdate(@Param("id") int id);
+
+    /** Đơn đã giao xong quá N ngày mà Buyer chưa bấm "Đã nhận hàng" -> tự động hoàn tất */
+    List<Order> findTop200ByStatusAndDeliveredAtBefore(OrderStatus status, LocalDateTime before);
+
+    /** Đơn COMPLETED nhưng chưa quyết toán (ví dụ lỗi giữa chừng) -> chạy bù */
+    List<Order> findTop200ByStatusAndSettledAtIsNull(OrderStatus status);
+
+    /** Đơn chờ thanh toán quá hạn -> tự huỷ để trả kho */
+    List<Order> findTop200ByStatusAndCreatedAtBefore(OrderStatus status, LocalDateTime before);
+
+    /** Đơn COD Shipper đã thu tiền mặt nhưng chưa nộp về sàn */
+    List<Order> findByCodCashConfirmedAtIsNotNullAndCodSettledFalseOrderByCodCashConfirmedAtAsc();
+
+    /** Đơn cần sàn hoàn tiền cho Buyer (đã thanh toán online rồi bị huỷ / thanh toán trùng) */
+    List<Order> findByRefundAmountGreaterThanOrderByCreatedAtDesc(BigDecimal amount);
 }
