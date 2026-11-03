@@ -94,6 +94,7 @@ public class Order {
     LocalDateTime codRefundedAt;
     LocalDateTime shipperPaidAt;
     LocalDateTime pickedUpAt;
+    LocalDateTime deliveredAt;
 
     BigDecimal rescuedWeight;
 

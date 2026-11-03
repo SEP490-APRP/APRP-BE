@@ -215,7 +215,17 @@ public enum ErrorCode {
     INVALID_NOTIFICATION_REQUEST(14002, "Notification title, message, and receiver types are required", HttpStatus.BAD_REQUEST),
 
     // Bot Knowledge Errors (Series 15000)
-    BOT_KNOWLEDGE_NOT_FOUND(15001, "Bot knowledge not found", HttpStatus.NOT_FOUND);
+    BOT_KNOWLEDGE_NOT_FOUND(15001, "Bot knowledge not found", HttpStatus.NOT_FOUND),
+
+    // Return & Refund Errors (Series 16000)
+    RETURN_REQUEST_NOT_FOUND(16001, "Return request not found", HttpStatus.NOT_FOUND),
+    RETURN_WINDOW_EXPIRED(16002, "Return window has expired (must be within 24 hours of delivery)", HttpStatus.BAD_REQUEST),
+    ORDER_NOT_DELIVERED_YET(16003, "Only delivered or completed orders can request a return", HttpStatus.BAD_REQUEST),
+    RETURN_ALREADY_REQUESTED(16004, "A return request has already been submitted for this order item", HttpStatus.CONFLICT),
+    RETURN_UNAUTHORIZED(16005, "You do not have permission to perform this action on the return request", HttpStatus.FORBIDDEN),
+    INVALID_RETURN_STATUS(16006, "Current return request status does not allow this operation", HttpStatus.BAD_REQUEST),
+    RETURN_REFUND_AMOUNT_INVALID(16007, "Refund amount cannot exceed item purchase amount", HttpStatus.BAD_REQUEST),
+    SHIPPER_NOT_ASSIGNED_TO_RETURN(16008, "You are not assigned as the shipper for this return order", HttpStatus.FORBIDDEN);
 
     private final int code;
     private final String message;

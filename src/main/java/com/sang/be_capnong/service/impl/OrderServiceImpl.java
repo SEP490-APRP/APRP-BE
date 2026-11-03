@@ -910,6 +910,9 @@ public class OrderServiceImpl implements OrderService {
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
         order.setStatus(OrderStatus.DELIVERED);
+        if (order.getDeliveredAt() == null) {
+            order.setDeliveredAt(LocalDateTime.now());
+        }
 
         // === TÍCH LŨY SỐ KG NÔNG SẢN ĐÃ GIẢI CỨU (IDEMPOTENCY GUARD) ===
         if (order.getRescuedWeight() == null) {

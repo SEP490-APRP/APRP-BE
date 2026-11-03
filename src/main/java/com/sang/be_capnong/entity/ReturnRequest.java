@@ -41,9 +41,27 @@ public class ReturnRequest {
     String reason;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "status", length = 50)
     ReturnStatus status;
 
     BigDecimal refundAmount;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "shipper_id")
+    User shipper;
+
+    @Column(name = "is_return_goods")
+    @Builder.Default
+    Boolean isReturnGoods = true;
+
+    @Column(name = "return_shipping_fee")
+    BigDecimal returnShippingFee;
+
+    @Column(name = "picked_up_at")
+    LocalDateTime pickedUpAt;
+
+    @Column(name = "returned_at")
+    LocalDateTime returnedAt;
 
     @Column(length = 1000)
     String shopResponse;
@@ -54,7 +72,23 @@ public class ReturnRequest {
     LocalDateTime createdAt;
     LocalDateTime updatedAt;
 
-    @OneToMany(mappedBy = "returnRequest")
+    @OneToMany(mappedBy = "returnRequest", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     List<Image> images;
+
+    @PrePersist
+    public void prePersist() {
+        if (this.createdAt == null) {
+            this.createdAt = LocalDateTime.now();
+        }
+        this.updatedAt = LocalDateTime.now();
+        if (this.isReturnGoods == null) {
+            this.isReturnGoods = true;
+        }
+    }
+
+    @PreUpdate
+    public void preUpdate() {
+        this.updatedAt = LocalDateTime.now();
+    }
 }
