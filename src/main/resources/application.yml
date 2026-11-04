@@ -11,6 +11,8 @@ capnong:
     farmer-fee-rate: ${CAPNONG_FARMER_FEE_RATE:0.10}
     # Phí dịch vụ shipper: % trên cước giao hàng, trừ vào tiền Shipper nhận
     shipper-fee-rate: ${CAPNONG_SHIPPER_FEE_RATE:0.03}
+    # Số tiền rút tối thiểu mỗi lần (VND)
+    min-withdraw: ${CAPNONG_MIN_WITHDRAW:50000}
   order:
     # Đơn DELIVERED quá số ngày này mà Buyer chưa bấm "Đã nhận hàng" sẽ tự COMPLETED và chia tiền (0 = tắt)
     auto-complete-days: ${CAPNONG_AUTO_COMPLETE_DAYS:3}

@@ -32,5 +32,11 @@ public enum WalletTransactionType {
     /** Đơn COMPLETED: gỡ tiền tạm giữ (âm), tiền thật được cộng bằng các bút toán *_INCOME / PLATFORM_* */
     HOLD_RELEASED,
     /** Đơn huỷ / giao thất bại: gỡ tiền tạm giữ (âm) */
-    HOLD_CANCELLED
+    HOLD_CANCELLED,
+
+    // ── Rút tiền ──
+    /** Tạo lệnh rút: trừ số dư ngay (âm) để không rút trùng */
+    WITHDRAW_REQUESTED,
+    /** Admin từ chối lệnh rút: trả lại số dư (dương) */
+    WITHDRAW_REFUNDED
 }

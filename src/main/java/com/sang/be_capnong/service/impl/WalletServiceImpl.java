@@ -43,6 +43,8 @@ public class WalletServiceImpl implements WalletService {
     public static final String TYPE_SHOP = "SHOP";
     public static final String TYPE_SHIPPER = "SHIPPER";
     public static final String TYPE_PLATFORM = "PLATFORM";
+    /** Ví giới thiệu của Buyer (đặc tả: Social Commerce & Referral Wallet) */
+    public static final String TYPE_REFERRAL = "REFERRAL";
 
     private final WalletRepository walletRepository;
     private final WalletTransactionRepository walletTransactionRepository;
@@ -50,6 +52,11 @@ public class WalletServiceImpl implements WalletService {
     private final OrderDetailRepository orderDetailRepository;
     private final VoucherUsageRepository voucherUsageRepository;
     private final UserRepository userRepository;
+    private final WithdrawRequestRepository withdrawRequestRepository;
+
+    /** Số tiền rút tối thiểu mỗi lệnh */
+    @Value("${capnong.wallet.min-withdraw:50000}")
+    private BigDecimal minWithdraw;
 
     @Value("${capnong.wallet.farmer-fee-rate:0.10}")
     private BigDecimal farmerFeeRate;
@@ -289,6 +296,259 @@ public class WalletServiceImpl implements WalletService {
                 .toList();
     }
 
+    // ───────────────────────────── Rút tiền ─────────────────────────────
+
+    @Override
+    @Transactional
+    public com.sang.be_capnong.dto.response.wallet.WithdrawResponse requestWithdraw(
+            com.sang.be_capnong.dto.request.wallet.WithdrawCreateRequest req) {
+        if (req == null) throw new AppException(ErrorCode.WITHDRAW_INVALID_BANK);
+        String bank = trimToNull(req.getBankName());
+        String number = req.getBankAccountNumber() == null ? null : req.getBankAccountNumber().replaceAll("\\s", "");
+        String holder = trimToNull(req.getBankAccountHolder());
+        if (bank == null || holder == null || number == null || !number.matches("\\d{6,20}")) {
+            throw new AppException(ErrorCode.WITHDRAW_INVALID_BANK);
+        }
+        BigDecimal amount = money(req.getAmount());
+        if (amount.compareTo(minWithdraw) < 0) {
+            throw new AppException(ErrorCode.WITHDRAW_MIN_AMOUNT);
+        }
+
+        User me = currentUser();
+        if (hasRole(me, "ADMIN")) throw new AppException(ErrorCode.UNAUTHORIZED);
+        WalletResponse mine = getMyWallet();
+        Wallet locked = walletRepository.findByIdForUpdate(mine.getWalletId())
+                .orElseThrow(() -> new AppException(ErrorCode.WALLET_NOT_FOUND));
+        if (nz(locked.getTotalBalance()).compareTo(amount) < 0) {
+            throw new AppException(ErrorCode.WITHDRAW_INSUFFICIENT_BALANCE);
+        }
+
+        WithdrawRequest r = withdrawRequestRepository.save(WithdrawRequest.builder()
+                .wallet(locked)
+                .amount(amount)
+                .fee(BigDecimal.ZERO)
+                .receiveAmount(amount)
+                .status(WithdrawStatus.PENDING)
+                .bankName(bank)
+                .bankAccountNumber(number)
+                .bankAccountHolder(holder.toUpperCase(Locale.ROOT))
+                .reason(trimToNull(req.getNote()))
+                .createdAt(LocalDateTime.now())
+                .build());
+        credit(locked, null, WalletTransactionType.WITHDRAW_REQUESTED, amount.negate(),
+                "Lệnh rút #" + r.getRequestId() + ": rút " + vnd(amount) + " về " + bank + " " + maskAccount(number));
+        log.info("[Withdraw] #{} created by user {} wallet {} amount {}", r.getRequestId(), me.getId(), locked.getWalletId(), amount);
+        return toWithdrawResponse(r);
+    }
+
+    @Override
+    @Transactional
+    public List<com.sang.be_capnong.dto.response.wallet.WithdrawResponse> getMyWithdrawals() {
+        WalletResponse mine = getMyWallet();
+        return withdrawRequestRepository.findByWallet_WalletIdOrderByCreatedAtDesc(mine.getWalletId())
+                .stream().map(this::toWithdrawResponse).toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<com.sang.be_capnong.dto.response.wallet.WithdrawResponse> getWithdrawals(String status) {
+        List<WithdrawRequest> list;
+        if (status == null || status.isBlank() || "ALL".equalsIgnoreCase(status)) {
+            list = withdrawRequestRepository.findAllByOrderByCreatedAtDesc();
+        } else {
+            WithdrawStatus st;
+            try {
+                st = WithdrawStatus.valueOf(status.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                throw new AppException(ErrorCode.INVALID_STATUS);
+            }
+            list = withdrawRequestRepository.findByStatusOrderByCreatedAtAsc(st);
+        }
+        return list.stream().map(this::toWithdrawResponse).toList();
+    }
+
+    @Override
+    @Transactional
+    public com.sang.be_capnong.dto.response.wallet.WithdrawResponse approveWithdraw(int requestId, String note) {
+        WithdrawRequest r = lockPendingWithdraw(requestId);
+        Wallet w = walletRepository.findByIdForUpdate(r.getWallet().getWalletId())
+                .orElseThrow(() -> new AppException(ErrorCode.WALLET_NOT_FOUND));
+        w.setTotalWithdrawn(nz(w.getTotalWithdrawn()).add(nz(r.getAmount())));
+        w.setUpdateAt(LocalDateTime.now());
+        walletRepository.save(w);
+        finishWithdraw(r, WithdrawStatus.COMPLETED, note);
+        log.info("[Withdraw] #{} COMPLETED", requestId);
+        return toWithdrawResponse(r);
+    }
+
+    @Override
+    @Transactional
+    public com.sang.be_capnong.dto.response.wallet.WithdrawResponse rejectWithdraw(int requestId, String note) {
+        WithdrawRequest r = lockPendingWithdraw(requestId);
+        credit(r.getWallet(), null, WalletTransactionType.WITHDRAW_REFUNDED, nz(r.getAmount()),
+                "Lệnh rút #" + requestId + " bị từ chối, hoàn " + vnd(r.getAmount()) + " vào ví"
+                        + (trimToNull(note) != null ? ": " + note.trim() : ""));
+        finishWithdraw(r, WithdrawStatus.REJECTED, note);
+        log.info("[Withdraw] #{} REJECTED", requestId);
+        return toWithdrawResponse(r);
+    }
+
+    private WithdrawRequest lockPendingWithdraw(int requestId) {
+        WithdrawRequest r = withdrawRequestRepository.findByIdForUpdate(requestId)
+                .orElseThrow(() -> new AppException(ErrorCode.WITHDRAW_NOT_FOUND));
+        if (r.getStatus() != WithdrawStatus.PENDING) {
+            throw new AppException(ErrorCode.WITHDRAW_ALREADY_PROCESSED);
+        }
+        return r;
+    }
+
+    private void finishWithdraw(WithdrawRequest r, WithdrawStatus status, String note) {
+        r.setStatus(status);
+        r.setAdminNote(trimToNull(note));
+        r.setAdmin(currentUser());
+        r.setProcessedAt(LocalDateTime.now());
+        withdrawRequestRepository.save(r);
+    }
+
+    private com.sang.be_capnong.dto.response.wallet.WithdrawResponse toWithdrawResponse(WithdrawRequest r) {
+        Wallet w = r.getWallet();
+        User owner = w.getUser();
+        return com.sang.be_capnong.dto.response.wallet.WithdrawResponse.builder()
+                .id(r.getRequestId())
+                .walletId(w.getWalletId())
+                .walletType(w.getType())
+                .userId(owner.getId())
+                .ownerName(owner.getShopName() != null ? owner.getShopName() : owner.getFullName())
+                .ownerEmail(owner.getEmail())
+                .amount(r.getAmount())
+                .fee(r.getFee())
+                .receiveAmount(r.getReceiveAmount())
+                .status(r.getStatus() != null ? r.getStatus().name() : null)
+                .bankName(r.getBankName())
+                .bankAccountNumber(r.getBankAccountNumber())
+                .bankAccountHolder(r.getBankAccountHolder())
+                .note(r.getReason())
+                .adminNote(r.getAdminNote())
+                .adminName(r.getAdmin() != null ? r.getAdmin().getFullName() : null)
+                .createdAt(r.getCreatedAt())
+                .processedAt(r.getProcessedAt())
+                .build();
+    }
+
+    private static String trimToNull(String s) {
+        return s == null || s.isBlank() ? null : s.trim();
+    }
+
+    private static String maskAccount(String number) {
+        return number.length() <= 4 ? number : "***" + number.substring(number.length() - 4);
+    }
+
+    // ───────────────────────────── Tổng hợp ví sàn ─────────────────────────────
+
+    @Override
+    @Transactional(readOnly = true)
+    public com.sang.be_capnong.dto.response.wallet.PlatformOverviewResponse getPlatformOverview(String period) {
+        String p = period == null ? "30D" : period.trim().toUpperCase();
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime from = switch (p) {
+            case "TODAY" -> now.toLocalDate().atStartOfDay();
+            case "7D" -> now.minusDays(7);
+            case "ALL" -> LocalDateTime.of(2000, 1, 1, 0, 0);
+            default -> { p = "30D"; yield now.minusDays(30); }
+        };
+
+        Wallet platform = getPlatformWalletEntity();
+
+        // Hoa hồng và tiền sàn bù trong kỳ (bút toán ví sàn)
+        Map<WalletTransactionType, BigDecimal> sums = new EnumMap<>(WalletTransactionType.class);
+        for (Object[] r : walletTransactionRepository.sumByTypeSince(platform.getWalletId(), from)) {
+            sums.put((WalletTransactionType) r[0], nz((BigDecimal) r[1]));
+        }
+        BigDecimal farmerFee = sums.getOrDefault(WalletTransactionType.PLATFORM_FARMER_FEE, BigDecimal.ZERO);
+        BigDecimal shipperFee = sums.getOrDefault(WalletTransactionType.PLATFORM_SHIPPER_FEE, BigDecimal.ZERO);
+
+        // Ví Shop / Shipper
+        List<Wallet> partnerWallets = walletRepository.findByTypeIn(List.of(TYPE_SHOP, TYPE_SHIPPER));
+        Map<Integer, Integer> pendingByWallet = new HashMap<>();
+        Set<Integer> heldOrders = new HashSet<>();
+        Set<Integer> shopHeldOrders = new HashSet<>();
+        Set<Integer> shipperHeldOrders = new HashSet<>();
+        Map<Integer, String> walletType = new HashMap<>();
+        partnerWallets.forEach(w -> walletType.put(w.getWalletId(), w.getType()));
+        for (Object[] r : walletTransactionRepository.openHoldsByWalletAndOrder(HOLD_TYPES)) {
+            int wid = (Integer) r[0];
+            int oid = (Integer) r[1];
+            String t = walletType.get(wid);
+            if (t == null) continue; // ví sàn
+            pendingByWallet.merge(wid, 1, Integer::sum);
+            heldOrders.add(oid);
+            (TYPE_SHOP.equals(t) ? shopHeldOrders : shipperHeldOrders).add(oid);
+        }
+
+        // COD chưa nộp
+        List<Order> codPending = orderRepository.findByCodCashConfirmedAtIsNotNullAndCodSettledFalseOrderByCodCashConfirmedAtAsc();
+        Map<Integer, BigDecimal> codByShipper = new HashMap<>();
+        for (Order o : codPending) {
+            if (o.getShipper() != null) codByShipper.merge(o.getShipper().getId(), nz(o.getCodAmount()), BigDecimal::add);
+        }
+
+        BigDecimal shopHeld = BigDecimal.ZERO, shipperHeld = BigDecimal.ZERO;
+        BigDecimal shopAvailable = BigDecimal.ZERO, shipperAvailable = BigDecimal.ZERO;
+        List<com.sang.be_capnong.dto.response.wallet.PlatformOverviewResponse.Partner> partners = new ArrayList<>();
+        for (Wallet w : partnerWallets) {
+            boolean shop = TYPE_SHOP.equals(w.getType());
+            BigDecimal held = nz(w.getFrozenBalance());
+            BigDecimal bal = nz(w.getTotalBalance());
+            if (shop) { shopHeld = shopHeld.add(held); shopAvailable = shopAvailable.add(bal); }
+            else { shipperHeld = shipperHeld.add(held); shipperAvailable = shipperAvailable.add(bal); }
+            User u = w.getUser();
+            partners.add(com.sang.be_capnong.dto.response.wallet.PlatformOverviewResponse.Partner.builder()
+                    .userId(u.getId())
+                    .walletId(w.getWalletId())
+                    .name(u.getShopName() != null ? u.getShopName() : u.getFullName())
+                    .role(w.getType())
+                    .held(held)
+                    .balance(bal)
+                    .pendingOrders(pendingByWallet.getOrDefault(w.getWalletId(), 0))
+                    .codHolding(shop ? null : codByShipper.getOrDefault(u.getId(), BigDecimal.ZERO))
+                    .build());
+        }
+        partners.sort(Comparator.comparing(com.sang.be_capnong.dto.response.wallet.PlatformOverviewResponse.Partner::getHeld).reversed()
+                .thenComparing(com.sang.be_capnong.dto.response.wallet.PlatformOverviewResponse.Partner::getName,
+                        Comparator.nullsLast(Comparator.naturalOrder())));
+
+        List<Order> refunds = orderRepository.findByRefundAmountGreaterThanOrderByCreatedAtDesc(BigDecimal.ZERO);
+        List<Order> settled = orderRepository.findBySettledAtGreaterThanEqual(from);
+
+        return com.sang.be_capnong.dto.response.wallet.PlatformOverviewResponse.builder()
+                .period(p)
+                .from(from)
+                .shopHeld(shopHeld)
+                .shipperHeld(shipperHeld)
+                .shopHeldOrders(shopHeldOrders.size())
+                .shipperHeldOrders(shipperHeldOrders.size())
+                .heldOrders(heldOrders.size())
+                .farmerFee(farmerFee)
+                .shipperFee(shipperFee)
+                .commissionTotal(farmerFee.add(shipperFee))
+                .platformBalance(nz(platform.getTotalBalance()))
+                .platformHeld(nz(platform.getFrozenBalance()))
+                .voucherSubsidy(sums.getOrDefault(WalletTransactionType.PLATFORM_VOUCHER_SUBSIDY, BigDecimal.ZERO).negate())
+                .freeshipSubsidy(sums.getOrDefault(WalletTransactionType.PLATFORM_FREESHIP_SUBSIDY, BigDecimal.ZERO).negate())
+                .codPendingAmount(codPending.stream().map(o -> nz(o.getCodAmount())).reduce(BigDecimal.ZERO, BigDecimal::add))
+                .codPendingOrders(codPending.size())
+                .codPendingShippers(codByShipper.size())
+                .codOldestCollectedAt(codPending.isEmpty() ? null : codPending.get(0).getCodCashConfirmedAt())
+                .refundAmount(refunds.stream().map(o -> nz(o.getRefundAmount())).reduce(BigDecimal.ZERO, BigDecimal::add))
+                .refundOrders(refunds.size())
+                .shopAvailable(shopAvailable)
+                .shipperAvailable(shipperAvailable)
+                .settledGmv(settled.stream().map(o -> nz(o.getTotalAmount())).reduce(BigDecimal.ZERO, BigDecimal::add))
+                .settledOrders(settled.size())
+                .partners(partners)
+                .build();
+    }
+
     // ───────────────────────────── Xem ví ─────────────────────────────
 
     @Override
@@ -298,7 +558,10 @@ public class WalletServiceImpl implements WalletService {
         if (hasRole(me, "ADMIN")) {
             return toResponse(getPlatformWalletEntity());
         }
-        String type = hasRole(me, "SHIPPER") ? TYPE_SHIPPER : hasRole(me, "SHOP") ? TYPE_SHOP : null;
+        String type = hasRole(me, "SHIPPER") ? TYPE_SHIPPER
+                : hasRole(me, "SHOP") ? TYPE_SHOP
+                : hasRole(me, "BUYER") ? TYPE_REFERRAL
+                : null;
         if (type == null) {
             throw new AppException(ErrorCode.WALLET_NOT_FOUND);
         }

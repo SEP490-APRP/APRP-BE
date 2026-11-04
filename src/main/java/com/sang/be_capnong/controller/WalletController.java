@@ -28,14 +28,14 @@ public class WalletController {
 
     @Operation(summary = "Ví của tôi", description = "[SHOP, SHIPPER, ADMIN] Shop/Shipper xem ví của mình, Admin xem ví sàn.")
     @GetMapping("/me")
-    @PreAuthorize("hasAnyRole('SHOP', 'SHIPPER', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('SHOP', 'SHIPPER', 'BUYER', 'ADMIN')")
     public ApiResponse<WalletResponse> getMyWallet() {
         return ApiResponse.<WalletResponse>builder().result(walletService.getMyWallet()).build();
     }
 
     @Operation(summary = "Lịch sử biến động ví của tôi")
     @GetMapping("/me/transactions")
-    @PreAuthorize("hasAnyRole('SHOP', 'SHIPPER', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('SHOP', 'SHIPPER', 'BUYER', 'ADMIN')")
     public ApiResponse<Page<WalletTransactionResponse>> getMyTransactions(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
@@ -52,13 +52,68 @@ public class WalletController {
                 .result(walletService.getOrderSettlement(orderId)).build();
     }
 
+    @Operation(summary = "Tạo lệnh rút tiền về ngân hàng", description = "Shop / Shipper / Buyer. Tối thiểu capnong.wallet.min-withdraw (mặc định 50.000đ). Số dư bị trừ ngay, Admin chuyển khoản rồi xác nhận.")
+    @PostMapping("/withdrawals")
+    @PreAuthorize("hasAnyRole('SHOP', 'SHIPPER', 'BUYER')")
+    public ApiResponse<com.sang.be_capnong.dto.response.wallet.WithdrawResponse> requestWithdraw(
+            @RequestBody com.sang.be_capnong.dto.request.wallet.WithdrawCreateRequest request) {
+        return ApiResponse.<com.sang.be_capnong.dto.response.wallet.WithdrawResponse>builder()
+                .result(walletService.requestWithdraw(request)).build();
+    }
+
+    @Operation(summary = "Lệnh rút tiền của tôi")
+    @GetMapping("/withdrawals/me")
+    @PreAuthorize("hasAnyRole('SHOP', 'SHIPPER', 'BUYER')")
+    public ApiResponse<List<com.sang.be_capnong.dto.response.wallet.WithdrawResponse>> getMyWithdrawals() {
+        return ApiResponse.<List<com.sang.be_capnong.dto.response.wallet.WithdrawResponse>>builder()
+                .result(walletService.getMyWithdrawals()).build();
+    }
+
     // ── ADMIN ──────────────────────────────────────────
+
+    @Operation(summary = "[ADMIN] Danh sách lệnh rút tiền", description = "status = PENDING | COMPLETED | REJECTED, bỏ trống = tất cả")
+    @GetMapping("/withdrawals")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<List<com.sang.be_capnong.dto.response.wallet.WithdrawResponse>> getWithdrawals(
+            @RequestParam(required = false) String status) {
+        return ApiResponse.<List<com.sang.be_capnong.dto.response.wallet.WithdrawResponse>>builder()
+                .result(walletService.getWithdrawals(status)).build();
+    }
+
+    @Operation(summary = "[ADMIN] Xác nhận đã chuyển khoản cho lệnh rút")
+    @PostMapping("/withdrawals/{id}/approve")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<com.sang.be_capnong.dto.response.wallet.WithdrawResponse> approveWithdraw(
+            @PathVariable int id,
+            @RequestBody(required = false) com.sang.be_capnong.dto.request.wallet.WithdrawProcessRequest body) {
+        return ApiResponse.<com.sang.be_capnong.dto.response.wallet.WithdrawResponse>builder()
+                .result(walletService.approveWithdraw(id, body != null ? body.getNote() : null)).build();
+    }
+
+    @Operation(summary = "[ADMIN] Từ chối lệnh rút, hoàn tiền vào ví")
+    @PostMapping("/withdrawals/{id}/reject")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<com.sang.be_capnong.dto.response.wallet.WithdrawResponse> rejectWithdraw(
+            @PathVariable int id,
+            @RequestBody(required = false) com.sang.be_capnong.dto.request.wallet.WithdrawProcessRequest body) {
+        return ApiResponse.<com.sang.be_capnong.dto.response.wallet.WithdrawResponse>builder()
+                .result(walletService.rejectWithdraw(id, body != null ? body.getNote() : null)).build();
+    }
 
     @Operation(summary = "[ADMIN] Ví sàn")
     @GetMapping("/platform")
     @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<WalletResponse> getPlatformWallet() {
         return ApiResponse.<WalletResponse>builder().result(walletService.getPlatformWallet()).build();
+    }
+
+    @Operation(summary = "[ADMIN] Tổng hợp ví sàn", description = "Tiền đang giữ hộ Shop/Shipper, hoa hồng, tiền sàn bù, COD chưa nộp, cần hoàn tiền, bảng theo đối tác. period: TODAY | 7D | 30D | ALL")
+    @GetMapping("/platform/overview")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<com.sang.be_capnong.dto.response.wallet.PlatformOverviewResponse> getPlatformOverview(
+            @RequestParam(defaultValue = "30D") String period) {
+        return ApiResponse.<com.sang.be_capnong.dto.response.wallet.PlatformOverviewResponse>builder()
+                .result(walletService.getPlatformOverview(period)).build();
     }
 
     @Operation(summary = "[ADMIN] Lịch sử biến động ví sàn")

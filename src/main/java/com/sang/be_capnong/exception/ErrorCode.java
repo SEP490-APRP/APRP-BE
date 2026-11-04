@@ -223,7 +223,12 @@ public enum ErrorCode {
     PLATFORM_WALLET_OWNER_MISSING(16003, "No ADMIN account found to own the platform wallet", HttpStatus.INTERNAL_SERVER_ERROR),
     COD_NOT_COLLECTED(16004, "COD cash has not been collected for this order", HttpStatus.BAD_REQUEST),
     COD_ALREADY_SETTLED(16005, "COD cash for this order was already settled", HttpStatus.BAD_REQUEST),
-    PAYMENT_NOT_OWNER(16006, "You do not have permission to access this payment", HttpStatus.FORBIDDEN);
+    PAYMENT_NOT_OWNER(16006, "You do not have permission to access this payment", HttpStatus.FORBIDDEN),
+    WITHDRAW_MIN_AMOUNT(16007, "Withdrawal amount is below the minimum", HttpStatus.BAD_REQUEST),
+    WITHDRAW_INSUFFICIENT_BALANCE(16008, "Wallet balance is not enough for this withdrawal", HttpStatus.BAD_REQUEST),
+    WITHDRAW_INVALID_BANK(16009, "Bank name, account number and account holder are required", HttpStatus.BAD_REQUEST),
+    WITHDRAW_NOT_FOUND(16010, "Withdrawal request not found", HttpStatus.NOT_FOUND),
+    WITHDRAW_ALREADY_PROCESSED(16011, "Withdrawal request was already processed", HttpStatus.BAD_REQUEST);
 
     private final int code;
     private final String message;

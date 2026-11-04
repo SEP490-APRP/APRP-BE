@@ -42,4 +42,23 @@ public interface WalletService {
     List<OrderSettlementResponse> getPendingCodOrders();
 
     List<RefundDueResponse> getRefundsDue();
+
+    // ── Rút tiền ──
+
+    /** Shop / Shipper / Buyer tạo lệnh rút: trừ số dư ngay, chờ Admin chuyển khoản */
+    com.sang.be_capnong.dto.response.wallet.WithdrawResponse requestWithdraw(com.sang.be_capnong.dto.request.wallet.WithdrawCreateRequest request);
+
+    List<com.sang.be_capnong.dto.response.wallet.WithdrawResponse> getMyWithdrawals();
+
+    /** Admin: status = PENDING | COMPLETED | REJECTED, null = tất cả */
+    List<com.sang.be_capnong.dto.response.wallet.WithdrawResponse> getWithdrawals(String status);
+
+    /** Admin đã chuyển khoản xong */
+    com.sang.be_capnong.dto.response.wallet.WithdrawResponse approveWithdraw(int requestId, String note);
+
+    /** Admin từ chối: trả lại tiền vào số dư */
+    com.sang.be_capnong.dto.response.wallet.WithdrawResponse rejectWithdraw(int requestId, String note);
+
+    /** Số liệu tổng hợp màn Ví Sàn. period: TODAY | 7D | 30D | ALL */
+    com.sang.be_capnong.dto.response.wallet.PlatformOverviewResponse getPlatformOverview(String period);
 }

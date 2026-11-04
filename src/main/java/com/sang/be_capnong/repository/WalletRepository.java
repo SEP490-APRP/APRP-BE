@@ -17,6 +17,8 @@ public interface WalletRepository extends JpaRepository<Wallet, Integer> {
 
     Optional<Wallet> findFirstByType(String type);
 
+    java.util.List<Wallet> findByTypeIn(java.util.Collection<String> types);
+
     /** Khoá dòng ví khi cộng/trừ tiền để 2 lần quyết toán song song không ghi đè số dư của nhau */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select w from Wallet w where w.walletId = :id")

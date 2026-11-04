@@ -50,4 +50,7 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
 
     /** Đơn cần sàn hoàn tiền cho Buyer (đã thanh toán online rồi bị huỷ / thanh toán trùng) */
     List<Order> findByRefundAmountGreaterThanOrderByCreatedAtDesc(BigDecimal amount);
+
+    /** Đơn đã chia tiền vào ví kể từ {from} (dòng tiền của màn Ví Sàn) */
+    java.util.List<Order> findBySettledAtGreaterThanEqual(java.time.LocalDateTime from);
 }
