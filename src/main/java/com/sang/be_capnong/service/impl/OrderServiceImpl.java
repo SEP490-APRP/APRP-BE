@@ -42,6 +42,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 
 @Service
 @RequiredArgsConstructor
@@ -547,7 +549,8 @@ public class OrderServiceImpl implements OrderService {
 
             BigDecimal shopGoodsAmount = details.stream()
                     .map(d -> d.getUnitPrice().multiply(BigDecimal.valueOf(d.getQuantity())))
-                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+                    .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(0, java.math.RoundingMode.HALF_UP);
 
             BigDecimal shippingFee;
             try {
@@ -604,16 +607,17 @@ public class OrderServiceImpl implements OrderService {
         BigDecimal totalVoucherDiscount = applyVouchersAndReturnTotalDiscount(buyer, voucherCodes, shopOrderPreviews, totalGoodsAmount, totalShippingFee);
 
         for (ShopOrderPreview sp : shopOrderPreviews) {
-            BigDecimal shopTotal = sp.getGoodsAmount().add(sp.getShippingFee()).subtract(sp.getVoucherDiscount());
+            BigDecimal shopTotal = sp.getGoodsAmount().add(sp.getShippingFee()).subtract(sp.getVoucherDiscount()).setScale(0, java.math.RoundingMode.HALF_UP);
             if (shopTotal.compareTo(BigDecimal.ZERO) < 0) shopTotal = BigDecimal.ZERO;
             sp.setTotalAmount(shopTotal);
         }
 
         BigDecimal finalTotalAmount = shopOrderPreviews.stream()
                 .map(ShopOrderPreview::getTotalAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(0, java.math.RoundingMode.HALF_UP);
 
-        BigDecimal effectiveTotalDiscount = totalGoodsAmount.add(totalShippingFee).subtract(finalTotalAmount);
+        BigDecimal effectiveTotalDiscount = totalGoodsAmount.add(totalShippingFee).subtract(finalTotalAmount).setScale(0, java.math.RoundingMode.HALF_UP);
         if (effectiveTotalDiscount.compareTo(BigDecimal.ZERO) < 0) effectiveTotalDiscount = BigDecimal.ZERO;
 
         return CheckoutPreviewResponse.builder()
@@ -627,10 +631,24 @@ public class OrderServiceImpl implements OrderService {
 
     private BigDecimal applyVouchersAndReturnTotalDiscount(User buyer, List<String> voucherCodes, List<ShopOrderPreview> shopPreviews, BigDecimal totalGoodsAmount, BigDecimal totalShippingFee) {
         BigDecimal totalDiscount = BigDecimal.ZERO;
-        if (voucherCodes == null || voucherCodes.isEmpty()) return totalDiscount;
+        if (voucherCodes == null || voucherCodes.isEmpty() || shopPreviews == null || shopPreviews.isEmpty()) {
+            return totalDiscount;
+        }
 
-        for (String code : voucherCodes) {
-            Voucher voucher = voucherRepository.findByVoucherCode(code.toUpperCase()).orElse(null);
+        // Bước 0: Phân loại danh sách Voucher hợp lệ theo cấp độ và mục tiêu (loại trừ mã trùng lặp)
+        List<Voucher> shopVouchers = new ArrayList<>();
+        List<Voucher> platformOrderVouchers = new ArrayList<>();
+        List<Voucher> platformShippingVouchers = new ArrayList<>();
+
+        List<String> distinctCodes = voucherCodes.stream()
+                .filter(c -> c != null && !c.isBlank())
+                .map(String::trim)
+                .map(String::toUpperCase)
+                .distinct()
+                .toList();
+
+        for (String code : distinctCodes) {
+            Voucher voucher = voucherRepository.findByVoucherCode(code).orElse(null);
             if (voucher == null || !Boolean.TRUE.equals(voucher.getActive()) || (voucher.getExpiryDate() != null && voucher.getExpiryDate().isBefore(LocalDateTime.now()))) {
                 continue;
             }
@@ -683,70 +701,191 @@ public class OrderServiceImpl implements OrderService {
 
             boolean isPlatformScope = isCreatorAdmin && (scope == VoucherScope.PLATFORM || scope == VoucherScope.SYSTEM || scope == VoucherScope.WELCOME);
 
-            if (isPlatformScope) {
-                // ĐIỀU KIỆN ĐƠN TỐI THIỂU: Với voucher Toàn sàn (cả Freeship và Giảm giá), đơn tối thiểu luôn so sánh với TỔNG TIỀN HÀNG
-                if (voucher.getMinOrderValue() != null && totalGoodsAmount.compareTo(voucher.getMinOrderValue()) < 0) {
-                    continue;
-                }
-
-                BigDecimal discount = calculateVoucherDiscount(voucher, target, totalGoodsAmount, totalShippingFee);
-                if (discount.compareTo(BigDecimal.ZERO) <= 0) {
-                    continue;
-                }
-
-                totalDiscount = totalDiscount.add(discount);
-                BigDecimal baseTotal = target == VoucherTarget.SHIPPING ? totalShippingFee : totalGoodsAmount;
-                if (shopPreviews.isEmpty() || baseTotal.compareTo(BigDecimal.ZERO) <= 0) {
-                    continue;
-                }
-
-                for (ShopOrderPreview sp : shopPreviews) {
-                    BigDecimal spBase = target == VoucherTarget.SHIPPING ? sp.getShippingFee() : sp.getGoodsAmount();
-                    if (spBase.compareTo(BigDecimal.ZERO) <= 0) continue;
-
-                    BigDecimal ratio = spBase.divide(baseTotal, 6, java.math.RoundingMode.HALF_UP);
-                    BigDecimal shopShare = discount.multiply(ratio);
-                    sp.setVoucherDiscount(sp.getVoucherDiscount().add(shopShare));
-                    sp.getVoucherDiscountsDetail().put(code.toUpperCase(), shopShare);
-                }
-                continue;
+            if (!isPlatformScope) {
+                shopVouchers.add(voucher);
+            } else if (target == VoucherTarget.SHIPPING) {
+                platformShippingVouchers.add(voucher);
+            } else {
+                platformOrderVouchers.add(voucher);
             }
+        }
 
+        // Theo dõi số tiền đã giảm theo từng hạng mục cho từng ShopOrderPreview
+        Map<ShopOrderPreview, BigDecimal> shopGoodsDiscountMap = new HashMap<>();
+        Map<ShopOrderPreview, BigDecimal> platformGoodsDiscountMap = new HashMap<>();
+        Map<ShopOrderPreview, BigDecimal> platformShippingDiscountMap = new HashMap<>();
+
+        for (ShopOrderPreview sp : shopPreviews) {
+            shopGoodsDiscountMap.put(sp, BigDecimal.ZERO);
+            platformGoodsDiscountMap.put(sp, BigDecimal.ZERO);
+            platformShippingDiscountMap.put(sp, BigDecimal.ZERO);
+        }
+
+        // ============================================================
+        // BƯỚC 1: Áp dụng Voucher của từng Shop (Giảm trước vào tiền hàng của chính shop đó)
+        // ============================================================
+        for (Voucher voucher : shopVouchers) {
             User shopOwner = voucher.getShop();
-            if (shopOwner == null) {
-                continue;
-            }
+            if (shopOwner == null) continue;
 
             ShopOrderPreview targetShopPreview = shopPreviews.stream()
                     .filter(sp -> Objects.equals(sp.getShopId(), shopOwner.getId()))
                     .findFirst()
                     .orElse(null);
-            if (targetShopPreview == null) {
-                // Voucher của shop này không áp dụng vì đơn hàng không có sản phẩm của shop này
-                continue;
-            }
+            if (targetShopPreview == null) continue;
 
-            // ĐIỀU KIỆN ĐƠN TỐI THIỂU: Với voucher Của Shop, đơn tối thiểu so sánh với TIỀN HÀNG CỦA CHÍNH SHOP ĐÓ
+            // ĐIỀU KIỆN ĐƠN TỐI THIỂU: Với voucher Của Shop, so sánh với TIỀN HÀNG CỦA CHÍNH SHOP ĐÓ
             if (voucher.getMinOrderValue() != null && targetShopPreview.getGoodsAmount().compareTo(voucher.getMinOrderValue()) < 0) {
                 continue;
             }
 
+            VoucherTarget target = voucher.getVoucherTarget() != null ? voucher.getVoucherTarget() : VoucherTarget.ORDER;
             BigDecimal discount = calculateVoucherDiscount(voucher, target, targetShopPreview.getGoodsAmount(), targetShopPreview.getShippingFee());
-            if (discount.compareTo(BigDecimal.ZERO) <= 0) {
-                continue;
-            }
+            if (discount.compareTo(BigDecimal.ZERO) <= 0) continue;
 
-            // Giới hạn giảm giá không vượt quá số tiền tối đa còn lại của shop đó (tránh tràn số âm sang shop khác)
-            BigDecimal remainingShopPayable = targetShopPreview.getGoodsAmount().add(targetShopPreview.getShippingFee()).subtract(targetShopPreview.getVoucherDiscount());
-            if (remainingShopPayable.compareTo(BigDecimal.ZERO) <= 0) {
-                continue;
-            }
-            discount = discount.min(remainingShopPayable);
+            // Giới hạn giảm giá không vượt quá tiền hàng còn lại của shop đó
+            BigDecimal currentGoodsDiscount = shopGoodsDiscountMap.get(targetShopPreview);
+            BigDecimal remainingGoods = targetShopPreview.getGoodsAmount().subtract(currentGoodsDiscount).max(BigDecimal.ZERO);
+            discount = discount.min(remainingGoods).setScale(0, java.math.RoundingMode.HALF_UP);
+            if (discount.compareTo(BigDecimal.ZERO) <= 0) continue;
 
+            shopGoodsDiscountMap.put(targetShopPreview, currentGoodsDiscount.add(discount));
             targetShopPreview.setVoucherDiscount(targetShopPreview.getVoucherDiscount().add(discount));
-            targetShopPreview.getVoucherDiscountsDetail().put(code.toUpperCase(), discount);
+            targetShopPreview.getVoucherDiscountsDetail().merge(voucher.getVoucherCode().toUpperCase(), discount, BigDecimal::add);
             totalDiscount = totalDiscount.add(discount);
         }
+
+        // ============================================================
+        // BƯỚC 2: Áp dụng Voucher Đơn Hàng Sàn (Phân bổ theo TỶ LỆ TIỀN HÀNG CÒN LẠI sau voucher shop)
+        // ============================================================
+        for (Voucher voucher : platformOrderVouchers) {
+            if (voucher.getMinOrderValue() != null && totalGoodsAmount.compareTo(voucher.getMinOrderValue()) < 0) {
+                continue;
+            }
+
+            BigDecimal discount = calculateVoucherDiscount(voucher, VoucherTarget.ORDER, totalGoodsAmount, totalShippingFee);
+            if (discount.compareTo(BigDecimal.ZERO) <= 0) continue;
+
+            // Tính tiền hàng còn lại cho từng shop sau voucher shop và các voucher sàn trước đó
+            Map<ShopOrderPreview, BigDecimal> availableNetGoodsMap = new HashMap<>();
+            BigDecimal totalNetGoods = BigDecimal.ZERO;
+            for (ShopOrderPreview sp : shopPreviews) {
+                BigDecimal net = sp.getGoodsAmount()
+                        .subtract(shopGoodsDiscountMap.get(sp))
+                        .subtract(platformGoodsDiscountMap.get(sp))
+                        .max(BigDecimal.ZERO);
+                availableNetGoodsMap.put(sp, net);
+                totalNetGoods = totalNetGoods.add(net);
+            }
+
+            if (totalNetGoods.compareTo(BigDecimal.ZERO) <= 0) continue;
+            discount = discount.min(totalNetGoods).setScale(0, java.math.RoundingMode.HALF_UP);
+            if (discount.compareTo(BigDecimal.ZERO) <= 0) continue;
+
+            // Phân bổ tỷ lệ theo netGoods
+            BigDecimal allocatedSum = BigDecimal.ZERO;
+            Map<ShopOrderPreview, BigDecimal> shares = new HashMap<>();
+            ShopOrderPreview maxShop = null;
+            BigDecimal maxNet = BigDecimal.valueOf(-1);
+
+            for (ShopOrderPreview sp : shopPreviews) {
+                BigDecimal net = availableNetGoodsMap.get(sp);
+                if (net.compareTo(maxNet) > 0) {
+                    maxNet = net;
+                    maxShop = sp;
+                }
+                if (net.compareTo(BigDecimal.ZERO) <= 0) {
+                    shares.put(sp, BigDecimal.ZERO);
+                    continue;
+                }
+                BigDecimal ratio = net.divide(totalNetGoods, 6, java.math.RoundingMode.HALF_UP);
+                BigDecimal share = discount.multiply(ratio).setScale(0, java.math.RoundingMode.HALF_UP).min(net);
+                shares.put(sp, share);
+                allocatedSum = allocatedSum.add(share);
+            }
+
+            // Xử lý chênh lệch làm tròn VNĐ (cộng/trừ vào shop có netGoods lớn nhất)
+            BigDecimal diff = discount.subtract(allocatedSum);
+            if (diff.compareTo(BigDecimal.ZERO) != 0 && maxShop != null) {
+                BigDecimal currentShare = shares.get(maxShop);
+                BigDecimal adjusted = currentShare.add(diff).min(availableNetGoodsMap.get(maxShop)).max(BigDecimal.ZERO);
+                shares.put(maxShop, adjusted);
+            }
+
+            for (ShopOrderPreview sp : shopPreviews) {
+                BigDecimal share = shares.getOrDefault(sp, BigDecimal.ZERO);
+                if (share.compareTo(BigDecimal.ZERO) > 0) {
+                    platformGoodsDiscountMap.put(sp, platformGoodsDiscountMap.get(sp).add(share));
+                    sp.setVoucherDiscount(sp.getVoucherDiscount().add(share));
+                    sp.getVoucherDiscountsDetail().merge(voucher.getVoucherCode().toUpperCase(), share, BigDecimal::add);
+                }
+            }
+            totalDiscount = totalDiscount.add(discount);
+        }
+
+        // ============================================================
+        // BƯỚC 3: Áp dụng Voucher Vận Chuyển Sàn (Phân bổ theo TỶ LỆ PHÍ SHIP của từng shop)
+        // ============================================================
+        for (Voucher voucher : platformShippingVouchers) {
+            if (voucher.getMinOrderValue() != null && totalGoodsAmount.compareTo(voucher.getMinOrderValue()) < 0) {
+                continue;
+            }
+
+            BigDecimal discount = calculateVoucherDiscount(voucher, VoucherTarget.SHIPPING, totalGoodsAmount, totalShippingFee);
+            if (discount.compareTo(BigDecimal.ZERO) <= 0) continue;
+
+            Map<ShopOrderPreview, BigDecimal> availableShippingMap = new HashMap<>();
+            BigDecimal totalNetShipping = BigDecimal.ZERO;
+            for (ShopOrderPreview sp : shopPreviews) {
+                BigDecimal netShip = sp.getShippingFee().subtract(platformShippingDiscountMap.get(sp)).max(BigDecimal.ZERO);
+                availableShippingMap.put(sp, netShip);
+                totalNetShipping = totalNetShipping.add(netShip);
+            }
+
+            if (totalNetShipping.compareTo(BigDecimal.ZERO) <= 0) continue;
+            discount = discount.min(totalNetShipping).setScale(0, java.math.RoundingMode.HALF_UP);
+            if (discount.compareTo(BigDecimal.ZERO) <= 0) continue;
+
+            BigDecimal allocatedSum = BigDecimal.ZERO;
+            Map<ShopOrderPreview, BigDecimal> shares = new HashMap<>();
+            ShopOrderPreview maxShop = null;
+            BigDecimal maxShip = BigDecimal.valueOf(-1);
+
+            for (ShopOrderPreview sp : shopPreviews) {
+                BigDecimal netShip = availableShippingMap.get(sp);
+                if (netShip.compareTo(maxShip) > 0) {
+                    maxShip = netShip;
+                    maxShop = sp;
+                }
+                if (netShip.compareTo(BigDecimal.ZERO) <= 0) {
+                    shares.put(sp, BigDecimal.ZERO);
+                    continue;
+                }
+                BigDecimal ratio = netShip.divide(totalNetShipping, 6, java.math.RoundingMode.HALF_UP);
+                BigDecimal share = discount.multiply(ratio).setScale(0, java.math.RoundingMode.HALF_UP).min(netShip);
+                shares.put(sp, share);
+                allocatedSum = allocatedSum.add(share);
+            }
+
+            // Xử lý chênh lệch làm tròn VNĐ
+            BigDecimal diff = discount.subtract(allocatedSum);
+            if (diff.compareTo(BigDecimal.ZERO) != 0 && maxShop != null) {
+                BigDecimal currentShare = shares.get(maxShop);
+                BigDecimal adjusted = currentShare.add(diff).min(availableShippingMap.get(maxShop)).max(BigDecimal.ZERO);
+                shares.put(maxShop, adjusted);
+            }
+
+            for (ShopOrderPreview sp : shopPreviews) {
+                BigDecimal share = shares.getOrDefault(sp, BigDecimal.ZERO);
+                if (share.compareTo(BigDecimal.ZERO) > 0) {
+                    platformShippingDiscountMap.put(sp, platformShippingDiscountMap.get(sp).add(share));
+                    sp.setVoucherDiscount(sp.getVoucherDiscount().add(share));
+                    sp.getVoucherDiscountsDetail().merge(voucher.getVoucherCode().toUpperCase(), share, BigDecimal::add);
+                }
+            }
+            totalDiscount = totalDiscount.add(discount);
+        }
+
         return totalDiscount;
     }
 
@@ -946,31 +1085,7 @@ public class OrderServiceImpl implements OrderService {
         return buildOrderResponse(saved, details);
     }
 
-    @Transactional
-    @Override
-    public OrderResponse markOrderAsCancelled(int orderId) {
-        Order order = findOrderById(orderId);
-        User currentUser = getCurrentUser();
-        boolean isBuyer = order.getBuyer() != null && Objects.equals(order.getBuyer().getId(), currentUser.getId());
-        boolean isShop = order.getShop() != null && Objects.equals(order.getShop().getId(), currentUser.getId());
-        if (!isBuyer && !isShop) {
-            throw new AppException(ErrorCode.UNAUTHORIZED);
-        }
-        // Chỉ được huỷ khi đơn đang ở trạng thái có thể huỷ (PENDING, PAID, CONFIRMED, READY)
-        // CANCELLED / FAILED / DELIVERED / COMPLETED đều không được huỷ lại (tránh hoàn kho 2 lần)
-        if (order.getStatus() != OrderStatus.AWAITING_PAYMENT
-                && order.getStatus() != OrderStatus.PENDING
-                && order.getStatus() != OrderStatus.PAID
-                && order.getStatus() != OrderStatus.CONFIRMED
-                && order.getStatus() != OrderStatus.READY) {
-            log.error("Cannot cancel order id {}. Current status: {}", orderId, order.getStatus());
-            throw new AppException(ErrorCode.INVALID_ORDER_STATE);
-        }
-
-        // Trả lại kho (chỉ chạy 1 lần vì status đã được guard ở trên)
-        restoreStock(order);
-
-        // Hoàn trả Voucher nếu có
+    private void restoreOrderVouchers(Order order) {
         List<VoucherUsage> usages = voucherUsageRepository.findByOrder(order);
         if (usages != null) {
             for (VoucherUsage usage : usages) {
@@ -1010,6 +1125,33 @@ public class OrderServiceImpl implements OrderService {
                 }
             }
         }
+    }
+
+    @Transactional
+    @Override
+    public OrderResponse markOrderAsCancelled(int orderId) {
+        Order order = findOrderById(orderId);
+        User currentUser = getCurrentUser();
+        boolean isBuyer = order.getBuyer() != null && Objects.equals(order.getBuyer().getId(), currentUser.getId());
+        boolean isShop = order.getShop() != null && Objects.equals(order.getShop().getId(), currentUser.getId());
+        if (!isBuyer && !isShop) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
+        // Chỉ được huỷ khi đơn đang ở trạng thái có thể huỷ (PENDING, PAID, CONFIRMED, READY)
+        // CANCELLED / FAILED / DELIVERED / COMPLETED đều không được huỷ lại (tránh hoàn kho 2 lần)
+        if (order.getStatus() != OrderStatus.AWAITING_PAYMENT
+                && order.getStatus() != OrderStatus.PENDING
+                && order.getStatus() != OrderStatus.PAID
+                && order.getStatus() != OrderStatus.CONFIRMED
+                && order.getStatus() != OrderStatus.READY) {
+            log.error("Cannot cancel order id {}. Current status: {}", orderId, order.getStatus());
+            throw new AppException(ErrorCode.INVALID_ORDER_STATE);
+        }
+
+        // Trả lại kho (chỉ chạy 1 lần vì status đã được guard ở trên)
+        restoreStock(order);
+        restoreOrderVouchers(order);
+
 
         // Nếu đơn hàng bị huỷ khi chưa hoàn tất thanh toán (AWAITING_PAYMENT), hoàn trả lại giỏ hàng cho Buyer
         // và huỷ link PayOS đang mở để khách không thể chuyển khoản cho đơn đã huỷ
@@ -1047,6 +1189,7 @@ public class OrderServiceImpl implements OrderService {
         
         // Giao hàng thất bại -> Hàng trả về shop -> Trả lại kho
         restoreStock(order);
+        restoreOrderVouchers(order);
 
         // Đơn đã thanh toán online mà giao thất bại -> ghi nhận số tiền sàn phải hoàn cho Buyer
         if (isPrepaidOnline(order)) {
@@ -1369,6 +1512,22 @@ public class OrderServiceImpl implements OrderService {
             distanceKm = Math.round(roadDist * 10.0) / 10.0;
         }
 
+        BigDecimal voucherDiscountAmount = BigDecimal.ZERO;
+        if (order.getVoucherUsages() != null && !order.getVoucherUsages().isEmpty()) {
+            voucherDiscountAmount = order.getVoucherUsages().stream()
+                    .map(VoucherUsage::getDiscountAmount)
+                    .filter(Objects::nonNull)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+        } else if (order.getOrderId() > 0) {
+            List<VoucherUsage> usages = voucherUsageRepository.findByOrder_OrderId(order.getOrderId());
+            if (usages != null && !usages.isEmpty()) {
+                voucherDiscountAmount = usages.stream()
+                        .map(VoucherUsage::getDiscountAmount)
+                        .filter(Objects::nonNull)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+            }
+        }
+
         return OrderResponse.builder()
                 .orderId(order.getOrderId())
                 .batchId(order.getCheckoutBatch() != null ? order.getCheckoutBatch().getId() : null)
@@ -1386,6 +1545,7 @@ public class OrderServiceImpl implements OrderService {
                 .shippingFee(order.getShippingFee())
                 .totalAmount(order.getTotalAmount())
                 .codAmount(codAmount)
+                .voucherDiscountAmount(voucherDiscountAmount)
                 .shipperId(order.getShipper() != null ? order.getShipper().getId() : null)
                 .shipperName(order.getShipper() != null ? order.getShipper().getFullName() : null)
                 .createdAt(order.getCreatedAt())

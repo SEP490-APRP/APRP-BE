@@ -12,4 +12,5 @@ public interface VoucherUsageRepository extends JpaRepository<VoucherUsage, Inte
     java.util.List<VoucherUsage> findByOrder(com.sang.be_capnong.entity.Order order);
     java.util.List<VoucherUsage> findByOrder_OrderId(int orderId);
     void deleteByVoucher_VoucherId(int voucherId);
+    boolean existsByVoucher_VoucherId(int voucherId);
 }
