@@ -1313,6 +1313,7 @@ public class OrderServiceImpl implements OrderService {
                     .unitPrice(d.getUnitPrice())
                     .subtotal(subtotal)
                     .isReviewed(d.getReviews() != null && !d.getReviews().isEmpty())
+                    .isRequestedReturn(Boolean.TRUE.equals(d.getIsRequestedReturn()))
                     .build());
         }
 
@@ -1395,6 +1396,7 @@ public class OrderServiceImpl implements OrderService {
                 .shippingLongitude(destLng)
                 .distanceKm(distanceKm)
                 .rescuedWeight(order.getRescuedWeight())
+                .refundAmount(order.getRefundAmount())
                 .items(itemResponses)
                 .build();
     }

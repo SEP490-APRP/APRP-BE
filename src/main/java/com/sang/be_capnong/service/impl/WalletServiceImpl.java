@@ -29,11 +29,12 @@ import java.util.*;
  * - Phí dịch vụ nông dân: {farmerFeeRate} x (tiền hàng - voucher shop), trừ vào tiền Shop nhận.
  * - Phí dịch vụ shipper: {shipperFeeRate} x cước giao hàng, trừ vào tiền Shipper nhận.
  * - Voucher shop: Shop chịu. Voucher sàn (giảm tiền hàng / freeship): sàn bù, Shop và Shipper nhận đủ.
- * Chia tiền khi đơn COMPLETED. Bất biến: buyerPaid = shopReceive + shipperReceive + platformReceive.
+ * Chia tiền khi đơn COMPLETED. Bất biến: buyerPaid = shopReceive + shipperReceive + platformReceive + refundAmount.
  *
  * Tiền tạm giữ (frozenBalance): Shop + Sàn thấy phần của mình ngay khi tiền vào sàn
  * (PayOS PAID, COD lúc Shipper thu tiền mặt); Shipper thấy cước ngay khi nhận đơn.
- * Khi COMPLETED tiền tạm giữ được gỡ và cộng vào số dư rút được; huỷ / thất bại thì gỡ bỏ.
+ * Khi COMPLETED tiền tạm giữ được giữ lại 24h (trùng thời hạn hoàn hàng của Buyer) rồi mới gỡ và cộng vào số dư rút được;
+ * huỷ / thất bại thì gỡ bỏ. Khi có khiếu nại/hoàn trả, tiền hoàn được chuyển vào ví Buyer và trừ tiền tạm giữ tương ứng của Shop.
  */
 @Service
 @RequiredArgsConstructor
@@ -43,6 +44,7 @@ public class WalletServiceImpl implements WalletService {
     public static final String TYPE_SHOP = "SHOP";
     public static final String TYPE_SHIPPER = "SHIPPER";
     public static final String TYPE_PLATFORM = "PLATFORM";
+    public static final String TYPE_BUYER = "BUYER";
     /** Ví giới thiệu của Buyer (đặc tả: Social Commerce & Referral Wallet) */
     public static final String TYPE_REFERRAL = "REFERRAL";
 
@@ -53,6 +55,7 @@ public class WalletServiceImpl implements WalletService {
     private final VoucherUsageRepository voucherUsageRepository;
     private final UserRepository userRepository;
     private final WithdrawRequestRepository withdrawRequestRepository;
+    private final ReturnRequestRepository returnRequestRepository;
 
     /** Số tiền rút tối thiểu mỗi lệnh */
     @Value("${capnong.wallet.min-withdraw:50000}")
@@ -76,8 +79,27 @@ public class WalletServiceImpl implements WalletService {
             log.info("[Wallet] Order #{} already settled at {}, skip", orderId, order.getSettledAt());
             return buildSettlement(order);
         }
-        if (order.getStatus() != OrderStatus.COMPLETED) {
+        if (order.getStatus() != OrderStatus.COMPLETED && order.getStatus() != OrderStatus.REFUNDED) {
             throw new AppException(ErrorCode.ORDER_NOT_SETTLEABLE);
+        }
+
+        // 1. Quy tắc giữ tiền shop 24h: Người mua có 24h sau khi nhận hàng để hoàn hàng
+        // Tiền của shop phải tiếp tục giữ ở frozenBalance cho đến khi hết 24h kể từ deliveredAt
+        if (order.getStatus() == OrderStatus.COMPLETED && order.getDeliveredAt() != null && LocalDateTime.now().isBefore(order.getDeliveredAt().plusHours(24))) {
+            log.info("[Wallet] Order #{} delivered at {}. 24h return hold active until {}. Settle deferred.",
+                    orderId, order.getDeliveredAt(), order.getDeliveredAt().plusHours(24));
+            return buildSettlement(order);
+        }
+
+        // 2. Không quyết toán nếu đơn hàng có yêu cầu hoàn trả đang mở
+        boolean hasActiveReturn = returnRequestRepository.findByOrderDetail_Order_OrderId(orderId).stream()
+                .anyMatch(r -> r.getStatus() != ReturnStatus.COMPLETED
+                        && r.getStatus() != ReturnStatus.REJECTED
+                        && r.getStatus() != ReturnStatus.CANCELLED
+                        && r.getStatus() != ReturnStatus.RETURN_FAILED);
+        if (hasActiveReturn) {
+            log.info("[Wallet] Order #{} has active return requests, settle deferred until returns complete", orderId);
+            return buildSettlement(order);
         }
 
         Split s = computeSplit(order);
@@ -87,7 +109,8 @@ public class WalletServiceImpl implements WalletService {
 
         Wallet shopWallet = getOrCreateWallet(order.getShop(), TYPE_SHOP);
         credit(shopWallet, order, WalletTransactionType.SHOP_INCOME, s.shopReceive,
-                ref + ": tiền hàng " + vnd(s.goods) + " - voucher shop " + vnd(s.shopVoucher)
+                ref + ": tiền hàng " + vnd(s.goods) + (nz(order.getRefundAmount()).signum() > 0 ? " (đã trừ hoàn trả " + vnd(order.getRefundAmount()) + ")" : "")
+                        + " - voucher shop " + vnd(s.shopVoucher)
                         + " - phí dịch vụ " + pct(farmerFeeRate) + " " + vnd(s.farmerFee));
 
         if (order.getShipper() != null && s.shipperReceive.signum() != 0) {
@@ -115,8 +138,8 @@ public class WalletServiceImpl implements WalletService {
         }
         orderRepository.save(order);
 
-        log.info("[Wallet] Settled order #{}: buyerPaid={}, shop={}, shipper={}, platform={}",
-                orderId, s.buyerPaid, s.shopReceive, s.shipperReceive, s.platformReceive);
+        log.info("[Wallet] Settled order #{}: buyerPaid={}, shop={}, shipper={}, platform={}, refundAmount={}",
+                orderId, s.buyerPaid, s.shopReceive, s.shipperReceive, s.platformReceive, order.getRefundAmount());
         return buildSettlement(order);
     }
 
@@ -177,10 +200,166 @@ public class WalletServiceImpl implements WalletService {
         releaseHolds(order, WalletTransactionType.HOLD_CANCELLED, "Đơn #" + orderId + ": " + reason + ", gỡ tiền tạm giữ");
     }
 
+    // ───────────────────────────── Hoàn tiền / Hoàn hàng ─────────────────────────────
+
+    @Override
+    @Transactional
+    public void processReturnRefund(ReturnRequest returnRequest) {
+        if (returnRequest == null || returnRequest.getOrderDetail() == null) {
+            return;
+        }
+        Order order = returnRequest.getOrderDetail().getOrder();
+        if (order == null) {
+            return;
+        }
+
+        BigDecimal refundAmt = money(nz(returnRequest.getRefundAmount()));
+        if (refundAmt.signum() <= 0) {
+            return;
+        }
+
+        User buyer = order.getBuyer();
+        if (buyer == null) {
+            log.error("[Wallet] Cannot refund return #{}: order #{} has no buyer", returnRequest.getReturnId(), order.getOrderId());
+            return;
+        }
+
+        // 1. Hoàn tiền vào ví người mua (cộng totalBalance)
+        Wallet buyerWallet = getOrCreateWallet(buyer, TYPE_BUYER);
+        String buyerDesc = "Hoàn tiền yêu cầu #" + returnRequest.getReturnId() + " (Đơn #" + order.getOrderId() + "): +" + vnd(refundAmt);
+        credit(buyerWallet, order, WalletTransactionType.BUYER_REFUND, refundAmt, buyerDesc);
+
+        // 2. Tính phần khấu trừ của Shop và Sàn từ số tiền hoàn này
+        BigDecimal shopDeduct = money(refundAmt.multiply(BigDecimal.ONE.subtract(farmerFeeRate)));
+        BigDecimal platformDeduct = refundAmt.subtract(shopDeduct);
+
+        // Nếu đơn chưa quyết toán (đang giữ trong frozenBalance): trừ frozenBalance của Shop và Sàn
+        if (order.getSettledAt() == null) {
+            if (order.getShop() != null && shopDeduct.signum() > 0) {
+                Wallet shopWallet = getOrCreateWallet(order.getShop(), TYPE_SHOP);
+                deductHoldForRefund(shopWallet, order, WalletTransactionType.SHOP_REFUND_DEDUCT, shopDeduct,
+                        "Đơn #" + order.getOrderId() + ": Trừ tiền tạm giữ do hoàn trả yêu cầu #" + returnRequest.getReturnId() + " (" + vnd(shopDeduct) + ")");
+            }
+            if (platformDeduct.signum() > 0) {
+                Wallet platform = getPlatformWalletEntity();
+                deductHoldForRefund(platform, order, WalletTransactionType.PLATFORM_REFUND_DEDUCT, platformDeduct,
+                        "Đơn #" + order.getOrderId() + ": Trừ tiền tạm giữ sàn do hoàn trả yêu cầu #" + returnRequest.getReturnId() + " (" + vnd(platformDeduct) + ")");
+            }
+        } else {
+            // Trường hợp hy hữu đơn đã quyết toán: trừ trực tiếp vào số dư totalBalance của Shop và Sàn
+            if (order.getShop() != null && shopDeduct.signum() > 0) {
+                Wallet shopWallet = getOrCreateWallet(order.getShop(), TYPE_SHOP);
+                credit(shopWallet, order, WalletTransactionType.SHOP_REFUND_DEDUCT, shopDeduct.negate(),
+                        "Đơn #" + order.getOrderId() + ": Thu hồi tiền hàng do hoàn trả yêu cầu #" + returnRequest.getReturnId() + " (" + vnd(shopDeduct) + ")");
+            }
+            if (platformDeduct.signum() > 0) {
+                Wallet platform = getPlatformWalletEntity();
+                credit(platform, order, WalletTransactionType.PLATFORM_REFUND_DEDUCT, platformDeduct.negate(),
+                        "Đơn #" + order.getOrderId() + ": Giảm doanh thu sàn do hoàn trả yêu cầu #" + returnRequest.getReturnId() + " (" + vnd(platformDeduct) + ")");
+            }
+        }
+
+        // 3. Xử lý trả cước cho Shipper giao hàng hoàn (nếu có shipper và có cước hoàn)
+        if (returnRequest.getShipper() != null && returnRequest.getReturnShippingFee() != null
+                && returnRequest.getReturnShippingFee().compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal returnShipFee = money(returnRequest.getReturnShippingFee());
+            BigDecimal shipperFeeDeduct = money(returnShipFee.multiply(shipperFeeRate));
+            BigDecimal shipperIncome = returnShipFee.subtract(shipperFeeDeduct);
+
+            Wallet shipperWallet = getOrCreateWallet(returnRequest.getShipper(), TYPE_SHIPPER);
+            Wallet platform = getPlatformWalletEntity();
+
+            if ("WALLET".equalsIgnoreCase(returnRequest.getShippingPaymentMethod())) {
+                // Shop đã thanh toán cước hoàn từ ví sàn trước đó -> Sàn trả tiền cước vào ví cho Shipper
+                credit(shipperWallet, order, WalletTransactionType.SHIPPER_INCOME, shipperIncome,
+                        "Cước giao hàng hoàn trả yêu cầu #" + returnRequest.getReturnId() + " (Đơn #" + order.getOrderId() + "): +" + vnd(shipperIncome));
+                credit(platform, order, WalletTransactionType.PLATFORM_SHIPPER_FEE, shipperFeeDeduct,
+                        "Phí dịch vụ shipper giao hàng hoàn #" + returnRequest.getReturnId() + " (" + pct(shipperFeeRate) + "): +" + vnd(shipperFeeDeduct));
+            } else {
+                // Shop thanh toán COD -> Shop đã trả tiền mặt trực tiếp cho Shipper khi shipper giao hàng hoàn tới shop.
+                // Shipper đã nhận tiền mặt từ Shop, sàn chỉ thu phí dịch vụ shipper
+                credit(shipperWallet, order, WalletTransactionType.PLATFORM_SHIPPER_FEE, shipperFeeDeduct.negate(),
+                        "Phí dịch vụ cước hoàn COD nhận tiền mặt yêu cầu #" + returnRequest.getReturnId() + " (" + pct(shipperFeeRate) + "): -" + vnd(shipperFeeDeduct));
+                credit(platform, order, WalletTransactionType.PLATFORM_SHIPPER_FEE, shipperFeeDeduct,
+                        "Phí dịch vụ shipper giao hàng hoàn COD #" + returnRequest.getReturnId() + " (" + pct(shipperFeeRate) + "): +" + vnd(shipperFeeDeduct));
+            }
+        }
+
+        log.info("[Wallet] Processed return refund #{}: refunded {} to buyer #{}, deducted {} from shop #{}",
+                returnRequest.getReturnId(), refundAmt, buyer.getId(), shopDeduct);
+    }
+
+    @Override
+    @Transactional
+    public void deductShopReturnShippingFee(ReturnRequest returnRequest) {
+        if (returnRequest == null) return;
+        Order order = returnRequest.getOrderDetail() != null ? returnRequest.getOrderDetail().getOrder() : null;
+        User shop = returnRequest.getShop();
+        if (shop == null) return;
+
+        BigDecimal shipFee = money(nz(returnRequest.getReturnShippingFee()));
+        if (shipFee.signum() <= 0) return;
+
+        Wallet shopWallet = getOrCreateWallet(shop, TYPE_SHOP);
+        Wallet locked = walletRepository.findByIdForUpdate(shopWallet.getWalletId())
+                .orElseThrow(() -> new AppException(ErrorCode.WALLET_NOT_FOUND));
+
+        // KIỂM TRA SỐ DƯ KHẢ DỤNG
+        if (nz(locked.getTotalBalance()).compareTo(shipFee) < 0) {
+            log.warn("[Wallet] Shop #{} has insufficient balance to pay return shipping fee: balance={}, required={}",
+                    shop.getId(), locked.getTotalBalance(), shipFee);
+            throw new AppException(ErrorCode.RETURN_WALLET_INSUFFICIENT_BALANCE);
+        }
+
+        // Khấu trừ số dư ví khả dụng của Shop
+        BigDecimal newBalance = nz(locked.getTotalBalance()).subtract(shipFee);
+        locked.setTotalBalance(newBalance);
+        locked.setUpdateAt(LocalDateTime.now());
+        walletRepository.save(locked);
+
+        walletTransactionRepository.save(WalletTransaction.builder()
+                .wallet(locked)
+                .order(order)
+                .type(WalletTransactionType.SHOP_RETURN_SHIPPING_DEDUCT)
+                .amount(shipFee.negate())
+                .balanceAfter(newBalance)
+                .frozenAfter(nz(locked.getFrozenBalance()))
+                .description("Yêu cầu hoàn #" + returnRequest.getReturnId() + " (Đơn #" + (order != null ? order.getOrderId() : "") + "): Shop thanh toán cước ship hoàn -" + vnd(shipFee))
+                .createdAt(LocalDateTime.now())
+                .build());
+
+        log.info("[Wallet] Successfully deducted return shipping fee {} from shop #{} wallet. New balance={}",
+                shipFee, shop.getId(), newBalance);
+    }
+
+    @Override
+    @Transactional
+    public void refundShopReturnShippingFee(ReturnRequest returnRequest) {
+        if (returnRequest == null || !Boolean.TRUE.equals(returnRequest.getIsShippingFeePaid())) {
+            return;
+        }
+        if (!"WALLET".equalsIgnoreCase(returnRequest.getShippingPaymentMethod())) {
+            return;
+        }
+        Order order = returnRequest.getOrderDetail() != null ? returnRequest.getOrderDetail().getOrder() : null;
+        User shop = returnRequest.getShop();
+        if (shop == null) return;
+
+        BigDecimal shipFee = money(nz(returnRequest.getReturnShippingFee()));
+        if (shipFee.signum() <= 0) return;
+
+        Wallet shopWallet = getOrCreateWallet(shop, TYPE_SHOP);
+        credit(shopWallet, order, WalletTransactionType.SHOP_RETURN_SHIPPING_REFUND, shipFee,
+                "Hoàn lại cước ship hoàn cho Shop do yêu cầu #" + returnRequest.getReturnId() + " bị huỷ/từ chối: +" + vnd(shipFee));
+        returnRequest.setIsShippingFeePaid(false);
+        log.info("[Wallet] Refunded return shipping fee {} back to shop #{}", shipFee, shop.getId());
+    }
+
     private static final Set<WalletTransactionType> HOLD_TYPES = EnumSet.of(
             WalletTransactionType.SHOP_INCOME_HOLD, WalletTransactionType.SHIPPER_INCOME_HOLD,
             WalletTransactionType.PLATFORM_INCOME_HOLD, WalletTransactionType.HOLD_RELEASED,
-            WalletTransactionType.HOLD_CANCELLED);
+            WalletTransactionType.HOLD_CANCELLED,
+            WalletTransactionType.SHOP_REFUND_DEDUCT, WalletTransactionType.PLATFORM_REFUND_DEDUCT);
 
     /** Gỡ phần tiền tạm giữ còn lại của đơn ở từng ví (mỗi ví 1 bút toán) */
     private void releaseHolds(Order order, WalletTransactionType type, String description) {
@@ -205,7 +384,7 @@ public class WalletServiceImpl implements WalletService {
         }
         Wallet locked = walletRepository.findByIdForUpdate(wallet.getWalletId())
                 .orElseThrow(() -> new AppException(ErrorCode.WALLET_NOT_FOUND));
-        BigDecimal newFrozen = nz(locked.getFrozenBalance()).add(amount);
+        BigDecimal newFrozen = nz(locked.getFrozenBalance()).add(amount).max(BigDecimal.ZERO);
         locked.setFrozenBalance(newFrozen);
         locked.setUpdateAt(LocalDateTime.now());
         walletRepository.save(locked);
@@ -215,6 +394,30 @@ public class WalletServiceImpl implements WalletService {
                 .order(order)
                 .type(type)
                 .amount(amount)
+                .balanceAfter(nz(locked.getTotalBalance()))
+                .frozenAfter(newFrozen)
+                .description(description)
+                .createdAt(LocalDateTime.now())
+                .build());
+    }
+
+    /** Khấu trừ trực tiếp từ frozenBalance cho các bút toán hoàn hàng */
+    private void deductHoldForRefund(Wallet wallet, Order order, WalletTransactionType type, BigDecimal amount, String description) {
+        if (amount == null || amount.signum() <= 0) {
+            return;
+        }
+        Wallet locked = walletRepository.findByIdForUpdate(wallet.getWalletId())
+                .orElseThrow(() -> new AppException(ErrorCode.WALLET_NOT_FOUND));
+        BigDecimal newFrozen = nz(locked.getFrozenBalance()).subtract(amount).max(BigDecimal.ZERO);
+        locked.setFrozenBalance(newFrozen);
+        locked.setUpdateAt(LocalDateTime.now());
+        walletRepository.save(locked);
+
+        walletTransactionRepository.save(WalletTransaction.builder()
+                .wallet(locked)
+                .order(order)
+                .type(type)
+                .amount(amount.negate())
                 .balanceAfter(nz(locked.getTotalBalance()))
                 .frozenAfter(newFrozen)
                 .description(description)
@@ -342,7 +545,7 @@ public class WalletServiceImpl implements WalletService {
     }
 
     @Override
-    @Transactional
+    @Transactional(readOnly = true)
     public List<com.sang.be_capnong.dto.response.wallet.WithdrawResponse> getMyWithdrawals() {
         WalletResponse mine = getMyWallet();
         return withdrawRequestRepository.findByWallet_WalletIdOrderByCreatedAtDesc(mine.getWalletId())
@@ -353,16 +556,15 @@ public class WalletServiceImpl implements WalletService {
     @Transactional(readOnly = true)
     public List<com.sang.be_capnong.dto.response.wallet.WithdrawResponse> getWithdrawals(String status) {
         List<WithdrawRequest> list;
-        if (status == null || status.isBlank() || "ALL".equalsIgnoreCase(status)) {
+        if (status == null || status.isBlank()) {
             list = withdrawRequestRepository.findAllByOrderByCreatedAtDesc();
         } else {
-            WithdrawStatus st;
             try {
-                st = WithdrawStatus.valueOf(status.trim().toUpperCase());
+                WithdrawStatus st = WithdrawStatus.valueOf(status.trim().toUpperCase());
+                list = withdrawRequestRepository.findByStatusOrderByCreatedAtDesc(st);
             } catch (IllegalArgumentException e) {
-                throw new AppException(ErrorCode.INVALID_STATUS);
+                list = List.of();
             }
-            list = withdrawRequestRepository.findByStatusOrderByCreatedAtAsc(st);
         }
         return list.stream().map(this::toWithdrawResponse).toList();
     }
@@ -370,30 +572,32 @@ public class WalletServiceImpl implements WalletService {
     @Override
     @Transactional
     public com.sang.be_capnong.dto.response.wallet.WithdrawResponse approveWithdraw(int requestId, String note) {
-        WithdrawRequest r = lockPendingWithdraw(requestId);
-        Wallet w = walletRepository.findByIdForUpdate(r.getWallet().getWalletId())
-                .orElseThrow(() -> new AppException(ErrorCode.WALLET_NOT_FOUND));
-        w.setTotalWithdrawn(nz(w.getTotalWithdrawn()).add(nz(r.getAmount())));
+        WithdrawRequest r = lockWithdrawPending(requestId);
+        finishWithdraw(r, WithdrawStatus.COMPLETED, note);
+
+        Wallet w = r.getWallet();
+        w.setTotalWithdrawn(nz(w.getTotalWithdrawn()).add(r.getAmount()));
         w.setUpdateAt(LocalDateTime.now());
         walletRepository.save(w);
-        finishWithdraw(r, WithdrawStatus.COMPLETED, note);
-        log.info("[Withdraw] #{} COMPLETED", requestId);
+
+        log.info("[Withdraw] #{} APPROVED by admin, amount {}", requestId, r.getAmount());
         return toWithdrawResponse(r);
     }
 
     @Override
     @Transactional
     public com.sang.be_capnong.dto.response.wallet.WithdrawResponse rejectWithdraw(int requestId, String note) {
-        WithdrawRequest r = lockPendingWithdraw(requestId);
-        credit(r.getWallet(), null, WalletTransactionType.WITHDRAW_REFUNDED, nz(r.getAmount()),
-                "Lệnh rút #" + requestId + " bị từ chối, hoàn " + vnd(r.getAmount()) + " vào ví"
-                        + (trimToNull(note) != null ? ": " + note.trim() : ""));
+        WithdrawRequest r = lockWithdrawPending(requestId);
         finishWithdraw(r, WithdrawStatus.REJECTED, note);
-        log.info("[Withdraw] #{} REJECTED", requestId);
+
+        // Trả lại số dư cho ví (bút toán dương)
+        credit(r.getWallet(), null, WalletTransactionType.WITHDRAW_REFUNDED, r.getAmount(),
+                "Hoàn lại số dư lệnh rút #" + r.getRequestId() + (note != null ? " (" + note.trim() + ")" : ""));
+        log.info("[Withdraw] #{} REJECTED by admin, amount {} refunded to wallet", requestId, r.getAmount());
         return toWithdrawResponse(r);
     }
 
-    private WithdrawRequest lockPendingWithdraw(int requestId) {
+    private WithdrawRequest lockWithdrawPending(int requestId) {
         WithdrawRequest r = withdrawRequestRepository.findByIdForUpdate(requestId)
                 .orElseThrow(() -> new AppException(ErrorCode.WITHDRAW_NOT_FOUND));
         if (r.getStatus() != WithdrawStatus.PENDING) {
@@ -498,25 +702,30 @@ public class WalletServiceImpl implements WalletService {
         for (Wallet w : partnerWallets) {
             boolean shop = TYPE_SHOP.equals(w.getType());
             BigDecimal held = nz(w.getFrozenBalance());
-            BigDecimal bal = nz(w.getTotalBalance());
-            if (shop) { shopHeld = shopHeld.add(held); shopAvailable = shopAvailable.add(bal); }
-            else { shipperHeld = shipperHeld.add(held); shipperAvailable = shipperAvailable.add(bal); }
+            BigDecimal avail = nz(w.getTotalBalance());
+            if (shop) {
+                shopHeld = shopHeld.add(held);
+                shopAvailable = shopAvailable.add(avail);
+            } else {
+                shipperHeld = shipperHeld.add(held);
+                shipperAvailable = shipperAvailable.add(avail);
+            }
             User u = w.getUser();
+            int pending = pendingByWallet.getOrDefault(w.getWalletId(), 0);
+            BigDecimal codDebt = shop ? null : codByShipper.getOrDefault(u.getId(), BigDecimal.ZERO);
             partners.add(com.sang.be_capnong.dto.response.wallet.PlatformOverviewResponse.Partner.builder()
                     .userId(u.getId())
                     .walletId(w.getWalletId())
                     .name(u.getShopName() != null ? u.getShopName() : u.getFullName())
                     .role(w.getType())
+                    .balance(avail)
                     .held(held)
-                    .balance(bal)
-                    .pendingOrders(pendingByWallet.getOrDefault(w.getWalletId(), 0))
-                    .codHolding(shop ? null : codByShipper.getOrDefault(u.getId(), BigDecimal.ZERO))
+                    .pendingOrders(pending)
+                    .codHolding(codDebt)
                     .build());
         }
-        partners.sort(Comparator.comparing(com.sang.be_capnong.dto.response.wallet.PlatformOverviewResponse.Partner::getHeld).reversed()
-                .thenComparing(com.sang.be_capnong.dto.response.wallet.PlatformOverviewResponse.Partner::getName,
-                        Comparator.nullsLast(Comparator.naturalOrder())));
 
+        // Tổng hợp đơn hoàn trả & đã quyết toán
         List<Order> refunds = orderRepository.findByRefundAmountGreaterThanOrderByCreatedAtDesc(BigDecimal.ZERO);
         List<Order> settled = orderRepository.findBySettledAtGreaterThanEqual(from);
 
@@ -560,7 +769,7 @@ public class WalletServiceImpl implements WalletService {
         }
         String type = hasRole(me, "SHIPPER") ? TYPE_SHIPPER
                 : hasRole(me, "SHOP") ? TYPE_SHOP
-                : hasRole(me, "BUYER") ? TYPE_REFERRAL
+                : (hasRole(me, "BUYER") || hasRole(me, "USER")) ? TYPE_BUYER
                 : null;
         if (type == null) {
             throw new AppException(ErrorCode.WALLET_NOT_FOUND);
@@ -614,6 +823,9 @@ public class WalletServiceImpl implements WalletService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal shippingFee = nz(order.getShippingFee());
 
+        BigDecimal refundAmount = nz(order.getRefundAmount());
+        BigDecimal netGoods = goods.subtract(refundAmount).max(BigDecimal.ZERO);
+
         BigDecimal shopVoucher = BigDecimal.ZERO;
         BigDecimal platformVoucher = BigDecimal.ZERO;
         BigDecimal platformFreeship = BigDecimal.ZERO;
@@ -635,20 +847,21 @@ public class WalletServiceImpl implements WalletService {
         }
 
         goods = money(goods);
+        netGoods = money(netGoods);
         shippingFee = money(shippingFee);
-        shopVoucher = money(shopVoucher).min(goods.add(shippingFee));
+        shopVoucher = money(shopVoucher).min(netGoods.add(shippingFee));
         platformVoucher = money(platformVoucher);
         platformFreeship = money(platformFreeship).min(shippingFee);
 
         BigDecimal buyerPaid = money(nz(order.getTotalAmount()));
-        BigDecimal feeBase = goods.subtract(shopVoucher).max(BigDecimal.ZERO);
+        BigDecimal feeBase = netGoods.subtract(shopVoucher).max(BigDecimal.ZERO);
         BigDecimal farmerFee = money(feeBase.multiply(farmerFeeRate));
         BigDecimal shopReceive = feeBase.subtract(farmerFee);
         BigDecimal shipperFee = withShipper ? money(shippingFee.multiply(shipperFeeRate)) : BigDecimal.ZERO;
         BigDecimal shipperReceive = withShipper ? shippingFee.subtract(shipperFee) : BigDecimal.ZERO;
 
-        // Phần còn lại thuộc về sàn. Tính theo phần dư để sổ cái luôn cân (kể cả khi làm tròn).
-        BigDecimal platformReceive = buyerPaid.subtract(shopReceive).subtract(shipperReceive);
+        // Phần còn lại thuộc về sàn. Bất biến: buyerPaid = shopReceive + shipperReceive + platformReceive + refundAmount
+        BigDecimal platformReceive = buyerPaid.subtract(shopReceive).subtract(shipperReceive).subtract(refundAmount);
         BigDecimal platformVoucherSubsidy = farmerFee.add(shipperFee).subtract(platformFreeship).subtract(platformReceive);
 
         return new Split(goods, shippingFee, shopVoucher, platformVoucher, platformFreeship, buyerPaid,
@@ -701,6 +914,17 @@ public class WalletServiceImpl implements WalletService {
     // ───────────────────────────── Ví & bút toán ─────────────────────────────
 
     private Wallet getOrCreateWallet(User user, String type) {
+        if (TYPE_BUYER.equals(type)) {
+            return walletRepository.findFirstByUser_IdAndType(user.getId(), TYPE_BUYER)
+                    .or(() -> walletRepository.findFirstByUser_IdAndType(user.getId(), TYPE_REFERRAL))
+                    .orElseGet(() -> walletRepository.save(Wallet.builder()
+                            .user(user)
+                            .type(TYPE_BUYER)
+                            .status(WalletStatus.ACTIVE)
+                            .createAt(LocalDateTime.now())
+                            .updateAt(LocalDateTime.now())
+                            .build()));
+        }
         return walletRepository.findFirstByUser_IdAndType(user.getId(), type)
                 .orElseGet(() -> walletRepository.save(Wallet.builder()
                         .user(user)
@@ -729,12 +953,14 @@ public class WalletServiceImpl implements WalletService {
                 .orElseThrow(() -> new AppException(ErrorCode.WALLET_NOT_FOUND));
         BigDecimal newBalance = nz(locked.getTotalBalance()).add(amount);
         locked.setTotalBalance(newBalance);
-        if (type == WalletTransactionType.SHOP_INCOME || type == WalletTransactionType.SHIPPER_INCOME) {
-            locked.setTotalRevenueAllTime(nz(locked.getTotalRevenueAllTime()).add(amount));
+        if (type == WalletTransactionType.SHOP_INCOME || type == WalletTransactionType.SHIPPER_INCOME
+                || type == WalletTransactionType.SHOP_REFUND_DEDUCT) {
+            locked.setTotalRevenueAllTime(nz(locked.getTotalRevenueAllTime()).add(amount).max(BigDecimal.ZERO));
         }
-        if (type == WalletTransactionType.PLATFORM_FARMER_FEE || type == WalletTransactionType.PLATFORM_SHIPPER_FEE) {
-            locked.setCommissionWallet(nz(locked.getCommissionWallet()).add(amount));
-            locked.setTotalRevenueAllTime(nz(locked.getTotalRevenueAllTime()).add(amount));
+        if (type == WalletTransactionType.PLATFORM_FARMER_FEE || type == WalletTransactionType.PLATFORM_SHIPPER_FEE
+                || type == WalletTransactionType.PLATFORM_REFUND_DEDUCT) {
+            locked.setCommissionWallet(nz(locked.getCommissionWallet()).add(amount).max(BigDecimal.ZERO));
+            locked.setTotalRevenueAllTime(nz(locked.getTotalRevenueAllTime()).add(amount).max(BigDecimal.ZERO));
         }
         locked.setUpdateAt(LocalDateTime.now());
         walletRepository.save(locked);

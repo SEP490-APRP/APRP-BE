@@ -1,9 +1,8 @@
 package com.sang.be_capnong.service;
 
-import com.sang.be_capnong.dto.response.wallet.OrderSettlementResponse;
-import com.sang.be_capnong.dto.response.wallet.RefundDueResponse;
-import com.sang.be_capnong.dto.response.wallet.WalletResponse;
-import com.sang.be_capnong.dto.response.wallet.WalletTransactionResponse;
+import com.sang.be_capnong.dto.request.wallet.WithdrawCreateRequest;
+import com.sang.be_capnong.dto.response.wallet.*;
+import com.sang.be_capnong.entity.ReturnRequest;
 import org.springframework.data.domain.Page;
 
 import java.util.List;
@@ -24,6 +23,15 @@ public interface WalletService {
 
     /** Đơn huỷ / giao thất bại: gỡ toàn bộ tiền tạm giữ của đơn */
     void cancelHolds(int orderId, String reason);
+
+    /** Xử lý hoàn tiền cho người mua và khấu trừ tiền tạm giữ của shop khi yêu cầu hoàn hàng hoàn tất */
+    void processReturnRefund(ReturnRequest returnRequest);
+
+    /** Trừ cước vận chuyển hoàn trả hàng từ ví khả dụng của Shop (kiểm tra số dư trước khi trừ) */
+    void deductShopReturnShippingFee(ReturnRequest returnRequest);
+
+    /** Hoàn trả lại cước vận chuyển hoàn trả hàng vào ví Shop khi yêu cầu hoàn hàng bị huỷ/từ chối */
+    void refundShopReturnShippingFee(ReturnRequest returnRequest);
 
     /** Ghi nợ Shipper số tiền mặt COD vừa thu của khách (gọi khi DELIVERED) */
     void recordCodCashCollected(int orderId);
@@ -46,19 +54,19 @@ public interface WalletService {
     // ── Rút tiền ──
 
     /** Shop / Shipper / Buyer tạo lệnh rút: trừ số dư ngay, chờ Admin chuyển khoản */
-    com.sang.be_capnong.dto.response.wallet.WithdrawResponse requestWithdraw(com.sang.be_capnong.dto.request.wallet.WithdrawCreateRequest request);
+    WithdrawResponse requestWithdraw(WithdrawCreateRequest request);
 
-    List<com.sang.be_capnong.dto.response.wallet.WithdrawResponse> getMyWithdrawals();
+    List<WithdrawResponse> getMyWithdrawals();
 
     /** Admin: status = PENDING | COMPLETED | REJECTED, null = tất cả */
-    List<com.sang.be_capnong.dto.response.wallet.WithdrawResponse> getWithdrawals(String status);
+    List<WithdrawResponse> getWithdrawals(String status);
 
     /** Admin đã chuyển khoản xong */
-    com.sang.be_capnong.dto.response.wallet.WithdrawResponse approveWithdraw(int requestId, String note);
+    WithdrawResponse approveWithdraw(int requestId, String note);
 
     /** Admin từ chối: trả lại tiền vào số dư */
-    com.sang.be_capnong.dto.response.wallet.WithdrawResponse rejectWithdraw(int requestId, String note);
+    WithdrawResponse rejectWithdraw(int requestId, String note);
 
     /** Số liệu tổng hợp màn Ví Sàn. period: TODAY | 7D | 30D | ALL */
-    com.sang.be_capnong.dto.response.wallet.PlatformOverviewResponse getPlatformOverview(String period);
+    PlatformOverviewResponse getPlatformOverview(String period);
 }

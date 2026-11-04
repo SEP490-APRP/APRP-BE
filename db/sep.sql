@@ -387,6 +387,7 @@ CREATE TABLE orders (
     cod_refunded_at DATETIME,
     shipper_paid_at DATETIME,
     picked_up_at DATETIME,
+    delivered_at DATETIME,
     CONSTRAINT fk_orders_buyer FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_orders_shop FOREIGN KEY (shop_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_orders_shipper FOREIGN KEY (shipper_id) REFERENCES users(id) ON DELETE SET NULL,
@@ -538,16 +539,22 @@ CREATE TABLE return_requests (
     order_detail_id INT NOT NULL,
     shop_id INT NOT NULL,
     buyer_id INT NOT NULL,
+    shipper_id INT,
     reason VARCHAR(255),
-    status ENUM('PENDING', 'ACCEPTED', 'REJECTED', 'COMPLETED') DEFAULT 'PENDING',
+    status VARCHAR(50) DEFAULT 'PENDING',
     refund_amount DECIMAL(18,2),
+    is_return_goods TINYINT(1) DEFAULT 1,
+    return_shipping_fee DECIMAL(18,2) DEFAULT 0.00,
+    picked_up_at DATETIME,
+    returned_at DATETIME,
     shop_response VARCHAR(1000),
     admin_remark VARCHAR(1000),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_returns_detail FOREIGN KEY (order_detail_id) REFERENCES order_details(order_detail_id) ON DELETE CASCADE,
     CONSTRAINT fk_returns_shop FOREIGN KEY (shop_id) REFERENCES users(id) ON DELETE CASCADE,
-    CONSTRAINT fk_returns_buyer FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE
+    CONSTRAINT fk_returns_buyer FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_returns_shipper FOREIGN KEY (shipper_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.23 REVIEWS & REACTIONS

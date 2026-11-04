@@ -16,8 +16,6 @@ import java.time.LocalDateTime;
  */
 @Entity
 @Table(name = "wallet_transactions",
-        uniqueConstraints = @UniqueConstraint(name = "uk_wallet_tx_wallet_order_type",
-                columnNames = {"wallet_id", "order_id", "type"}),
         indexes = {
                 @Index(name = "idx_wallet_tx_wallet_created", columnList = "wallet_id, created_at"),
                 @Index(name = "idx_wallet_tx_order", columnList = "order_id")
