@@ -130,6 +130,8 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 .refundAmount(refundAmount)
                 .isReturnGoods(isReturnGoods)
                 .returnShippingFee(BigDecimal.ZERO)
+                .shippingPaymentMethod("WALLET")
+                .isShippingFeePaid(false)
                 .build();
 
         ReturnRequest saved = returnRequestRepository.save(returnRequest);
@@ -208,24 +210,54 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             }
 
             if (Boolean.FALSE.equals(returnRequest.getIsReturnGoods())) {
-                // Hoàn tiền ngay không cần lấy lại hàng
+                // Shop chọn KHÔNG lấy lại hàng -> Hoàn tiền ngay cho người mua, không tốn ship hoàn
                 returnRequest.setStatus(ReturnStatus.COMPLETED);
+                returnRequest.setReturnShippingFee(BigDecimal.ZERO);
                 processRefundSettlement(order, returnRequest);
 
                 notificationService.sendNotificationToUser(
                         buyer,
                         "Shop đã đồng ý hoàn tiền",
-                        "Shop " + returnRequest.getShop().getShopName() + " đã chấp thuận hoàn tiền không cần trả hàng cho sản phẩm \"" + prodName + "\".",
+                        "Shop " + returnRequest.getShop().getShopName() + " đã chấp thuận hoàn tiền không cần trả lại hàng cho sản phẩm \"" + prodName + "\".",
                         null
                 );
             } else {
-                // Cần trả hàng vật lý -> chuyển sang trạng thái chờ shipper nhận đơn
+                // Shop chọn LẤY LẠI HÀNG -> Phí ship hoàn hoàn toàn do shop chịu 100%
+                returnRequest.setIsReturnGoods(true);
+
+                // 1. Xác định mức phí ship hoàn (từ request hoặc mặc định cước của đơn hàng)
+                BigDecimal shipFee = request.getReturnShippingFee();
+                if (shipFee == null || shipFee.compareTo(BigDecimal.ZERO) <= 0) {
+                    shipFee = order.getShippingFee() != null ? order.getShippingFee() : BigDecimal.valueOf(20000);
+                }
+                returnRequest.setReturnShippingFee(shipFee);
+
+                // 2. Xác định phương thức thanh toán tiền ship hoàn: WALLET hoặc COD
+                String method = request.getShippingPaymentMethod();
+                if (method == null || method.isBlank()) {
+                    method = "WALLET";
+                }
+                method = method.trim().toUpperCase();
+                if (!"WALLET".equals(method) && !"COD".equals(method)) {
+                    method = "WALLET";
+                }
+                returnRequest.setShippingPaymentMethod(method);
+
+                // 3. Nếu chọn WALLET: Kiểm tra số dư ví khả dụng của Shop và trừ cước hoàn
+                if ("WALLET".equals(method)) {
+                    walletService.deductShopReturnShippingFee(returnRequest);
+                    returnRequest.setIsShippingFeePaid(true);
+                } else {
+                    // Nếu chọn COD: Shop sẽ đưa tiền mặt trực tiếp cho Shipper khi shipper giao hàng hoàn tới shop
+                    returnRequest.setIsShippingFeePaid(false);
+                }
+
                 returnRequest.setStatus(ReturnStatus.RETURN_SHIPPING);
 
                 notificationService.sendNotificationToUser(
                         buyer,
                         "Shop đã đồng ý yêu cầu trả hàng",
-                        "Shop đã chấp thuận yêu cầu hoàn trả cho sản phẩm \"" + prodName + "\". Shipper sẽ được điều phối đến lấy hàng hoàn.",
+                        "Shop đã chấp thuận yêu cầu hoàn trả cho sản phẩm \"" + prodName + "\". Shipper sẽ được điều phối đến lấy hàng hoàn từ bạn (Người mua không phải trả phí ship).",
                         null
                 );
             }
@@ -243,7 +275,8 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         }
 
         ReturnRequest updated = returnRequestRepository.save(returnRequest);
-        log.info("[ReturnRequest] Shop responded to return #{}: status={}", returnId, updated.getStatus());
+        log.info("[ReturnRequest] Shop responded to return #{}: status={}, isReturnGoods={}, shipMethod={}",
+                returnId, updated.getStatus(), updated.getIsReturnGoods(), updated.getShippingPaymentMethod());
         return returnRequestMapper.toResponse(updated);
     }
 
@@ -273,13 +306,10 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 returnRequest.setIsReturnGoods(request.getIsReturnGoods());
             }
 
-            if (request.getReturnShippingFee() != null) {
-                returnRequest.setReturnShippingFee(request.getReturnShippingFee());
-            }
-
             if (Boolean.FALSE.equals(returnRequest.getIsReturnGoods())) {
                 // Hoàn tiền ngay không cần lấy lại hàng
                 returnRequest.setStatus(ReturnStatus.COMPLETED);
+                returnRequest.setReturnShippingFee(BigDecimal.ZERO);
                 processRefundSettlement(order, returnRequest);
 
                 notificationService.sendNotificationToUser(
@@ -289,6 +319,28 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                         null
                 );
             } else {
+                // Lấy lại hàng -> cước phí do Shop chi trả 100%
+                returnRequest.setIsReturnGoods(true);
+
+                BigDecimal shipFee = request.getReturnShippingFee();
+                if (shipFee == null || shipFee.compareTo(BigDecimal.ZERO) <= 0) {
+                    shipFee = order.getShippingFee() != null ? order.getShippingFee() : BigDecimal.valueOf(20000);
+                }
+                returnRequest.setReturnShippingFee(shipFee);
+
+                String method = request.getShippingPaymentMethod();
+                if (method == null || method.isBlank()) {
+                    method = returnRequest.getShippingPaymentMethod() != null ? returnRequest.getShippingPaymentMethod() : "WALLET";
+                }
+                method = method.trim().toUpperCase();
+                returnRequest.setShippingPaymentMethod(method);
+
+                // Nếu chọn WALLET và chưa trừ phí ship thì trừ từ ví Shop
+                if ("WALLET".equals(method) && !Boolean.TRUE.equals(returnRequest.getIsShippingFeePaid())) {
+                    walletService.deductShopReturnShippingFee(returnRequest);
+                    returnRequest.setIsShippingFeePaid(true);
+                }
+
                 // Cần shipper lấy hàng hoàn
                 returnRequest.setStatus(ReturnStatus.RETURN_SHIPPING);
 
@@ -310,6 +362,11 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             }
         } else {
             // Admin bác bỏ yêu cầu hoàn trả
+            // Nếu trước đó shop đã trả tiền ship hoàn qua ví thì hoàn trả lại cho shop
+            if (Boolean.TRUE.equals(returnRequest.getIsShippingFeePaid())) {
+                walletService.refundShopReturnShippingFee(returnRequest);
+            }
+
             returnRequest.setStatus(ReturnStatus.REJECTED);
             returnRequest.getOrderDetail().setIsRequestedReturn(false);
             orderDetailRepository.save(returnRequest.getOrderDetail());
@@ -458,6 +515,11 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         if (returnRequest.getStatus() != ReturnStatus.PENDING && returnRequest.getStatus() != ReturnStatus.DISPUTED) {
             throw new AppException(ErrorCode.INVALID_RETURN_STATUS);
+        }
+
+        // Nếu shop đã trả phí ship hoàn qua ví, hoàn lại tiền vào ví cho shop
+        if (Boolean.TRUE.equals(returnRequest.getIsShippingFeePaid())) {
+            walletService.refundShopReturnShippingFee(returnRequest);
         }
 
         returnRequest.setStatus(ReturnStatus.CANCELLED);

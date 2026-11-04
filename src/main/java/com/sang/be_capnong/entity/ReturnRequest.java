@@ -57,6 +57,16 @@ public class ReturnRequest {
     @Column(name = "return_shipping_fee")
     BigDecimal returnShippingFee;
 
+    /** Hình thức thanh toán cước hoàn hàng do Shop chịu: "WALLET" (ví sàn) hoặc "COD" (tiền mặt cho shipper) */
+    @Column(name = "shipping_payment_method", length = 32)
+    @Builder.Default
+    String shippingPaymentMethod = "WALLET";
+
+    /** Đã thanh toán cước ship hoàn (trừ ví thành công) hay chưa */
+    @Column(name = "is_shipping_fee_paid")
+    @Builder.Default
+    Boolean isShippingFeePaid = false;
+
     @Column(name = "picked_up_at")
     LocalDateTime pickedUpAt;
 
@@ -84,6 +94,12 @@ public class ReturnRequest {
         this.updatedAt = LocalDateTime.now();
         if (this.isReturnGoods == null) {
             this.isReturnGoods = true;
+        }
+        if (this.shippingPaymentMethod == null) {
+            this.shippingPaymentMethod = "WALLET";
+        }
+        if (this.isShippingFeePaid == null) {
+            this.isShippingFeePaid = false;
         }
     }
 

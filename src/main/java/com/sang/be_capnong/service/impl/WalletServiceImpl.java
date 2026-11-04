@@ -256,7 +256,7 @@ public class WalletServiceImpl implements WalletService {
             }
         }
 
-        // 3. Nếu có shipper giao hàng hoàn và có cước hoàn: trả cước cho Shipper
+        // 3. Xử lý trả cước cho Shipper giao hàng hoàn (nếu có shipper và có cước hoàn)
         if (returnRequest.getShipper() != null && returnRequest.getReturnShippingFee() != null
                 && returnRequest.getReturnShippingFee().compareTo(BigDecimal.ZERO) > 0) {
             BigDecimal returnShipFee = money(returnRequest.getReturnShippingFee());
@@ -264,16 +264,92 @@ public class WalletServiceImpl implements WalletService {
             BigDecimal shipperIncome = returnShipFee.subtract(shipperFeeDeduct);
 
             Wallet shipperWallet = getOrCreateWallet(returnRequest.getShipper(), TYPE_SHIPPER);
-            credit(shipperWallet, order, WalletTransactionType.SHIPPER_INCOME, shipperIncome,
-                    "Cước giao hàng hoàn trả yêu cầu #" + returnRequest.getReturnId() + " (Đơn #" + order.getOrderId() + "): " + vnd(shipperIncome));
-
             Wallet platform = getPlatformWalletEntity();
-            credit(platform, order, WalletTransactionType.PLATFORM_SHIPPER_FEE, shipperFeeDeduct,
-                    "Phí dịch vụ shipper giao hàng hoàn #" + returnRequest.getReturnId() + " (" + pct(shipperFeeRate) + "): " + vnd(shipperFeeDeduct));
+
+            if ("WALLET".equalsIgnoreCase(returnRequest.getShippingPaymentMethod())) {
+                // Shop đã thanh toán cước hoàn từ ví sàn trước đó -> Sàn trả tiền cước vào ví cho Shipper
+                credit(shipperWallet, order, WalletTransactionType.SHIPPER_INCOME, shipperIncome,
+                        "Cước giao hàng hoàn trả yêu cầu #" + returnRequest.getReturnId() + " (Đơn #" + order.getOrderId() + "): +" + vnd(shipperIncome));
+                credit(platform, order, WalletTransactionType.PLATFORM_SHIPPER_FEE, shipperFeeDeduct,
+                        "Phí dịch vụ shipper giao hàng hoàn #" + returnRequest.getReturnId() + " (" + pct(shipperFeeRate) + "): +" + vnd(shipperFeeDeduct));
+            } else {
+                // Shop thanh toán COD -> Shop đã trả tiền mặt trực tiếp cho Shipper khi shipper giao hàng hoàn tới shop.
+                // Shipper đã nhận tiền mặt từ Shop, sàn chỉ thu phí dịch vụ shipper
+                credit(shipperWallet, order, WalletTransactionType.PLATFORM_SHIPPER_FEE, shipperFeeDeduct.negate(),
+                        "Phí dịch vụ cước hoàn COD nhận tiền mặt yêu cầu #" + returnRequest.getReturnId() + " (" + pct(shipperFeeRate) + "): -" + vnd(shipperFeeDeduct));
+                credit(platform, order, WalletTransactionType.PLATFORM_SHIPPER_FEE, shipperFeeDeduct,
+                        "Phí dịch vụ shipper giao hàng hoàn COD #" + returnRequest.getReturnId() + " (" + pct(shipperFeeRate) + "): +" + vnd(shipperFeeDeduct));
+            }
         }
 
         log.info("[Wallet] Processed return refund #{}: refunded {} to buyer #{}, deducted {} from shop #{}",
                 returnRequest.getReturnId(), refundAmt, buyer.getId(), shopDeduct);
+    }
+
+    @Override
+    @Transactional
+    public void deductShopReturnShippingFee(ReturnRequest returnRequest) {
+        if (returnRequest == null) return;
+        Order order = returnRequest.getOrderDetail() != null ? returnRequest.getOrderDetail().getOrder() : null;
+        User shop = returnRequest.getShop();
+        if (shop == null) return;
+
+        BigDecimal shipFee = money(nz(returnRequest.getReturnShippingFee()));
+        if (shipFee.signum() <= 0) return;
+
+        Wallet shopWallet = getOrCreateWallet(shop, TYPE_SHOP);
+        Wallet locked = walletRepository.findByIdForUpdate(shopWallet.getWalletId())
+                .orElseThrow(() -> new AppException(ErrorCode.WALLET_NOT_FOUND));
+
+        // KIỂM TRA SỐ DƯ KHẢ DỤNG
+        if (nz(locked.getTotalBalance()).compareTo(shipFee) < 0) {
+            log.warn("[Wallet] Shop #{} has insufficient balance to pay return shipping fee: balance={}, required={}",
+                    shop.getId(), locked.getTotalBalance(), shipFee);
+            throw new AppException(ErrorCode.RETURN_WALLET_INSUFFICIENT_BALANCE);
+        }
+
+        // Khấu trừ số dư ví khả dụng của Shop
+        BigDecimal newBalance = nz(locked.getTotalBalance()).subtract(shipFee);
+        locked.setTotalBalance(newBalance);
+        locked.setUpdateAt(LocalDateTime.now());
+        walletRepository.save(locked);
+
+        walletTransactionRepository.save(WalletTransaction.builder()
+                .wallet(locked)
+                .order(order)
+                .type(WalletTransactionType.SHOP_RETURN_SHIPPING_DEDUCT)
+                .amount(shipFee.negate())
+                .balanceAfter(newBalance)
+                .frozenAfter(nz(locked.getFrozenBalance()))
+                .description("Yêu cầu hoàn #" + returnRequest.getReturnId() + " (Đơn #" + (order != null ? order.getOrderId() : "") + "): Shop thanh toán cước ship hoàn -" + vnd(shipFee))
+                .createdAt(LocalDateTime.now())
+                .build());
+
+        log.info("[Wallet] Successfully deducted return shipping fee {} from shop #{} wallet. New balance={}",
+                shipFee, shop.getId(), newBalance);
+    }
+
+    @Override
+    @Transactional
+    public void refundShopReturnShippingFee(ReturnRequest returnRequest) {
+        if (returnRequest == null || !Boolean.TRUE.equals(returnRequest.getIsShippingFeePaid())) {
+            return;
+        }
+        if (!"WALLET".equalsIgnoreCase(returnRequest.getShippingPaymentMethod())) {
+            return;
+        }
+        Order order = returnRequest.getOrderDetail() != null ? returnRequest.getOrderDetail().getOrder() : null;
+        User shop = returnRequest.getShop();
+        if (shop == null) return;
+
+        BigDecimal shipFee = money(nz(returnRequest.getReturnShippingFee()));
+        if (shipFee.signum() <= 0) return;
+
+        Wallet shopWallet = getOrCreateWallet(shop, TYPE_SHOP);
+        credit(shopWallet, order, WalletTransactionType.SHOP_RETURN_SHIPPING_REFUND, shipFee,
+                "Hoàn lại cước ship hoàn cho Shop do yêu cầu #" + returnRequest.getReturnId() + " bị huỷ/từ chối: +" + vnd(shipFee));
+        returnRequest.setIsShippingFeePaid(false);
+        log.info("[Wallet] Refunded return shipping fee {} back to shop #{}", shipFee, shop.getId());
     }
 
     private static final Set<WalletTransactionType> HOLD_TYPES = EnumSet.of(

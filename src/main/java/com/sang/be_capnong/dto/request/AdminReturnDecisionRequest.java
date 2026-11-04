@@ -20,5 +20,8 @@ public class AdminReturnDecisionRequest {
 
     BigDecimal returnShippingFee;
 
+    /** Hình thức thanh toán cước ship hoàn do shop chi trả: "WALLET" hoặc "COD" */
+    String shippingPaymentMethod;
+
     String adminRemark;
 }

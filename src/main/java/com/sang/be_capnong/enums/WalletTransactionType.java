@@ -41,6 +41,10 @@ public enum WalletTransactionType {
     SHOP_REFUND_DEDUCT,
     /** Trừ tiền tạm giữ hoặc điều chỉnh phí của Sàn do hoàn tiền (âm) */
     PLATFORM_REFUND_DEDUCT,
+    /** Shop thanh toán cước vận chuyển hoàn trả hàng từ ví (âm) */
+    SHOP_RETURN_SHIPPING_DEDUCT,
+    /** Hoàn lại cước vận chuyển hoàn trả hàng cho shop do yêu cầu bị huỷ/từ chối (dương) */
+    SHOP_RETURN_SHIPPING_REFUND,
 
     // ── Rút tiền ──
     /** Tạo lệnh rút: trừ số dư ngay (âm) để không rút trùng */

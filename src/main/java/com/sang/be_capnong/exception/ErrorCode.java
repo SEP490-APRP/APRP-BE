@@ -229,6 +229,7 @@ public enum ErrorCode {
     WITHDRAW_INVALID_BANK(16009, "Bank name, account number and account holder are required", HttpStatus.BAD_REQUEST),
     WITHDRAW_NOT_FOUND(16010, "Withdrawal request not found", HttpStatus.NOT_FOUND),
     WITHDRAW_ALREADY_PROCESSED(16011, "Withdrawal request was already processed", HttpStatus.BAD_REQUEST),
+    WALLET_INSUFFICIENT_BALANCE(16012, "Wallet balance is not enough to perform this operation", HttpStatus.BAD_REQUEST),
 
     // Return & Refund Errors (Series 17000)
     RETURN_REQUEST_NOT_FOUND(17001, "Return request not found", HttpStatus.NOT_FOUND),
@@ -238,7 +239,8 @@ public enum ErrorCode {
     RETURN_UNAUTHORIZED(17005, "You do not have permission to perform this action on the return request", HttpStatus.FORBIDDEN),
     INVALID_RETURN_STATUS(17006, "Current return request status does not allow this operation", HttpStatus.BAD_REQUEST),
     RETURN_REFUND_AMOUNT_INVALID(17007, "Refund amount cannot exceed item purchase amount", HttpStatus.BAD_REQUEST),
-    SHIPPER_NOT_ASSIGNED_TO_RETURN(17008, "You are not assigned as the shipper for this return order", HttpStatus.FORBIDDEN);
+    SHIPPER_NOT_ASSIGNED_TO_RETURN(17008, "You are not assigned as the shipper for this return order", HttpStatus.FORBIDDEN),
+    RETURN_WALLET_INSUFFICIENT_BALANCE(17009, "Shop wallet balance is not enough to pay return shipping fee. Please top up or choose COD.", HttpStatus.BAD_REQUEST);
 
     private final int code;
     private final String message;

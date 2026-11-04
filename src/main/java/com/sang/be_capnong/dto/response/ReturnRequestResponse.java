@@ -48,6 +48,8 @@ public class ReturnRequestResponse {
     BigDecimal refundAmount;
     Boolean isReturnGoods;
     BigDecimal returnShippingFee;
+    String shippingPaymentMethod;
+    Boolean isShippingFeePaid;
 
     String evidence;
     List<String> evidenceUrls;

@@ -27,6 +27,12 @@ public interface WalletService {
     /** Xử lý hoàn tiền cho người mua và khấu trừ tiền tạm giữ của shop khi yêu cầu hoàn hàng hoàn tất */
     void processReturnRefund(ReturnRequest returnRequest);
 
+    /** Trừ cước vận chuyển hoàn trả hàng từ ví khả dụng của Shop (kiểm tra số dư trước khi trừ) */
+    void deductShopReturnShippingFee(ReturnRequest returnRequest);
+
+    /** Hoàn trả lại cước vận chuyển hoàn trả hàng vào ví Shop khi yêu cầu hoàn hàng bị huỷ/từ chối */
+    void refundShopReturnShippingFee(ReturnRequest returnRequest);
+
     /** Ghi nợ Shipper số tiền mặt COD vừa thu của khách (gọi khi DELIVERED) */
     void recordCodCashCollected(int orderId);
 
