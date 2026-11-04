@@ -34,6 +34,14 @@ public enum WalletTransactionType {
     /** Đơn huỷ / giao thất bại: gỡ tiền tạm giữ (âm) */
     HOLD_CANCELLED,
 
+    // ── Hoàn hàng / Hoàn tiền ──
+    /** Hoàn tiền về ví cho người mua (dương = cộng ví Buyer) */
+    BUYER_REFUND,
+    /** Trừ tiền tạm giữ hoặc trừ tiền hàng của Shop do hoàn trả (âm) */
+    SHOP_REFUND_DEDUCT,
+    /** Trừ tiền tạm giữ hoặc điều chỉnh phí của Sàn do hoàn tiền (âm) */
+    PLATFORM_REFUND_DEDUCT,
+
     // ── Rút tiền ──
     /** Tạo lệnh rút: trừ số dư ngay (âm) để không rút trùng */
     WITHDRAW_REQUESTED,

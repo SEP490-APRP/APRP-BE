@@ -94,9 +94,8 @@ public class Order {
     LocalDateTime codRefundedAt;
     LocalDateTime shipperPaidAt;
     LocalDateTime pickedUpAt;
-    LocalDateTime deliveredAt;
 
-    // Thời điểm Shipper giao thành công (DELIVERED) - dùng cho tự động hoàn tất đơn
+    // Thời điểm Shipper giao thành công (DELIVERED) - dùng cho tự động hoàn tất đơn & thời hạn 24h hoàn hàng
     LocalDateTime deliveredAt;
 
     // Thời điểm đơn chuyển COMPLETED

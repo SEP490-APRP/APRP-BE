@@ -19,6 +19,8 @@ public interface WithdrawRequestRepository extends JpaRepository<WithdrawRequest
 
     List<WithdrawRequest> findByStatusOrderByCreatedAtAsc(WithdrawStatus status);
 
+    List<WithdrawRequest> findByStatusOrderByCreatedAtDesc(WithdrawStatus status);
+
     List<WithdrawRequest> findAllByOrderByCreatedAtDesc();
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

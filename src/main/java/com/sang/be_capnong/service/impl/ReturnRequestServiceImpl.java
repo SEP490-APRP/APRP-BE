@@ -20,6 +20,7 @@ import com.sang.be_capnong.repository.ReturnRequestRepository;
 import com.sang.be_capnong.repository.UserRepository;
 import com.sang.be_capnong.service.NotificationService;
 import com.sang.be_capnong.service.ReturnRequestService;
+import com.sang.be_capnong.service.WalletService;
 import com.sang.be_capnong.util.SecurityUtils;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -52,6 +53,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     ImageRepository imageRepository;
     ReturnRequestMapper returnRequestMapper;
     NotificationService notificationService;
+    WalletService walletService;
 
     private static final List<ReturnStatus> CLOSED_STATUSES = List.of(
             ReturnStatus.REJECTED,
@@ -585,14 +587,27 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         order.setRefundAmount(currentRefund.add(additionalRefund));
 
         // Kiểm tra xem tất cả các chi tiết đơn hàng đã được hoàn tất trả chưa
+        boolean allRefunded = false;
         if (order.getOrderDetails() != null) {
-            boolean allRefunded = order.getOrderDetails().stream()
+            allRefunded = order.getOrderDetails().stream()
                     .allMatch(d -> Boolean.TRUE.equals(d.getIsRequestedReturn()));
             if (allRefunded) {
                 order.setStatus(OrderStatus.REFUNDED);
             }
         }
         orderRepository.save(order);
+
+        // Bút toán ví: hoàn tiền về ví cho người mua, trừ tiền tạm giữ của Shop / Sàn
+        try {
+            walletService.processReturnRefund(returnRequest);
+            if (allRefunded) {
+                walletService.cancelHolds(order.getOrderId(), "Đơn hàng đã hoàn trả toàn bộ");
+            }
+        } catch (Exception e) {
+            log.error("[ReturnRequest] Failed to process wallet refund for return #{}: {}", returnRequest.getReturnId(), e.getMessage(), e);
+            throw e;
+        }
+
         log.info("[ReturnRequest] Refund settled for order #{}: added {} đ, new total refund={}",
                 order.getOrderId(), additionalRefund, order.getRefundAmount());
     }
