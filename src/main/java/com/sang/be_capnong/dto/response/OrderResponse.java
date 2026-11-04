@@ -44,5 +44,6 @@ public class OrderResponse {
     Double shopLongitude;
     Double distanceKm;
     BigDecimal rescuedWeight;
+    BigDecimal refundAmount;
     List<OrderDetailResponse> items;
 }
