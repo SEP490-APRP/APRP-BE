@@ -149,6 +149,9 @@ public enum ErrorCode {
     VOUCHER_OUT_OF_STOCK(9004, "Voucher is out of stock (claim limit reached)", HttpStatus.BAD_REQUEST),
     VOUCHER_LIMIT_REACHED(9005, "You have reached the maximum claim limit for this voucher", HttpStatus.BAD_REQUEST),
     VOUCHER_CANNOT_DELETE_ACTIVE(9006, "Voucher đang hoạt động, vui lòng tạm dừng hoạt động trước khi xóa", HttpStatus.BAD_REQUEST),
+    VOUCHER_CANNOT_DELETE_USED(9007, "Không thể xóa voucher đã phát sinh lượt sử dụng trong các đơn hàng. Vui lòng chọn Tạm dừng hoạt động thay thế.", HttpStatus.BAD_REQUEST),
+    VOUCHER_DISCOUNT_EXCEEDS_COMMISSION(9008, "Mức giảm của voucher sàn vượt quá hoa hồng dự kiến (10%), sẽ làm sàn bị lỗ trên đơn hàng. Vui lòng tăng đơn tối thiểu hoặc giảm số tiền ưu đãi.", HttpStatus.BAD_REQUEST),
+    VOUCHER_MIN_ORDER_INVALID(9009, "Giá trị đơn hàng tối thiểu phải lớn hơn hoặc bằng mức giảm giá của voucher", HttpStatus.BAD_REQUEST),
 
     // Blog / Forum Errors (Series 10000)
     BLOG_NOT_FOUND(10001, "Blog post not found", HttpStatus.NOT_FOUND),

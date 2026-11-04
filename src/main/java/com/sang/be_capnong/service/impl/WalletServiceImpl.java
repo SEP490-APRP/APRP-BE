@@ -834,8 +834,12 @@ public class WalletServiceImpl implements WalletService {
             for (VoucherUsage u : usages) {
                 BigDecimal amt = nz(u.getDiscountAmount());
                 Voucher v = u.getVoucher();
-                boolean adminVoucher = v != null && v.getShop() != null && v.getShop().getRole() != null
-                        && "ADMIN".equalsIgnoreCase(v.getShop().getRole().getName());
+                boolean adminVoucher = v != null && (
+                        (v.getShop() != null && v.getShop().getRole() != null && "ADMIN".equalsIgnoreCase(v.getShop().getRole().getName()))
+                        || v.getVoucherScope() == com.sang.be_capnong.enums.VoucherScope.PLATFORM
+                        || v.getVoucherScope() == com.sang.be_capnong.enums.VoucherScope.SYSTEM
+                        || v.getVoucherScope() == com.sang.be_capnong.enums.VoucherScope.WELCOME
+                );
                 if (!adminVoucher) {
                     shopVoucher = shopVoucher.add(amt);
                 } else if (isShippingVoucher(v)) {
