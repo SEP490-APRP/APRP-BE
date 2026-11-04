@@ -57,7 +57,8 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
     private static final List<ReturnStatus> CLOSED_STATUSES = List.of(
             ReturnStatus.REJECTED,
-            ReturnStatus.CANCELLED
+            ReturnStatus.CANCELLED,
+            ReturnStatus.RETURN_FAILED
     );
 
     @Override
@@ -500,6 +501,69 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         }
 
         log.info("[ReturnRequest] Shipper #{} delivered return #{} -> COMPLETED", currentUserId, returnId);
+        return returnRequestMapper.toResponse(updated);
+    }
+
+    @Override
+    @Transactional
+    public ReturnRequestResponse shipperFail(int returnId, ShipperReturnActionRequest request) {
+        Integer currentUserId = SecurityUtils.getCurrentUserId();
+        ReturnRequest returnRequest = findReturnRequestById(returnId);
+
+        if (returnRequest.getShipper() == null || !Objects.equals(returnRequest.getShipper().getId(), currentUserId)) {
+            throw new AppException(ErrorCode.SHIPPER_NOT_ASSIGNED_TO_RETURN);
+        }
+
+        String note = request != null && request.getNote() != null && !request.getNote().isBlank()
+                ? request.getNote().trim() : "Giao nhận hàng hoàn không thành công";
+
+        // Giai đoạn 1: Chưa lấy được hàng từ Người mua (RETURN_SHIPPING) -> Huỷ trả hàng, hoàn lại cước cho Shop
+        if (returnRequest.getStatus() == ReturnStatus.RETURN_SHIPPING) {
+            returnRequest.setStatus(ReturnStatus.RETURN_FAILED);
+
+            // Hoàn lại cước ship cho Shop nếu đã trừ qua ví
+            if (Boolean.TRUE.equals(returnRequest.getIsShippingFeePaid())) {
+                walletService.refundShopReturnShippingFee(returnRequest);
+            }
+
+            returnRequest.getOrderDetail().setIsRequestedReturn(false);
+            orderDetailRepository.save(returnRequest.getOrderDetail());
+
+            Order order = returnRequest.getOrderDetail().getOrder();
+            restoreOrderStateIfNoActiveReturns(order);
+
+            notificationService.sendNotificationToUser(
+                    returnRequest.getBuyer(),
+                    "Lấy hàng hoàn không thành công",
+                    "Shipper không thể lấy hàng hoàn từ bạn. Lý do: " + note + ". Yêu cầu hoàn hàng đã bị đóng.",
+                    null
+            );
+            if (returnRequest.getShop() != null) {
+                notificationService.sendNotificationToUser(
+                        returnRequest.getShop(),
+                        "Lấy hàng hoàn thất bại",
+                        "Shipper không thể lấy hàng hoàn từ người mua. Lý do: " + note + ". Cước ship hoàn (nếu đã trừ ví) đã được hoàn lại cho bạn.",
+                        null
+                );
+            }
+        } else if (returnRequest.getStatus() == ReturnStatus.RETURN_PICKED_UP) {
+            // Giai đoạn 2: Đã lấy hàng từ Người mua nhưng giao về Shop thất bại -> Chuyển sang DISPUTED để Admin can thiệp
+            returnRequest.setStatus(ReturnStatus.DISPUTED);
+            returnRequest.setAdminRemark("Shipper báo giao về Shop thất bại: " + note + ". Hàng đang ở Shipper, cần Admin kiểm tra xử lý.");
+
+            notificationService.sendNotificationToUser(
+                    returnRequest.getShop(),
+                    "Giao hàng hoàn về shop thất bại",
+                    "Shipper đã nhận hàng từ người mua nhưng chưa thể giao về gian hàng của bạn. Lý do: " + note + ". Yêu cầu đã chuyển lên Admin.",
+                    null
+            );
+        } else {
+            throw new AppException(ErrorCode.INVALID_RETURN_STATUS);
+        }
+
+        ReturnRequest updated = returnRequestRepository.save(returnRequest);
+        log.info("[ReturnRequest] Shipper #{} reported fail for return #{}: status={}, note={}",
+                currentUserId, returnId, updated.getStatus(), note);
         return returnRequestMapper.toResponse(updated);
     }
 

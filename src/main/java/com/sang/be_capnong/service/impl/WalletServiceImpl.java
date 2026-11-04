@@ -93,7 +93,9 @@ public class WalletServiceImpl implements WalletService {
 
         // 2. Không quyết toán nếu đơn hàng có yêu cầu hoàn trả đang mở
         boolean hasActiveReturn = returnRequestRepository.findByOrderDetail_Order_OrderId(orderId).stream()
-                .anyMatch(r -> r.getStatus() != ReturnStatus.REJECTED && r.getStatus() != ReturnStatus.CANCELLED);
+                .anyMatch(r -> r.getStatus() != ReturnStatus.REJECTED
+                        && r.getStatus() != ReturnStatus.CANCELLED
+                        && r.getStatus() != ReturnStatus.RETURN_FAILED);
         if (hasActiveReturn) {
             log.info("[Wallet] Order #{} has active return requests, settle deferred until returns complete", orderId);
             return buildSettlement(order);

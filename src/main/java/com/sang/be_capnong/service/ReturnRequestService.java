@@ -24,6 +24,8 @@ public interface ReturnRequestService {
 
     ReturnRequestResponse shipperDeliver(int returnId, ShipperReturnActionRequest request);
 
+    ReturnRequestResponse shipperFail(int returnId, ShipperReturnActionRequest request);
+
     ReturnRequestResponse cancelReturnRequest(int returnId);
 
     ReturnRequestResponse getReturnRequestById(int returnId);

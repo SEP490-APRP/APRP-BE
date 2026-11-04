@@ -9,6 +9,7 @@ public enum ReturnStatus {
     RETURN_SHIPPING,    // Chờ shipper nhận đơn / đang vận chuyển hoàn hàng
     RETURN_PICKED_UP,   // Shipper đã lấy hàng hoàn từ người mua
     RETURN_DELIVERED,   // Shipper đã giao hàng hoàn trả về cho shop
+    RETURN_FAILED,      // Shipper giao nhận hàng hoàn thất bại
     COMPLETED,          // Hoàn tất (hàng đã trả về nếu cần, hoàn tiền hoàn tất)
     REJECTED,           // Từ chối hoàn trả
     CANCELLED           // Người mua tự hủy yêu cầu

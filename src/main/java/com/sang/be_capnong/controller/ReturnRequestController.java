@@ -138,6 +138,20 @@ public class ReturnRequestController {
     }
 
     /**
+     * Shipper báo cáo giao/nhận hàng hoàn thất bại
+     */
+    @PostMapping("/{id}/shipper/fail")
+    public ApiResponse<ReturnRequestResponse> shipperFail(
+            @PathVariable("id") int id,
+            @RequestBody(required = false) ShipperReturnActionRequest request
+    ) {
+        log.info("Shipper reported failure for return request id={}", id);
+        return ApiResponse.<ReturnRequestResponse>builder()
+                .result(returnRequestService.shipperFail(id, request != null ? request : new ShipperReturnActionRequest()))
+                .build();
+    }
+
+    /**
      * Người mua hủy yêu cầu hoàn hàng
      */
     @PostMapping("/{id}/cancel")

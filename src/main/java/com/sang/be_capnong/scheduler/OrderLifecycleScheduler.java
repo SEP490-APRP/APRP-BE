@@ -94,6 +94,8 @@ public class OrderLifecycleScheduler {
 
     private boolean hasActiveReturnRequest(int orderId) {
         return returnRequestRepository.findByOrderDetail_Order_OrderId(orderId).stream()
-                .anyMatch(r -> r.getStatus() != ReturnStatus.REJECTED && r.getStatus() != ReturnStatus.CANCELLED);
+                .anyMatch(r -> r.getStatus() != ReturnStatus.REJECTED
+                        && r.getStatus() != ReturnStatus.CANCELLED
+                        && r.getStatus() != ReturnStatus.RETURN_FAILED);
     }
 }
