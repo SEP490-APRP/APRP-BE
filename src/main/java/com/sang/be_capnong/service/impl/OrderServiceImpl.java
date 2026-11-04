@@ -67,6 +67,8 @@ public class OrderServiceImpl implements OrderService {
     SavedAddressRepository savedAddressRepository;
     GoogleMapService googleMapService;
     com.sang.be_capnong.service.CartService cartService;
+    com.sang.be_capnong.service.WalletService walletService;
+    com.sang.be_capnong.service.PaymentService paymentService;
 
     // ============================================================
     //  TẠO ĐƠN HÀNG
@@ -872,6 +874,8 @@ public class OrderServiceImpl implements OrderService {
         order.setShipper(currentUser);
         order.setStatus(OrderStatus.SHIPPING);
         Order saved = orderRepository.save(order);
+        // Shipper thấy ngay cước giao ở mục "tạm giữ", nhận thật khi đơn COMPLETED
+        walletService.holdShipperIncome(saved.getOrderId());
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
         return buildOrderResponse(saved, details);
     }
@@ -910,6 +914,7 @@ public class OrderServiceImpl implements OrderService {
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
         order.setStatus(OrderStatus.DELIVERED);
+        order.setDeliveredAt(LocalDateTime.now());
 
         // === TÍCH LŨY SỐ KG NÔNG SẢN ĐÃ GIẢI CỨU (IDEMPOTENCY GUARD) ===
         if (order.getRescuedWeight() == null) {
@@ -930,6 +935,13 @@ public class OrderServiceImpl implements OrderService {
         }
 
         Order saved = orderRepository.save(order);
+
+        // Đơn COD: Shipper vừa thu tiền mặt của khách -> ghi nợ vào ví Shipper cho tới khi nộp về sàn
+        if ("COD".equalsIgnoreCase(saved.getPaymentMethod())) {
+            walletService.recordCodCashCollected(saved.getOrderId());
+            // Tiền mặt đã vào hệ thống -> Shop và Sàn thấy phần của mình ở mục "tạm giữ"
+            walletService.holdShopAndPlatformIncome(saved.getOrderId());
+        }
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
         return buildOrderResponse(saved, details);
     }
@@ -1000,10 +1012,19 @@ public class OrderServiceImpl implements OrderService {
         }
 
         // Nếu đơn hàng bị huỷ khi chưa hoàn tất thanh toán (AWAITING_PAYMENT), hoàn trả lại giỏ hàng cho Buyer
+        // và huỷ link PayOS đang mở để khách không thể chuyển khoản cho đơn đã huỷ
         if (order.getStatus() == OrderStatus.AWAITING_PAYMENT) {
             cartService.restoreOrderItemsToCart(order);
+            paymentService.cancelOpenPayosLinksForOrder(order);
         }
 
+        // Đơn đã thanh toán online mà bị huỷ -> ghi nhận số tiền sàn phải hoàn cho Buyer
+        if (isPrepaidOnline(order)) {
+            order.setRefundAmount(order.getTotalAmount());
+            order.setRefundReason(isBuyer ? "Buyer huỷ đơn đã thanh toán online" : "Shop huỷ đơn đã thanh toán online");
+        }
+
+        walletService.cancelHolds(order.getOrderId(), "đơn bị huỷ");
         order.setStatus(OrderStatus.CANCELLED);
         Order saved = orderRepository.save(order);
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
@@ -1026,9 +1047,47 @@ public class OrderServiceImpl implements OrderService {
         
         // Giao hàng thất bại -> Hàng trả về shop -> Trả lại kho
         restoreStock(order);
-        
+
+        // Đơn đã thanh toán online mà giao thất bại -> ghi nhận số tiền sàn phải hoàn cho Buyer
+        if (isPrepaidOnline(order)) {
+            order.setRefundAmount(order.getTotalAmount());
+            order.setRefundReason("Giao hàng thất bại, đơn đã thanh toán online");
+        }
+
+        walletService.cancelHolds(order.getOrderId(), "giao hàng thất bại");
         order.setStatus(OrderStatus.FAILED);
         Order saved = orderRepository.save(order);
+        List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
+        return buildOrderResponse(saved, details);
+    }
+
+    @Transactional
+    @Override
+    public OrderResponse markOrderAsCompleted(int orderId) {
+        Order order = findOrderById(orderId);
+        User currentUser = getCurrentUser();
+        if (order.getBuyer() == null || !Objects.equals(order.getBuyer().getId(), currentUser.getId())) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
+        return completeAndSettle(order);
+    }
+
+    @Transactional
+    @Override
+    public OrderResponse autoCompleteOrder(int orderId) {
+        return completeAndSettle(findOrderById(orderId));
+    }
+
+    /** DELIVERED -> COMPLETED rồi chia tiền vào ví trong cùng 1 transaction (lỗi thì rollback cả hai) */
+    private OrderResponse completeAndSettle(Order order) {
+        if (order.getStatus() != OrderStatus.DELIVERED) {
+            log.error("Invalid state transition to COMPLETED for order id {}. Current status: {}", order.getOrderId(), order.getStatus());
+            throw new AppException(ErrorCode.INVALID_ORDER_STATE);
+        }
+        order.setStatus(OrderStatus.COMPLETED);
+        order.setCompletedAt(LocalDateTime.now());
+        Order saved = orderRepository.saveAndFlush(order);
+        walletService.settleOrder(saved.getOrderId());
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
         return buildOrderResponse(saved, details);
     }
@@ -1036,6 +1095,15 @@ public class OrderServiceImpl implements OrderService {
     // ============================================================
     //  PRIVATE HELPERS
     // ============================================================
+
+    /** Đơn thanh toán online (PayOS / chuyển khoản) và tiền đã vào tài khoản sàn */
+    private boolean isPrepaidOnline(Order order) {
+        boolean online = "PAYOS".equalsIgnoreCase(order.getPaymentMethod()) || "TRANSFER".equalsIgnoreCase(order.getPaymentMethod());
+        if (!online) return false;
+        OrderStatus st = order.getStatus();
+        return st == OrderStatus.PAID || st == OrderStatus.CONFIRMED || st == OrderStatus.READY
+                || st == OrderStatus.SHIPPING || st == OrderStatus.PICKED_UP;
+    }
 
     private void restoreStock(Order order) {
         List<OrderDetail> details = orderDetailRepository.findByOrder_OrderId(order.getOrderId());

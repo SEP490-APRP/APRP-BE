@@ -183,6 +183,18 @@ public class OrderController {
                 .build();
     }
 
+    // ── BUYER: Xác nhận đã nhận hàng -> chia tiền vào ví ──
+    @Operation(summary = "Buyer confirms receipt",
+            description = "[BUYER only] Buyer confirms the order was received. Transitions: DELIVERED → COMPLETED, then splits the money into Shop / Shipper / Platform wallets.")
+    @PutMapping("/{id}/complete")
+    @PreAuthorize("hasRole('BUYER')")
+    public ApiResponse<OrderResponse> markOrderAsCompleted(@PathVariable("id") int orderId) {
+        return ApiResponse.<OrderResponse>builder()
+                .result(orderService.markOrderAsCompleted(orderId))
+                .message("Order completed and settled.")
+                .build();
+    }
+
     // ── BUYER/SHOP: Hủy đơn ──────────────────────────────────────────
     @Operation(summary = "Cancel order",
             description = "[BUYER or SHOP] Cancel the order before it ships. Transitions: PENDING/PAID/CONFIRMED/READY → CANCELLED. Stock is restored.")

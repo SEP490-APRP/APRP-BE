@@ -22,11 +22,13 @@ import com.sang.be_capnong.repository.*;
 import com.sang.be_capnong.service.CartService;
 import com.sang.be_capnong.service.EmailService;
 import com.sang.be_capnong.service.PaymentService;
+import com.sang.be_capnong.service.WalletService;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import vn.payos.PayOS;
@@ -58,6 +60,12 @@ public class PaymentServiceImpl implements PaymentService {
     final VoucherRepository voucherRepository;
     final VoucherUserRepository voucherUserRepository;
     final VoucherUsageRepository voucherUsageRepository;
+    final UserRepository userRepository;
+    final WalletService walletService;
+
+    /** Số phút giữ đơn chờ thanh toán PayOS. 0 = không tự huỷ */
+    @Value("${capnong.payment.expire-minutes:30}")
+    int expireMinutes;
 
     @Value("${payos.return-url:http://localhost:3000/payment/result}")
     String defaultReturnUrl;
@@ -72,11 +80,13 @@ public class PaymentServiceImpl implements PaymentService {
                 ? request.getReturnUrl() : defaultReturnUrl;
         String cancelUrl = (request.getCancelUrl() != null && !request.getCancelUrl().isBlank())
                 ? request.getCancelUrl() : defaultCancelUrl;
+        User me = currentUser();
 
         // Trường hợp 1: Thanh toán cho một CheckoutBatch (gồm nhiều order)
         if (request.getBatchId() != null) {
             CheckoutBatch batch = checkoutBatchRepository.findById(request.getBatchId())
                     .orElseThrow(() -> new AppException(ErrorCode.BATCH_NOT_FOUND));
+            assertOwner(me, batch.getBuyer());
 
             if (batch.getStatus() == BatchStatus.COMPLETED) {
                 throw new AppException(ErrorCode.ORDER_NOT_PAYABLE);
@@ -91,29 +101,28 @@ public class PaymentServiceImpl implements PaymentService {
                 throw new AppException(ErrorCode.ORDER_NOT_PAYABLE);
             }
 
+            // Huỷ mọi link cũ còn mở (link batch trước đó + link lẻ của từng đơn) để khách không trả 2 lần
+            cancelOpenLink(batch.getPayosOrderCode(), "Tao link thanh toan moi");
+            for (Order o : unpaid) {
+                cancelOpenSingleOrderLinks(o, "Gop vao thanh toan batch");
+            }
+
             BigDecimal remainingTotal = unpaid.stream()
                     .map(Order::getTotalAmount)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-            long orderCode = System.currentTimeMillis() % 900000000000000L;
-            long amount = Math.max(1000L, remainingTotal.longValue());
+            long orderCode = nextOrderCode();
+            long amount = remainingTotal.setScale(0, java.math.RoundingMode.HALF_UP).longValue();
             String desc = truncateDescription("Batch " + batch.getId());
 
             try {
-                CreatePaymentLinkRequest paymentData = CreatePaymentLinkRequest.builder()
-                        .orderCode(orderCode)
-                        .amount(amount)
-                        .description(desc)
-                        .returnUrl(returnUrl)
-                        .cancelUrl(cancelUrl)
-                        .build();
-
-                CreatePaymentLinkResponse checkoutData = payOS.paymentRequests().create(paymentData);
+                CheckoutData checkoutData = createLink(orderCode, amount, desc, returnUrl, cancelUrl);
 
                 batch.setPayosOrderCode(String.valueOf(orderCode));
-                batch.setCheckoutUrl(checkoutData.getCheckoutUrl());
-                batch.setQrCodeUrl(checkoutData.getQrCode());
+                batch.setCheckoutUrl(checkoutData.checkoutUrl());
+                batch.setQrCodeUrl(checkoutData.qrCode());
                 batch.setTotalAmount(remainingTotal);
+                batch.setStatus(BatchStatus.PENDING);
                 batch.setUpdatedAt(LocalDateTime.now());
                 checkoutBatchRepository.save(batch);
 
@@ -122,8 +131,8 @@ public class PaymentServiceImpl implements PaymentService {
                         .paymentGateway("PAYOS")
                         .status(PaymentStatus.PENDING)
                         .payosOrderCode(String.valueOf(orderCode))
-                        .checkoutUrl(checkoutData.getCheckoutUrl())
-                        .qrCodeUrl(checkoutData.getQrCode())
+                        .checkoutUrl(checkoutData.checkoutUrl())
+                        .qrCodeUrl(checkoutData.qrCode())
                         .createdAt(LocalDateTime.now())
                         .updatedAt(LocalDateTime.now())
                         .build();
@@ -136,8 +145,8 @@ public class PaymentServiceImpl implements PaymentService {
                         .paymentGateway("PAYOS")
                         .status(PaymentStatus.PENDING)
                         .payosOrderCode(String.valueOf(orderCode))
-                        .checkoutUrl(checkoutData.getCheckoutUrl())
-                        .qrCodeUrl(checkoutData.getQrCode())
+                        .checkoutUrl(checkoutData.checkoutUrl())
+                        .qrCodeUrl(checkoutData.qrCode())
                         .createdAt(savedPayment.getCreatedAt())
                         .build();
 
@@ -151,25 +160,22 @@ public class PaymentServiceImpl implements PaymentService {
         if (request.getOrderId() != null) {
             Order order = orderRepository.findById(request.getOrderId())
                     .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
+            assertOwner(me, order.getBuyer());
 
             if (order.getStatus() != OrderStatus.AWAITING_PAYMENT && order.getStatus() != OrderStatus.PENDING) {
                 throw new AppException(ErrorCode.ORDER_NOT_PAYABLE);
             }
 
-            long orderCode = System.currentTimeMillis() % 900000000000000L;
-            long amount = Math.max(1000L, order.getTotalAmount().longValue());
+            // Huỷ link batch đang mở (nó đã tính cả tiền đơn này) và link lẻ cũ của đơn này
+            cancelOpenBatchLink(order.getCheckoutBatch(), "Khach tra le tung don");
+            cancelOpenSingleOrderLinks(order, "Tao link thanh toan moi");
+
+            long orderCode = nextOrderCode();
+            long amount = order.getTotalAmount().setScale(0, java.math.RoundingMode.HALF_UP).longValue();
             String desc = truncateDescription("Don " + order.getOrderId());
 
             try {
-                CreatePaymentLinkRequest paymentData = CreatePaymentLinkRequest.builder()
-                        .orderCode(orderCode)
-                        .amount(amount)
-                        .description(desc)
-                        .returnUrl(returnUrl)
-                        .cancelUrl(cancelUrl)
-                        .build();
-
-                CreatePaymentLinkResponse checkoutData = payOS.paymentRequests().create(paymentData);
+                CheckoutData checkoutData = createLink(orderCode, amount, desc, returnUrl, cancelUrl);
 
                 Payment payment = Payment.builder()
                         .order(order)
@@ -177,8 +183,8 @@ public class PaymentServiceImpl implements PaymentService {
                         .paymentGateway("PAYOS")
                         .status(PaymentStatus.PENDING)
                         .payosOrderCode(String.valueOf(orderCode))
-                        .checkoutUrl(checkoutData.getCheckoutUrl())
-                        .qrCodeUrl(checkoutData.getQrCode())
+                        .checkoutUrl(checkoutData.checkoutUrl())
+                        .qrCodeUrl(checkoutData.qrCode())
                         .createdAt(LocalDateTime.now())
                         .updatedAt(LocalDateTime.now())
                         .build();
@@ -192,8 +198,8 @@ public class PaymentServiceImpl implements PaymentService {
                         .paymentGateway("PAYOS")
                         .status(PaymentStatus.PENDING)
                         .payosOrderCode(String.valueOf(orderCode))
-                        .checkoutUrl(checkoutData.getCheckoutUrl())
-                        .qrCodeUrl(checkoutData.getQrCode())
+                        .checkoutUrl(checkoutData.checkoutUrl())
+                        .qrCodeUrl(checkoutData.qrCode())
                         .createdAt(savedPayment.getCreatedAt())
                         .build();
 
@@ -206,10 +212,92 @@ public class PaymentServiceImpl implements PaymentService {
         throw new AppException(ErrorCode.INVALID_KEY);
     }
 
+    private record CheckoutData(String checkoutUrl, String qrCode) {
+    }
+
+    private CheckoutData createLink(long orderCode, long amount, String desc, String returnUrl, String cancelUrl) {
+        CreatePaymentLinkRequest.CreatePaymentLinkRequestBuilder b = CreatePaymentLinkRequest.builder()
+                .orderCode(orderCode)
+                .amount(amount)
+                .description(desc)
+                .returnUrl(returnUrl)
+                .cancelUrl(cancelUrl);
+        if (expireMinutes > 0) {
+            // Link tự hết hạn cùng lúc với đơn chờ thanh toán (OrderLifecycleScheduler huỷ đơn quá hạn)
+            b.expiredAt(java.time.Instant.now().plusSeconds(expireMinutes * 60L).getEpochSecond());
+        }
+        CreatePaymentLinkResponse res = payOS.paymentRequests().create(b.build());
+        return new CheckoutData(res.getCheckoutUrl(), res.getQrCode());
+    }
+
+    /**
+     * Mã PayOS duy nhất: mili-giây x 1000 + 3 chữ số ngẫu nhiên (vẫn nhỏ hơn 2^53 theo giới hạn PayOS).
+     * Bản cũ dùng thuần mili-giây nên 2 yêu cầu cùng 1 ms bị trùng mã.
+     */
+    private long nextOrderCode() {
+        for (int i = 0; i < 5; i++) {
+            long code = System.currentTimeMillis() * 1000L + java.util.concurrent.ThreadLocalRandom.current().nextInt(1000);
+            String c = String.valueOf(code);
+            if (paymentRepository.findByPayosOrderCode(c).isEmpty() && checkoutBatchRepository.findByPayosOrderCode(c).isEmpty()) {
+                return code;
+            }
+        }
+        throw new AppException(ErrorCode.PAYMENT_FAILED);
+    }
+
+    // ───────────────── Huỷ link PayOS còn mở ─────────────────
+
+    @Override
+    @Transactional
+    public void cancelOpenPayosLinksForOrder(Order order) {
+        if (order == null) return;
+        cancelOpenSingleOrderLinks(order, "Don da huy");
+        cancelOpenBatchLink(order.getCheckoutBatch(), "Mot don trong batch da huy");
+    }
+
+    private void cancelOpenSingleOrderLinks(Order order, String reason) {
+        for (Payment p : paymentRepository.findByOrder_OrderId(order.getOrderId())) {
+            if (p.getStatus() == PaymentStatus.PENDING) {
+                cancelOpenLink(p.getPayosOrderCode(), reason);
+            }
+        }
+    }
+
+    private void cancelOpenBatchLink(CheckoutBatch batch, String reason) {
+        if (batch == null || batch.getStatus() == BatchStatus.COMPLETED) return;
+        if (cancelOpenLink(batch.getPayosOrderCode(), reason)) {
+            // Giữ payosOrderCode để webhook trễ (nếu có) vẫn tìm được batch, chỉ gỡ link đã chết
+            batch.setCheckoutUrl(null);
+            batch.setQrCodeUrl(null);
+            batch.setUpdatedAt(LocalDateTime.now());
+            checkoutBatchRepository.save(batch);
+        }
+    }
+
+    /** Huỷ link trên PayOS và đánh dấu Payment CANCELLED. Trả về true nếu có link PENDING bị huỷ. */
+    private boolean cancelOpenLink(String orderCode, String reason) {
+        if (orderCode == null || orderCode.isBlank()) return false;
+        var paymentOpt = paymentRepository.findByPayosOrderCode(orderCode);
+        if (paymentOpt.isEmpty() || paymentOpt.get().getStatus() != PaymentStatus.PENDING) return false;
+        try {
+            payOS.paymentRequests().cancel(Long.parseLong(orderCode), reason);
+            log.info("[PaymentCancel] Cancelled PayOS link {} ({})", orderCode, reason);
+        } catch (Exception e) {
+            // Link có thể đã hết hạn / đã huỷ phía PayOS. Nếu khách vẫn trả, settlePaidOrderCode sẽ ghi nhận hoàn tiền.
+            log.warn("[PaymentCancel] PayOS cancel failed for {}: {}", orderCode, e.getMessage());
+        }
+        Payment p = paymentOpt.get();
+        p.setStatus(PaymentStatus.CANCELLED);
+        p.setUpdatedAt(LocalDateTime.now());
+        paymentRepository.save(p);
+        return true;
+    }
+
     @Override
     public ResumePaymentOptionsResponse getResumePaymentOptions(int orderId) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
+        assertOwner(currentUser(), order.getBuyer());
 
         CheckoutBatch batch = order.getCheckoutBatch();
         if (batch != null) {
@@ -284,6 +372,11 @@ public class PaymentServiceImpl implements PaymentService {
 
     @Override
     public PaymentResponse getPaymentByOrderCode(String orderCode) {
+        assertCanAccessOrderCode(currentUser(), orderCode);
+        return loadPaymentByOrderCode(orderCode);
+    }
+
+    private PaymentResponse loadPaymentByOrderCode(String orderCode) {
         Payment payment = paymentRepository.findByPayosOrderCode(orderCode)
                 .orElse(null);
 
@@ -322,7 +415,7 @@ public class PaymentServiceImpl implements PaymentService {
         var batchOpt = checkoutBatchRepository.findByPayosOrderCode(orderCode);
         if (batchOpt.isPresent() && batchOpt.get().getStatus() == BatchStatus.COMPLETED) {
             log.info("[PaymentConfirm] Batch already settled as COMPLETED: {}", orderCode);
-            return getPaymentByOrderCode(orderCode);
+            return loadPaymentByOrderCode(orderCode);
         }
 
         // 2. Xác thực với PayOS API để đảm bảo tiền thực sự đã thanh toán
@@ -335,7 +428,7 @@ public class PaymentServiceImpl implements PaymentService {
             log.warn("[PaymentConfirm] Error checking PayOS API for orderCode {}: {}", orderCode, e.getMessage());
         }
 
-        return getPaymentByOrderCode(orderCode);
+        return loadPaymentByOrderCode(orderCode);
     }
 
     @Override
@@ -370,79 +463,108 @@ public class PaymentServiceImpl implements PaymentService {
             BigDecimal totalPaidAmount = BigDecimal.ZERO;
             User buyer = null;
 
-            // 1. Settle Payment đơn lẻ nếu có
             var paymentOpt = paymentRepository.findByPayosOrderCode(orderCode);
+            if (paymentOpt.isPresent() && paymentOpt.get().getStatus() == PaymentStatus.PAID) {
+                log.info("[PaymentSettle] Payment #{} already settled as PAID. Skipping duplicate processing.", paymentOpt.get().getPaymentId());
+                return;
+            }
+            var batchOpt = checkoutBatchRepository.findByPayosOrderCode(orderCode);
+            if (batchOpt.isPresent() && batchOpt.get().getStatus() == BatchStatus.COMPLETED && paymentOpt.isEmpty()) {
+                log.info("[PaymentSettle] Batch #{} already settled as COMPLETED. Skipping duplicate processing.", batchOpt.get().getId());
+                return;
+            }
+
+            BigDecimal paidAmount = BigDecimal.ZERO;
             if (paymentOpt.isPresent()) {
                 Payment payment = paymentOpt.get();
-                if (payment.getStatus() == PaymentStatus.PAID) {
-                    log.info("[PaymentSettle] Payment #{} already settled as PAID. Skipping duplicate processing.", payment.getPaymentId());
-                    return;
-                }
-
+                paidAmount = payment.getAmount() != null ? payment.getAmount() : BigDecimal.ZERO;
                 payment.setStatus(PaymentStatus.PAID);
                 payment.setPaymentDate(LocalDateTime.now());
                 payment.setUpdatedAt(LocalDateTime.now());
                 paymentRepository.save(payment);
+            } else if (batchOpt.isPresent()) {
+                paidAmount = batchOpt.get().getTotalAmount() != null ? batchOpt.get().getTotalAmount() : BigDecimal.ZERO;
+            }
 
-                if (payment.getOrder() != null) {
-                    Order order = payment.getOrder();
-                    if (order.getStatus() == OrderStatus.AWAITING_PAYMENT || order.getStatus() == OrderStatus.PENDING) {
-                        order.setStatus(OrderStatus.PAID);
-                        orderRepository.save(order);
-                        newlyPaidOrders.add(order);
-                        totalPaidAmount = payment.getAmount() != null ? payment.getAmount() : order.getTotalAmount();
-                        buyer = order.getBuyer();
-                        log.info("[PaymentSettle] Single order #{} updated to PAID", order.getOrderId());
-                    }
+            // Danh sách đơn mà mã thanh toán này chi trả
+            List<Order> coveredOrders = new java.util.ArrayList<>();
+            if (paymentOpt.isPresent() && paymentOpt.get().getOrder() != null) {
+                coveredOrders.add(paymentOpt.get().getOrder());
+            } else if (batchOpt.isPresent()) {
+                coveredOrders.addAll(orderRepository.findByCheckoutBatch_Id(batchOpt.get().getId()));
+            }
 
-                    if (order.getCheckoutBatch() != null) {
-                        CheckoutBatch b = order.getCheckoutBatch();
-                        List<Order> batchOrders = orderRepository.findByCheckoutBatch_Id(b.getId());
-                        boolean allPaid = batchOrders.stream()
-                                .allMatch(o -> o.getStatus() == OrderStatus.PAID || o.getStatus() == OrderStatus.COMPLETED);
-                        if (allPaid) {
-                            b.setStatus(BatchStatus.COMPLETED);
-                            checkoutBatchRepository.save(b);
-                            log.info("[PaymentSettle] All orders in batch #{} paid, batch marked COMPLETED", b.getId());
-                        }
-                    }
+            List<Order> notPayable = new java.util.ArrayList<>();
+            BigDecimal appliedAmount = BigDecimal.ZERO;
+            for (Order o : coveredOrders) {
+                if (o.getStatus() == OrderStatus.AWAITING_PAYMENT || o.getStatus() == OrderStatus.PENDING) {
+                    o.setStatus(OrderStatus.PAID);
+                    orderRepository.save(o);
+                    // Tiền đã vào sàn -> Shop và Sàn thấy phần của mình ở mục "tạm giữ"
+                    walletService.holdShopAndPlatformIncome(o.getOrderId());
+                    newlyPaidOrders.add(o);
+                    appliedAmount = appliedAmount.add(o.getTotalAmount() != null ? o.getTotalAmount() : BigDecimal.ZERO);
+                    if (buyer == null) buyer = o.getBuyer();
+                    log.info("[PaymentSettle] Order #{} updated to PAID by orderCode {}", o.getOrderId(), orderCode);
+                } else {
+                    notPayable.add(o);
+                }
+            }
+            totalPaidAmount = appliedAmount;
+
+            // Tiền khách trả dư (đơn đã huỷ / đã được trả bằng link khác) -> ghi nhận để sàn hoàn lại
+            BigDecimal overpaid = paidAmount.subtract(appliedAmount);
+            if (overpaid.signum() > 0) {
+                recordOverpayment(orderCode, overpaid, notPayable, coveredOrders);
+            }
+
+            // Cập nhật trạng thái batch
+            java.util.Set<CheckoutBatch> batches = new java.util.LinkedHashSet<>();
+            batchOpt.ifPresent(batches::add);
+            for (Order o : coveredOrders) {
+                if (o.getCheckoutBatch() != null) batches.add(o.getCheckoutBatch());
+            }
+            for (CheckoutBatch b : batches) {
+                List<Order> batchOrders = orderRepository.findByCheckoutBatch_Id(b.getId());
+                boolean anyUnpaid = batchOrders.stream()
+                        .anyMatch(o -> o.getStatus() == OrderStatus.AWAITING_PAYMENT || o.getStatus() == OrderStatus.PENDING);
+                boolean anyPaid = batchOrders.stream()
+                        .anyMatch(o -> o.getStatus() != OrderStatus.CANCELLED && o.getStatus() != OrderStatus.AWAITING_PAYMENT && o.getStatus() != OrderStatus.PENDING);
+                if (!anyUnpaid) {
+                    b.setStatus(anyPaid ? BatchStatus.COMPLETED : BatchStatus.CANCELLED);
+                    b.setUpdatedAt(LocalDateTime.now());
+                    checkoutBatchRepository.save(b);
                 }
             }
 
-            // 2. Settle Batch nếu có
-            var batchOpt = checkoutBatchRepository.findByPayosOrderCode(orderCode);
-            if (batchOpt.isPresent()) {
-                CheckoutBatch batch = batchOpt.get();
-                if (batch.getStatus() == BatchStatus.COMPLETED) {
-                    log.info("[PaymentSettle] Batch #{} already settled as COMPLETED. Skipping duplicate processing.", batch.getId());
-                    return;
-                }
-
-                batch.setStatus(BatchStatus.COMPLETED);
-                batch.setUpdatedAt(LocalDateTime.now());
-                checkoutBatchRepository.save(batch);
-                totalPaidAmount = batch.getTotalAmount() != null ? batch.getTotalAmount() : BigDecimal.ZERO;
-
-                List<Order> batchOrders = orderRepository.findByCheckoutBatch_Id(batch.getId());
-                for (Order o : batchOrders) {
-                    if (o.getStatus() == OrderStatus.AWAITING_PAYMENT || o.getStatus() == OrderStatus.PENDING) {
-                        o.setStatus(OrderStatus.PAID);
-                        orderRepository.save(o);
-                        newlyPaidOrders.add(o);
-                        if (buyer == null) {
-                            buyer = o.getBuyer();
-                        }
-                        log.info("[PaymentSettle] Batch order #{} in batch #{} updated to PAID", o.getOrderId(), batch.getId());
-                    }
-                }
-            }
-
-            // 3. Gửi Email Hóa Đơn - Idempotent (Chỉ gửi duy nhất 1 lần khi có đơn vừa chuyển sang PAID)
+            // Gửi Email Hóa Đơn - Idempotent (Chỉ gửi duy nhất 1 lần khi có đơn vừa chuyển sang PAID)
             if (!newlyPaidOrders.isEmpty() && buyer != null) {
                 log.info("[PaymentSettle] Sending single invoice email for orderCode: {} ({} orders) to {}",
                         orderCode, newlyPaidOrders.size(), buyer.getEmail());
                 emailService.sendPaymentSuccessInvoiceEmail(buyer, newlyPaidOrders, orderCode, totalPaidAmount);
             }
+        }
+    }
+
+    /** Ghi số tiền cần hoàn vào các đơn liên quan (orders.refund_amount) để Admin xử lý ở /wallets/refunds */
+    private void recordOverpayment(String orderCode, BigDecimal overpaid, List<Order> notPayable, List<Order> covered) {
+        log.warn("[PaymentSettle] orderCode {} overpaid by {} (orders not payable: {})", orderCode, overpaid,
+                notPayable.stream().map(Order::getOrderId).toList());
+        BigDecimal remaining = overpaid;
+        List<Order> targets = notPayable.isEmpty() ? covered : notPayable;
+        for (int i = 0; i < targets.size() && remaining.signum() > 0; i++) {
+            Order o = targets.get(i);
+            boolean last = i == targets.size() - 1;
+            BigDecimal part = last ? remaining : remaining.min(o.getTotalAmount() != null ? o.getTotalAmount() : BigDecimal.ZERO);
+            if (part.signum() <= 0) continue;
+            BigDecimal current = o.getRefundAmount() != null ? o.getRefundAmount() : BigDecimal.ZERO;
+            o.setRefundAmount(current.add(part));
+            String why = o.getStatus() == OrderStatus.CANCELLED
+                    ? "Khách thanh toán (mã " + orderCode + ") sau khi đơn đã huỷ"
+                    : "Thanh toán trùng (mã " + orderCode + ")";
+            o.setRefundReason(o.getRefundReason() == null ? why : o.getRefundReason() + "; " + why);
+            orderRepository.save(o);
+            remaining = remaining.subtract(part);
         }
     }
 
@@ -452,6 +574,17 @@ public class PaymentServiceImpl implements PaymentService {
         log.info("[PaymentCancel] Cancelling payment for orderCode: {}", orderCode);
         if (orderCode == null || orderCode.isBlank()) {
             return;
+        }
+        assertCanAccessOrderCode(currentUser(), orderCode);
+
+        // Huỷ link phía PayOS trước, để khách không thể chuyển khoản cho đơn sắp bị huỷ
+        var openPayment = paymentRepository.findByPayosOrderCode(orderCode);
+        if (openPayment.isPresent() && openPayment.get().getStatus() == PaymentStatus.PENDING) {
+            try {
+                payOS.paymentRequests().cancel(Long.parseLong(orderCode), "Khach huy thanh toan");
+            } catch (Exception e) {
+                log.warn("[PaymentCancel] PayOS cancel failed for {}: {}", orderCode, e.getMessage());
+            }
         }
 
         // 1. Kiểm tra nếu orderCode thuộc về CheckoutBatch
@@ -519,6 +652,88 @@ public class PaymentServiceImpl implements PaymentService {
                 }
             }
         });
+    }
+
+    @Override
+    @Transactional
+    public boolean expireAwaitingOrder(int orderId) {
+        Order order = orderRepository.findById(orderId).orElse(null);
+        if (order == null || order.getStatus() != OrderStatus.AWAITING_PAYMENT) {
+            return false;
+        }
+        // Khách có thể vừa trả xong mà webhook chưa tới: hỏi PayOS trước khi huỷ
+        List<String> codes = new java.util.ArrayList<>();
+        paymentRepository.findByOrder_OrderId(orderId).stream()
+                .filter(p -> p.getStatus() == PaymentStatus.PENDING)
+                .forEach(p -> codes.add(p.getPayosOrderCode()));
+        if (order.getCheckoutBatch() != null && order.getCheckoutBatch().getPayosOrderCode() != null) {
+            codes.add(order.getCheckoutBatch().getPayosOrderCode());
+        }
+        for (String code : codes) {
+            try {
+                PaymentLink link = payOS.paymentRequests().get(Long.parseLong(code));
+                if (link != null && PaymentLinkStatus.PAID.equals(link.getStatus())) {
+                    settlePaidOrderCode(code);
+                    return false;
+                }
+            } catch (Exception e) {
+                log.warn("[PaymentExpire] Cannot check PayOS link {}: {}", code, e.getMessage());
+            }
+        }
+
+        cancelOpenPayosLinksForOrder(order);
+        restoreOrderStockAndVouchers(order);
+        cartService.restoreOrderItemsToCart(order);
+        order.setStatus(OrderStatus.CANCELLED);
+        orderRepository.save(order);
+
+        CheckoutBatch b = order.getCheckoutBatch();
+        if (b != null && orderRepository.findByCheckoutBatch_Id(b.getId()).stream()
+                .allMatch(o -> o.getStatus() == OrderStatus.CANCELLED)) {
+            b.setStatus(BatchStatus.CANCELLED);
+            b.setUpdatedAt(LocalDateTime.now());
+            checkoutBatchRepository.save(b);
+        }
+        log.info("[PaymentExpire] Order #{} expired after {} minutes without payment, cancelled", orderId, expireMinutes);
+        return true;
+    }
+
+    // ───────────────── Quyền truy cập ─────────────────
+
+    private User currentUser() {
+        var auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth.getName() == null || !auth.getName().matches("\\d+")) {
+            throw new AppException(ErrorCode.UNAUTHENTICATED);
+        }
+        return userRepository.findById(Integer.parseInt(auth.getName()))
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+    }
+
+    private static boolean isAdmin(User u) {
+        return u.getRole() != null && ("ADMIN".equalsIgnoreCase(u.getRole().getName()) || "STAFF".equalsIgnoreCase(u.getRole().getName()));
+    }
+
+    private static void assertOwner(User me, User owner) {
+        if (isAdmin(me)) return;
+        if (owner == null || owner.getId() != me.getId()) {
+            throw new AppException(ErrorCode.PAYMENT_NOT_OWNER);
+        }
+    }
+
+    /** Chỉ Buyer sở hữu đơn/batch (hoặc Admin) được xem / huỷ thanh toán theo orderCode */
+    private void assertCanAccessOrderCode(User me, String orderCode) {
+        if (isAdmin(me)) return;
+        var paymentOpt = paymentRepository.findByPayosOrderCode(orderCode);
+        if (paymentOpt.isPresent() && paymentOpt.get().getOrder() != null) {
+            assertOwner(me, paymentOpt.get().getOrder().getBuyer());
+            return;
+        }
+        var batchOpt = checkoutBatchRepository.findByPayosOrderCode(orderCode);
+        if (batchOpt.isPresent()) {
+            assertOwner(me, batchOpt.get().getBuyer());
+            return;
+        }
+        throw new AppException(ErrorCode.PAYMENT_NOT_FOUND);
     }
 
     private void restoreOrderStockAndVouchers(Order order) {
