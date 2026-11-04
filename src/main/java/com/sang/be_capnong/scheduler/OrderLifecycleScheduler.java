@@ -61,9 +61,9 @@ public class OrderLifecycleScheduler {
     @Scheduled(fixedDelayString = "${capnong.scheduler.settle-delay-ms:600000}", initialDelay = 90000)
     public void settleCompletedOrders() {
         LocalDateTime twentyFourHoursAgo = LocalDateTime.now().minusHours(autoCompleteHours > 0 ? autoCompleteHours : 24);
-        for (Order o : orderRepository.findTop200ByStatusAndSettledAtIsNull(OrderStatus.COMPLETED)) {
+        for (Order o : orderRepository.findTop200ByStatusInAndSettledAtIsNull(java.util.List.of(OrderStatus.COMPLETED, OrderStatus.REFUNDED))) {
             try {
-                if (o.getDeliveredAt() != null && o.getDeliveredAt().isAfter(twentyFourHoursAgo)) {
+                if (o.getStatus() == OrderStatus.COMPLETED && o.getDeliveredAt() != null && o.getDeliveredAt().isAfter(twentyFourHoursAgo)) {
                     log.debug("[Scheduler] Order #{} within 24h return window, defer settlement", o.getOrderId());
                     continue;
                 }
@@ -94,7 +94,8 @@ public class OrderLifecycleScheduler {
 
     private boolean hasActiveReturnRequest(int orderId) {
         return returnRequestRepository.findByOrderDetail_Order_OrderId(orderId).stream()
-                .anyMatch(r -> r.getStatus() != ReturnStatus.REJECTED
+                .anyMatch(r -> r.getStatus() != ReturnStatus.COMPLETED
+                        && r.getStatus() != ReturnStatus.REJECTED
                         && r.getStatus() != ReturnStatus.CANCELLED
                         && r.getStatus() != ReturnStatus.RETURN_FAILED);
     }

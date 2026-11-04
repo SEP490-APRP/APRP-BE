@@ -17,6 +17,8 @@ public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, In
 
     boolean existsByOrderDetail_OrderDetailIdAndStatusNotIn(int orderDetailId, Collection<ReturnStatus> closedStatuses);
 
+    List<ReturnRequest> findByOrderDetail_OrderDetailId(int orderDetailId);
+
     List<ReturnRequest> findByOrderDetail_Order_OrderId(int orderId);
 
     Page<ReturnRequest> findByBuyer_Id(int buyerId, Pageable pageable);
@@ -35,15 +37,18 @@ public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, In
 
     Page<ReturnRequest> findByStatusIn(Collection<ReturnStatus> statuses, Pageable pageable);
 
-    @Query("SELECT r FROM ReturnRequest r WHERE r.status = 'RETURN_SHIPPING' AND r.shipper IS NULL")
+    Page<ReturnRequest> findByStatusAndShipperIsNull(ReturnStatus status, Pageable pageable);
+
+    @Query("SELECT r FROM ReturnRequest r WHERE r.status = com.sang.be_capnong.enums.ReturnStatus.RETURN_SHIPPING AND r.shipper IS NULL")
     Page<ReturnRequest> findAvailableReturnsForShipper(Pageable pageable);
 
     @Query("SELECT r FROM ReturnRequest r " +
             "WHERE (:status IS NULL OR r.status = :status) " +
             "AND (:keyword IS NULL OR :keyword = '' " +
             "   OR LOWER(r.reason) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
-            "   OR LOWER(r.buyer.name) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
-            "   OR LOWER(r.shop.name) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
+            "   OR (r.buyer IS NOT NULL AND LOWER(r.buyer.fullName) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
+            "   OR (r.shop IS NOT NULL AND ((r.shop.shopName IS NOT NULL AND LOWER(r.shop.shopName) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
+            "       OR (r.shop.fullName IS NOT NULL AND LOWER(r.shop.fullName) LIKE LOWER(CONCAT('%', :keyword, '%'))))) " +
             "   OR CAST(r.orderDetail.order.orderId AS string) LIKE CONCAT('%', :keyword, '%'))")
     Page<ReturnRequest> findDisputesForAdmin(
             @Param("status") ReturnStatus status,

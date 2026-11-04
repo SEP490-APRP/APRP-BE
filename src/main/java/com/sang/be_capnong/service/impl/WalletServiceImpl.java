@@ -79,13 +79,13 @@ public class WalletServiceImpl implements WalletService {
             log.info("[Wallet] Order #{} already settled at {}, skip", orderId, order.getSettledAt());
             return buildSettlement(order);
         }
-        if (order.getStatus() != OrderStatus.COMPLETED) {
+        if (order.getStatus() != OrderStatus.COMPLETED && order.getStatus() != OrderStatus.REFUNDED) {
             throw new AppException(ErrorCode.ORDER_NOT_SETTLEABLE);
         }
 
         // 1. Quy tắc giữ tiền shop 24h: Người mua có 24h sau khi nhận hàng để hoàn hàng
         // Tiền của shop phải tiếp tục giữ ở frozenBalance cho đến khi hết 24h kể từ deliveredAt
-        if (order.getDeliveredAt() != null && LocalDateTime.now().isBefore(order.getDeliveredAt().plusHours(24))) {
+        if (order.getStatus() == OrderStatus.COMPLETED && order.getDeliveredAt() != null && LocalDateTime.now().isBefore(order.getDeliveredAt().plusHours(24))) {
             log.info("[Wallet] Order #{} delivered at {}. 24h return hold active until {}. Settle deferred.",
                     orderId, order.getDeliveredAt(), order.getDeliveredAt().plusHours(24));
             return buildSettlement(order);
@@ -93,7 +93,8 @@ public class WalletServiceImpl implements WalletService {
 
         // 2. Không quyết toán nếu đơn hàng có yêu cầu hoàn trả đang mở
         boolean hasActiveReturn = returnRequestRepository.findByOrderDetail_Order_OrderId(orderId).stream()
-                .anyMatch(r -> r.getStatus() != ReturnStatus.REJECTED
+                .anyMatch(r -> r.getStatus() != ReturnStatus.COMPLETED
+                        && r.getStatus() != ReturnStatus.REJECTED
                         && r.getStatus() != ReturnStatus.CANCELLED
                         && r.getStatus() != ReturnStatus.RETURN_FAILED);
         if (hasActiveReturn) {

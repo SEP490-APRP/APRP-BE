@@ -38,6 +38,9 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.Collections;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -55,11 +58,16 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     NotificationService notificationService;
     WalletService walletService;
 
-    private static final List<ReturnStatus> CLOSED_STATUSES = List.of(
+    public static final Set<ReturnStatus> TERMINAL_STATUSES = Set.of(
+            ReturnStatus.COMPLETED,
             ReturnStatus.REJECTED,
             ReturnStatus.CANCELLED,
             ReturnStatus.RETURN_FAILED
     );
+
+    public static boolean isReturnActive(ReturnStatus status) {
+        return status != null && !TERMINAL_STATUSES.contains(status);
+    }
 
     @Override
     @Transactional
@@ -99,10 +107,10 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         }
 
         // 4. Kiểm tra xem sản phẩm này đã có yêu cầu hoàn trả chưa
-        boolean alreadyActive = returnRequestRepository.existsByOrderDetail_OrderDetailIdAndStatusNotIn(
-                orderDetail.getOrderDetailId(), CLOSED_STATUSES
-        );
-        if (alreadyActive || Boolean.TRUE.equals(orderDetail.getIsRequestedReturn())) {
+        List<ReturnRequest> existingReturns = returnRequestRepository.findByOrderDetail_OrderDetailId(orderDetail.getOrderDetailId());
+        boolean alreadyActiveOrDone = existingReturns.stream()
+                .anyMatch(r -> isReturnActive(r.getStatus()) || r.getStatus() == ReturnStatus.COMPLETED);
+        if (alreadyActiveOrDone || Boolean.TRUE.equals(orderDetail.getIsRequestedReturn())) {
             throw new AppException(ErrorCode.RETURN_ALREADY_REQUESTED);
         }
 
@@ -435,6 +443,9 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         returnRequest.setStatus(ReturnStatus.RETURN_PICKED_UP);
         returnRequest.setPickedUpAt(LocalDateTime.now());
+        if (request != null && request.getProofImageUrl() != null && !request.getProofImageUrl().isBlank()) {
+            saveShipperProofImage(returnRequest, request.getProofImageUrl());
+        }
         ReturnRequest updated = returnRequestRepository.save(returnRequest);
 
         String prodName = returnRequestMapper.mapProductName(returnRequest.getOrderDetail());
@@ -474,6 +485,9 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         returnRequest.setStatus(ReturnStatus.RETURN_DELIVERED);
         returnRequest.setReturnedAt(LocalDateTime.now());
+        if (request != null && request.getProofImageUrl() != null && !request.getProofImageUrl().isBlank()) {
+            saveShipperProofImage(returnRequest, request.getProofImageUrl());
+        }
 
         // Sau khi giao hàng hoàn về cho shop -> hoàn tất quy trình
         returnRequest.setStatus(ReturnStatus.COMPLETED);
@@ -514,6 +528,9 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             throw new AppException(ErrorCode.SHIPPER_NOT_ASSIGNED_TO_RETURN);
         }
 
+        if (request != null && request.getProofImageUrl() != null && !request.getProofImageUrl().isBlank()) {
+            saveShipperProofImage(returnRequest, request.getProofImageUrl());
+        }
         String note = request != null && request.getNote() != null && !request.getNote().isBlank()
                 ? request.getNote().trim() : "Giao nhận hàng hoàn không thành công";
 
@@ -712,13 +729,31 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         BigDecimal additionalRefund = returnRequest.getRefundAmount() != null ? returnRequest.getRefundAmount() : BigDecimal.ZERO;
         order.setRefundAmount(currentRefund.add(additionalRefund));
 
-        // Kiểm tra xem tất cả các chi tiết đơn hàng đã được hoàn tất trả chưa
-        boolean allRefunded = false;
-        if (order.getOrderDetails() != null) {
-            allRefunded = order.getOrderDetails().stream()
-                    .allMatch(d -> Boolean.TRUE.equals(d.getIsRequestedReturn()));
-            if (allRefunded) {
-                order.setStatus(OrderStatus.REFUNDED);
+        List<OrderDetail> allDetails = order.getOrderDetails() != null ? order.getOrderDetails() : Collections.emptyList();
+        List<ReturnRequest> allReturns = returnRequestRepository.findByOrderDetail_Order_OrderId(order.getOrderId());
+
+        Set<Integer> completedDetailIds = allReturns.stream()
+                .filter(r -> r.getStatus() == ReturnStatus.COMPLETED || r.getReturnId() == returnRequest.getReturnId())
+                .map(r -> r.getOrderDetail().getOrderDetailId())
+                .collect(Collectors.toSet());
+        boolean allItemsCompletedRefund = !allDetails.isEmpty() && allDetails.stream()
+                .allMatch(d -> completedDetailIds.contains(d.getOrderDetailId()));
+
+        if (allItemsCompletedRefund) {
+            order.setStatus(OrderStatus.REFUNDED);
+        } else {
+            // Đơn hoàn 1 phần: kiểm tra xem còn yêu cầu hoàn nào khác đang mở không
+            boolean hasRemainingActive = allReturns.stream()
+                    .filter(r -> r.getReturnId() != returnRequest.getReturnId())
+                    .anyMatch(r -> isReturnActive(r.getStatus()));
+            if (!hasRemainingActive) {
+                LocalDateTime deliveredAt = order.getDeliveredAt();
+                boolean isExpired24h = deliveredAt != null && LocalDateTime.now().isAfter(deliveredAt.plusHours(24));
+                if (order.getCompletedAt() != null || isExpired24h) {
+                    order.setStatus(OrderStatus.COMPLETED);
+                } else {
+                    order.setStatus(OrderStatus.DELIVERED);
+                }
             }
         }
         orderRepository.save(order);
@@ -726,28 +761,46 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         // Bút toán ví: hoàn tiền về ví cho người mua, trừ tiền tạm giữ của Shop / Sàn
         try {
             walletService.processReturnRefund(returnRequest);
-            if (allRefunded) {
-                walletService.cancelHolds(order.getOrderId(), "Đơn hàng đã hoàn trả toàn bộ");
-            }
         } catch (Exception e) {
             log.error("[ReturnRequest] Failed to process wallet refund for return #{}: {}", returnRequest.getReturnId(), e.getMessage(), e);
             throw e;
         }
 
-        log.info("[ReturnRequest] Refund settled for order #{}: added {} đ, new total refund={}",
-                order.getOrderId(), additionalRefund, order.getRefundAmount());
+        log.info("[ReturnRequest] Refund settled for order #{}: added {} đ, new total refund={}, orderStatus={}",
+                order.getOrderId(), additionalRefund, order.getRefundAmount(), order.getStatus());
     }
 
     private void restoreOrderStateIfNoActiveReturns(Order order) {
         if (order == null) return;
         List<ReturnRequest> allReturns = returnRequestRepository.findByOrderDetail_Order_OrderId(order.getOrderId());
         boolean hasActive = allReturns.stream()
-                .anyMatch(r -> !CLOSED_STATUSES.contains(r.getStatus()));
+                .anyMatch(r -> isReturnActive(r.getStatus()));
 
         if (!hasActive && order.getStatus() == OrderStatus.REFUND_REQUESTED) {
-            order.setStatus(OrderStatus.DELIVERED);
+            LocalDateTime deliveredAt = order.getDeliveredAt();
+            boolean isExpired24h = deliveredAt != null && LocalDateTime.now().isAfter(deliveredAt.plusHours(24));
+            if (order.getCompletedAt() != null || isExpired24h) {
+                order.setStatus(OrderStatus.COMPLETED);
+            } else {
+                order.setStatus(OrderStatus.DELIVERED);
+            }
             orderRepository.save(order);
-            log.info("[ReturnRequest] Restored order #{} status to DELIVERED", order.getOrderId());
+            log.info("[ReturnRequest] Restored order #{} status to {}", order.getOrderId(), order.getStatus());
+        }
+    }
+
+    private void saveShipperProofImage(ReturnRequest returnRequest, String proofImageUrl) {
+        if (proofImageUrl == null || proofImageUrl.isBlank()) return;
+        try {
+            Image image = Image.builder()
+                    .imageUrl(proofImageUrl.trim())
+                    .mediaType(MediaType.PHOTO)
+                    .createdAt(LocalDateTime.now())
+                    .returnRequest(returnRequest)
+                    .build();
+            imageRepository.save(image);
+        } catch (Exception e) {
+            log.warn("[ReturnRequest] Failed to save shipper proof image: {}", e.getMessage());
         }
     }
 }

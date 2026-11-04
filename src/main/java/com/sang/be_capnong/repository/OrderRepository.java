@@ -42,6 +42,9 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
     /** Đơn COMPLETED nhưng chưa quyết toán (ví dụ lỗi giữa chừng) -> chạy bù */
     List<Order> findTop200ByStatusAndSettledAtIsNull(OrderStatus status);
 
+    /** Đơn COMPLETED hoặc REFUNDED nhưng chưa quyết toán -> chạy bù */
+    List<Order> findTop200ByStatusInAndSettledAtIsNull(List<OrderStatus> statuses);
+
     /** Đơn chờ thanh toán quá hạn -> tự huỷ để trả kho */
     List<Order> findTop200ByStatusAndCreatedAtBefore(OrderStatus status, LocalDateTime before);
 
