@@ -11,4 +11,10 @@ public interface PaymentService {
     void processPayosWebhook(JsonNode webhookBody);
     void cancelPaymentByOrderCode(String orderCode);
     com.sang.be_capnong.dto.response.ResumePaymentOptionsResponse getResumePaymentOptions(int orderId);
+
+    /** Huỷ mọi link PayOS còn mở có tính tiền đơn này (link lẻ + link batch) */
+    void cancelOpenPayosLinksForOrder(com.sang.be_capnong.entity.Order order);
+
+    /** Huỷ đơn AWAITING_PAYMENT quá hạn: hỏi PayOS trước, chưa trả thì huỷ link, hoàn kho, voucher, giỏ hàng */
+    boolean expireAwaitingOrder(int orderId);
 }

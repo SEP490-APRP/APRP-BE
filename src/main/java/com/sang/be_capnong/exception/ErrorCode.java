@@ -217,15 +217,28 @@ public enum ErrorCode {
     // Bot Knowledge Errors (Series 15000)
     BOT_KNOWLEDGE_NOT_FOUND(15001, "Bot knowledge not found", HttpStatus.NOT_FOUND),
 
-    // Return & Refund Errors (Series 16000)
-    RETURN_REQUEST_NOT_FOUND(16001, "Return request not found", HttpStatus.NOT_FOUND),
-    RETURN_WINDOW_EXPIRED(16002, "Return window has expired (must be within 24 hours of delivery)", HttpStatus.BAD_REQUEST),
-    ORDER_NOT_DELIVERED_YET(16003, "Only delivered or completed orders can request a return", HttpStatus.BAD_REQUEST),
-    RETURN_ALREADY_REQUESTED(16004, "A return request has already been submitted for this order item", HttpStatus.CONFLICT),
-    RETURN_UNAUTHORIZED(16005, "You do not have permission to perform this action on the return request", HttpStatus.FORBIDDEN),
-    INVALID_RETURN_STATUS(16006, "Current return request status does not allow this operation", HttpStatus.BAD_REQUEST),
-    RETURN_REFUND_AMOUNT_INVALID(16007, "Refund amount cannot exceed item purchase amount", HttpStatus.BAD_REQUEST),
-    SHIPPER_NOT_ASSIGNED_TO_RETURN(16008, "You are not assigned as the shipper for this return order", HttpStatus.FORBIDDEN);
+    // Wallet & Settlement Errors (Series 16000)
+    WALLET_NOT_FOUND(16001, "Wallet not found", HttpStatus.NOT_FOUND),
+    ORDER_NOT_SETTLEABLE(16002, "Order must be COMPLETED before settlement", HttpStatus.BAD_REQUEST),
+    PLATFORM_WALLET_OWNER_MISSING(16003, "No ADMIN account found to own the platform wallet", HttpStatus.INTERNAL_SERVER_ERROR),
+    COD_NOT_COLLECTED(16004, "COD cash has not been collected for this order", HttpStatus.BAD_REQUEST),
+    COD_ALREADY_SETTLED(16005, "COD cash for this order was already settled", HttpStatus.BAD_REQUEST),
+    PAYMENT_NOT_OWNER(16006, "You do not have permission to access this payment", HttpStatus.FORBIDDEN),
+    WITHDRAW_MIN_AMOUNT(16007, "Withdrawal amount is below the minimum", HttpStatus.BAD_REQUEST),
+    WITHDRAW_INSUFFICIENT_BALANCE(16008, "Wallet balance is not enough for this withdrawal", HttpStatus.BAD_REQUEST),
+    WITHDRAW_INVALID_BANK(16009, "Bank name, account number and account holder are required", HttpStatus.BAD_REQUEST),
+    WITHDRAW_NOT_FOUND(16010, "Withdrawal request not found", HttpStatus.NOT_FOUND),
+    WITHDRAW_ALREADY_PROCESSED(16011, "Withdrawal request was already processed", HttpStatus.BAD_REQUEST),
+
+    // Return & Refund Errors (Series 17000)
+    RETURN_REQUEST_NOT_FOUND(17001, "Return request not found", HttpStatus.NOT_FOUND),
+    RETURN_WINDOW_EXPIRED(17002, "Return window has expired (must be within 24 hours of delivery)", HttpStatus.BAD_REQUEST),
+    ORDER_NOT_DELIVERED_YET(17003, "Only delivered or completed orders can request a return", HttpStatus.BAD_REQUEST),
+    RETURN_ALREADY_REQUESTED(17004, "A return request has already been submitted for this order item", HttpStatus.CONFLICT),
+    RETURN_UNAUTHORIZED(17005, "You do not have permission to perform this action on the return request", HttpStatus.FORBIDDEN),
+    INVALID_RETURN_STATUS(17006, "Current return request status does not allow this operation", HttpStatus.BAD_REQUEST),
+    RETURN_REFUND_AMOUNT_INVALID(17007, "Refund amount cannot exceed item purchase amount", HttpStatus.BAD_REQUEST),
+    SHIPPER_NOT_ASSIGNED_TO_RETURN(17008, "You are not assigned as the shipper for this return order", HttpStatus.FORBIDDEN);
 
     private final int code;
     private final String message;

@@ -96,6 +96,15 @@ public class Order {
     LocalDateTime pickedUpAt;
     LocalDateTime deliveredAt;
 
+    // Thời điểm Shipper giao thành công (DELIVERED) - dùng cho tự động hoàn tất đơn
+    LocalDateTime deliveredAt;
+
+    // Thời điểm đơn chuyển COMPLETED
+    LocalDateTime completedAt;
+
+    // Thời điểm đã chia tiền vào ví (Shop / Shipper / Sàn). NULL = chưa quyết toán
+    LocalDateTime settledAt;
+
     BigDecimal rescuedWeight;
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)

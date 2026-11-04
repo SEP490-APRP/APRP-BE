@@ -62,11 +62,10 @@ public class SecurityConfig {
             "/shipping/preview",
 
             // Webhook và xác nhận thanh toán PayOS
+            // (huỷ thanh toán /payments/*/cancel bắt buộc đăng nhập và đúng chủ đơn)
             "/payments/payos/webhook",
             "/payments/webhook",
             "/payments/*/confirm",
-            "/payments/*/cancel",
-            "/payments/cancel",
 
             // AI Chatbot message (hỗ trợ cả khách vãng lai và người dùng đã đăng nhập)
             "/chatbot/message",
@@ -95,7 +94,6 @@ public class SecurityConfig {
             "/v1/public/blogs",
             "/v1/public/blogs/**",
             "/shipping/address-suggestions",
-            "/payments/*",
             "/v3/api-docs/**",
             "/swagger-ui/**",
             "/swagger-ui.html",
