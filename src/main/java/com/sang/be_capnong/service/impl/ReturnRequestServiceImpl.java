@@ -17,6 +17,7 @@ import com.sang.be_capnong.repository.ImageRepository;
 import com.sang.be_capnong.repository.OrderDetailRepository;
 import com.sang.be_capnong.repository.OrderRepository;
 import com.sang.be_capnong.repository.ReturnRequestRepository;
+import com.sang.be_capnong.repository.WalletRepository;
 import com.sang.be_capnong.repository.specification.ReturnRequestSpecification;
 import org.springframework.data.jpa.domain.Specification;
 import com.sang.be_capnong.repository.UserRepository;
@@ -59,6 +60,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     ReturnRequestMapper returnRequestMapper;
     NotificationService notificationService;
     WalletService walletService;
+    WalletRepository walletRepository;
 
     public static final Set<ReturnStatus> TERMINAL_STATUSES = Set.of(
             ReturnStatus.COMPLETED,
@@ -413,6 +415,21 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         if (returnRequest.getShipper() != null && !Objects.equals(returnRequest.getShipper().getId(), currentUserId)) {
             throw new AppException(ErrorCode.INVALID_RETURN_STATUS);
+        }
+
+        // Kiểm tra số dư ví khả dụng của Shipper nếu đơn hoàn trả bằng hình thức COD
+        if ("COD".equalsIgnoreCase(returnRequest.getShippingPaymentMethod())) {
+            BigDecimal returnShipFee = returnRequest.getReturnShippingFee() != null
+                    ? returnRequest.getReturnShippingFee() : BigDecimal.valueOf(20000);
+            BigDecimal requiredCommission = returnShipFee.multiply(BigDecimal.valueOf(0.03));
+            if (requiredCommission.signum() > 0) {
+                Wallet shipperWallet = walletRepository.findFirstByUser_IdAndType(currentUserId, "SHIPPER").orElse(null);
+                if (shipperWallet == null || (shipperWallet.getTotalBalance() != null && shipperWallet.getTotalBalance().compareTo(requiredCommission) < 0)) {
+                    log.warn("[ReturnRequest] Shipper #{} insufficient balance to accept COD return #{}: required={}",
+                            currentUserId, returnId, requiredCommission);
+                    throw new AppException(ErrorCode.WALLET_INSUFFICIENT_BALANCE);
+                }
+            }
         }
 
         returnRequest.setShipper(shipper);
