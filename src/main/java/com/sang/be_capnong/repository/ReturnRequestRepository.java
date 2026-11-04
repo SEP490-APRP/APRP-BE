@@ -5,15 +5,14 @@ import com.sang.be_capnong.enums.ReturnStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
 
 import java.util.Collection;
 import java.util.List;
 
 @Repository
-public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, Integer> {
+public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, Integer>, JpaSpecificationExecutor<ReturnRequest> {
 
     boolean existsByOrderDetail_OrderDetailIdAndStatusNotIn(int orderDetailId, Collection<ReturnStatus> closedStatuses);
 
@@ -38,23 +37,6 @@ public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, In
     Page<ReturnRequest> findByStatusIn(Collection<ReturnStatus> statuses, Pageable pageable);
 
     Page<ReturnRequest> findByStatusAndShipperIsNull(ReturnStatus status, Pageable pageable);
-
-    @Query("SELECT r FROM ReturnRequest r WHERE r.status = com.sang.be_capnong.enums.ReturnStatus.RETURN_SHIPPING AND r.shipper IS NULL")
-    Page<ReturnRequest> findAvailableReturnsForShipper(Pageable pageable);
-
-    @Query("SELECT r FROM ReturnRequest r " +
-            "WHERE (:status IS NULL OR r.status = :status) " +
-            "AND (:keyword IS NULL OR :keyword = '' " +
-            "   OR LOWER(r.reason) LIKE LOWER(CONCAT('%', :keyword, '%')) " +
-            "   OR (r.buyer IS NOT NULL AND LOWER(r.buyer.fullName) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
-            "   OR (r.shop IS NOT NULL AND ((r.shop.shopName IS NOT NULL AND LOWER(r.shop.shopName) LIKE LOWER(CONCAT('%', :keyword, '%'))) " +
-            "       OR (r.shop.fullName IS NOT NULL AND LOWER(r.shop.fullName) LIKE LOWER(CONCAT('%', :keyword, '%'))))) " +
-            "   OR CAST(r.orderDetail.order.orderId AS string) LIKE CONCAT('%', :keyword, '%'))")
-    Page<ReturnRequest> findDisputesForAdmin(
-            @Param("status") ReturnStatus status,
-            @Param("keyword") String keyword,
-            Pageable pageable
-    );
 
     long countByStatus(ReturnStatus status);
 

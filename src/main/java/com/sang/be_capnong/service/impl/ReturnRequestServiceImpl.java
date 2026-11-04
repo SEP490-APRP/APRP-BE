@@ -17,6 +17,8 @@ import com.sang.be_capnong.repository.ImageRepository;
 import com.sang.be_capnong.repository.OrderDetailRepository;
 import com.sang.be_capnong.repository.OrderRepository;
 import com.sang.be_capnong.repository.ReturnRequestRepository;
+import com.sang.be_capnong.repository.specification.ReturnRequestSpecification;
+import org.springframework.data.jpa.domain.Specification;
 import com.sang.be_capnong.repository.UserRepository;
 import com.sang.be_capnong.service.NotificationService;
 import com.sang.be_capnong.service.ReturnRequestService;
@@ -664,7 +666,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     @Override
     public PageResponse<ReturnRequestResponse> getAvailableReturnOrdersForShipper(int page, int size) {
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.ASC, "createdAt"));
-        Page<ReturnRequest> resultPage = returnRequestRepository.findAvailableReturnsForShipper(pageable);
+        Page<ReturnRequest> resultPage = returnRequestRepository.findByStatusAndShipperIsNull(ReturnStatus.RETURN_SHIPPING, pageable);
         return PageResponse.from(resultPage, returnRequestMapper.toResponseList(resultPage.getContent()));
     }
 
@@ -674,7 +676,8 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             throw new AppException(ErrorCode.UNAUTHORIZED);
         }
         Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<ReturnRequest> resultPage = returnRequestRepository.findDisputesForAdmin(status, keyword, pageable);
+        Specification<ReturnRequest> spec = ReturnRequestSpecification.filterDisputes(status, keyword);
+        Page<ReturnRequest> resultPage = returnRequestRepository.findAll(spec, pageable);
         return PageResponse.from(resultPage, returnRequestMapper.toResponseList(resultPage.getContent()));
     }
 
