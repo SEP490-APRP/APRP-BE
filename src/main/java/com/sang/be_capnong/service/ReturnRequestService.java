@@ -45,4 +45,6 @@ public interface ReturnRequestService {
     boolean autoCheckPayout(int orderCode);
 
     ReturnRequestResponse checkPayoutStatus(int returnId);
+
+    void autoResolveAdminApprovedReturn(int returnId);
 }

@@ -30,6 +30,7 @@ public class OrderLifecycleScheduler {
     private final PaymentService paymentService;
     private final WalletService walletService;
     private final ReturnRequestRepository returnRequestRepository;
+    private final com.sang.be_capnong.service.ReturnRequestService returnRequestService;
 
     /** Thời gian giữ tiền và chờ hoàn hàng sau khi DELIVERED (mặc định 24 giờ) */
     @Value("${capnong.order.auto-complete-hours:24}")
@@ -88,6 +89,24 @@ public class OrderLifecycleScheduler {
                 paymentService.expireAwaitingOrder(o.getOrderId());
             } catch (Exception e) {
                 log.error("[Scheduler] Expire failed for order #{}: {}", o.getOrderId(), e.getMessage(), e);
+            }
+        }
+    }
+
+    
+    /** Yêu cầu hoàn hàng đã được Admin duyệt (ADMIN_APPROVED) quá 24h mà Shop chưa chọn phương án lấy lại hàng hay không
+     * -> Tự động xử lý hoàn tiền ngay không cần lấy lại hàng (isReturnGoods = false) để giải phóng tiền cho người mua */
+    @Scheduled(fixedDelayString = "${capnong.scheduler.auto-admin-approved-delay-ms:600000}", initialDelay = 120000)
+    public void autoResolveAdminApprovedReturns() {
+        LocalDateTime twentyFourHoursAgo = LocalDateTime.now().minusHours(24);
+        for (com.sang.be_capnong.entity.ReturnRequest r : returnRequestRepository.findByStatus(ReturnStatus.ADMIN_APPROVED, org.springframework.data.domain.PageRequest.of(0, 50)).getContent()) {
+            if (r.getUpdatedAt() != null && r.getUpdatedAt().isBefore(twentyFourHoursAgo)) {
+                try {
+                    returnRequestService.autoResolveAdminApprovedReturn(r.getReturnId());
+                    log.info("[Scheduler] Auto-resolved ADMIN_APPROVED return #{} after 24h inactivity from shop", r.getReturnId());
+                } catch (Exception e) {
+                    log.error("[Scheduler] Failed auto-resolve return #{}: {}", r.getReturnId(), e.getMessage(), e);
+                }
             }
         }
     }

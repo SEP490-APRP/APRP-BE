@@ -207,7 +207,11 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             throw new AppException(ErrorCode.RETURN_UNAUTHORIZED);
         }
 
-        if (returnRequest.getStatus() != ReturnStatus.PENDING) {
+        if (returnRequest.getStatus() != ReturnStatus.PENDING && returnRequest.getStatus() != ReturnStatus.ADMIN_APPROVED) {
+            throw new AppException(ErrorCode.INVALID_RETURN_STATUS);
+        }
+
+        if (returnRequest.getStatus() == ReturnStatus.ADMIN_APPROVED && !request.isAccept()) {
             throw new AppException(ErrorCode.INVALID_RETURN_STATUS);
         }
 
@@ -315,64 +319,24 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 returnRequest.setRefundAmount(request.getRefundAmount());
             }
 
-            if (request.getIsReturnGoods() != null) {
-                returnRequest.setIsReturnGoods(request.getIsReturnGoods());
-            }
-
-            if (Boolean.FALSE.equals(returnRequest.getIsReturnGoods())) {
-                // Hoàn tiền ngay không cần lấy lại hàng
-                returnRequest.setStatus(ReturnStatus.COMPLETED);
-                returnRequest.setReturnShippingFee(BigDecimal.ZERO);
-                processRefundSettlement(order, returnRequest);
-
-                notificationService.sendNotificationToUser(
-                        buyer,
-                        "Admin đã giải quyết khiếu nại thành công",
-                        "Admin đã duyệt khiếu nại hoàn tiền không cần trả hàng cho sản phẩm \"" + prodName + "\".",
-                        null
-                );
-            } else {
-                // Lấy lại hàng -> cước phí do Shop chi trả 100%
-                returnRequest.setIsReturnGoods(true);
-
-                BigDecimal shipFee = request.getReturnShippingFee();
-                if (shipFee == null || shipFee.compareTo(BigDecimal.ZERO) <= 0) {
-                    shipFee = order.getShippingFee() != null ? order.getShippingFee() : BigDecimal.valueOf(20000);
-                }
-                returnRequest.setReturnShippingFee(shipFee);
-
-                String method = request.getShippingPaymentMethod();
-                if (method == null || method.isBlank()) {
-                    method = returnRequest.getShippingPaymentMethod() != null ? returnRequest.getShippingPaymentMethod() : "WALLET";
-                }
-                method = method.trim().toUpperCase();
-                returnRequest.setShippingPaymentMethod(method);
-
-                // Nếu chọn WALLET và chưa trừ phí ship thì trừ từ ví Shop
-                if ("WALLET".equals(method) && !Boolean.TRUE.equals(returnRequest.getIsShippingFeePaid())) {
-                    walletService.deductShopReturnShippingFee(returnRequest);
-                    returnRequest.setIsShippingFeePaid(true);
-                }
-
-                // Cần shipper lấy hàng hoàn
-                returnRequest.setStatus(ReturnStatus.RETURN_SHIPPING);
-
-                notificationService.sendNotificationToUser(
-                        buyer,
-                        "Admin đã duyệt yêu cầu hoàn hàng",
-                        "Admin đã chấp thuận khiếu nại cho sản phẩm \"" + prodName + "\". Shipper sẽ được điều phối đến nhận hàng hoàn trả.",
-                        null
-                );
-            }
-
+            // Cách 1: Chuyển quyền cho Shop vào chọn phương án lấy lại hàng hoặc hoàn tiền ngay trong vòng 24h
             if (shop != null) {
                 notificationService.sendNotificationToUser(
                         shop,
-                        "Admin đã ra quyết định khiếu nại",
-                        "Admin đã chấp thuận yêu cầu hoàn trả cho sản phẩm \"" + prodName + "\" trong đơn hàng #" + order.getOrderId() + ".",
+                        "Admin đã chấp thuận khiếu nại của khách",
+                        "Admin đã chấp thuận khiếu nại hoàn tiền cho sản phẩm \"" + prodName + "\" trong đơn hàng #" + order.getOrderId() + ". Bạn có 24h để vào mục Khiếu nại chọn: Lấy lại hàng (chịu cước ship) hoặc Không lấy lại hàng (hoàn tiền ngay cho khách).",
                         null
                 );
             }
+
+            notificationService.sendNotificationToUser(
+                    buyer,
+                    "Admin đã chấp thuận khiếu nại của bạn",
+                    "Admin đã chấp thuận khiếu nại cho sản phẩm \"" + prodName + "\". Đang chờ Shop lựa chọn phương án nhận lại hàng.",
+                    null
+            );
+
+            log.info("[ReturnRequest] Admin approved dispute #{}. Transferred to Shop to choose return goods option.", returnId);
         } else {
             // Admin bác bỏ yêu cầu hoàn trả
             // Nếu trước đó shop đã trả tiền ship hoàn qua ví thì hoàn trả lại cho shop
@@ -719,6 +683,40 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         ReturnRequest returnRequest = findReturnRequestById(returnId);
         return returnRequestMapper.toResponse(returnRequest);
     }
+
+    @Override
+    @Transactional
+    public void autoResolveAdminApprovedReturn(int returnId) {
+        ReturnRequest returnRequest = returnRequestRepository.findById(returnId).orElse(null);
+        if (returnRequest == null || returnRequest.getStatus() != ReturnStatus.ADMIN_APPROVED) {
+            return;
+        }
+        Order order = returnRequest.getOrderDetail().getOrder();
+        returnRequest.setIsReturnGoods(false);
+        returnRequest.setReturnShippingFee(BigDecimal.ZERO);
+        returnRequest.setStatus(ReturnStatus.COMPLETED);
+        returnRequest.setShopResponse("Quá 24 giờ Shop không chọn phương án thu hồi hàng, hệ thống tự động hoàn tiền cho người mua (khách không cần gửi lại hàng).");
+        processRefundSettlement(order, returnRequest);
+        returnRequestRepository.save(returnRequest);
+
+        String prodName = returnRequestMapper.mapProductName(returnRequest.getOrderDetail());
+        notificationService.sendNotificationToUser(
+                returnRequest.getBuyer(),
+                "Hoàn tiền tự động thành công",
+                "Yêu cầu hoàn trả cho sản phẩm \"" + prodName + "\" đã được hoàn tiền tự động vào ví của bạn (Shop không chọn nhận lại hàng sau 24h).",
+                null
+        );
+        if (returnRequest.getShop() != null) {
+            notificationService.sendNotificationToUser(
+                    returnRequest.getShop(),
+                    "Yêu cầu hoàn trả đã tự động hoàn tất",
+                    "Do quá 24h bạn chưa chọn phương án thu hồi hàng cho đơn #" + order.getOrderId() + ", hệ thống đã tự động hoàn tiền cho người mua.",
+                    null
+            );
+        }
+        log.info("[ReturnRequest] Auto-resolved return #{} after 24h in ADMIN_APPROVED status", returnId);
+    }
+
 
     // ==========================================
     // HELPER METHODS
