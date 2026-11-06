@@ -5,14 +5,18 @@ import com.sang.be_capnong.dto.request.CartAddRequest;
 import com.sang.be_capnong.dto.response.CartItemResponse;
 import com.sang.be_capnong.dto.response.CartResponse;
 import com.sang.be_capnong.dto.response.ChatbotMessageResponse;
+import com.sang.be_capnong.dto.response.ReturnRequestResponse;
 import com.sang.be_capnong.dto.response.ShopCartResponse;
 import com.sang.be_capnong.entity.*;
 import com.sang.be_capnong.enums.AiAccountActionType;
 import com.sang.be_capnong.enums.AiItemType;
 import com.sang.be_capnong.enums.AiResponseType;
 import com.sang.be_capnong.enums.OrderStatus;
+import com.sang.be_capnong.enums.ReturnStatus;
+import com.sang.be_capnong.enums.WalletStatus;
 import com.sang.be_capnong.exception.AppException;
 import com.sang.be_capnong.exception.ErrorCode;
+import com.sang.be_capnong.mapper.ReturnRequestMapper;
 import com.sang.be_capnong.repository.*;
 import com.sang.be_capnong.service.CartService;
 import com.sang.be_capnong.service.ChatbotAiClient;
@@ -59,6 +63,10 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
     BuildComboRepository buildComboRepository;
     ChatbotAiClient chatbotAiClient;
     ChatbotSupportProperties supportProperties;
+    WalletRepository walletRepository;
+    WalletTransactionRepository walletTransactionRepository;
+    ReturnRequestRepository returnRequestRepository;
+    ReturnRequestMapper returnRequestMapper;
 
     /** Cùng điều kiện với OrderServiceImpl.resolveProductPrice: giảm giá chỉ có hiệu lực trong khoảng ngày khuyến mãi. */
     private boolean isOnSale(Product p) {
@@ -590,10 +598,10 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
             case VIEW_WALLET:
                 return ChatbotMessageResponse.builder()
                         .type(AiResponseType.NAVIGATION)
-                        .message("Hiện CapNong chưa có ví tiền cho Khách mua. Bạn có thể xem điểm tích lũy trong trang tài khoản.")
+                        .message("Bạn xem số dư, tiền tạm giữ và lịch sử giao dịch trong Ví của tôi nhé.")
                         .navigation(ChatbotMessageResponse.NavigationDto.builder()
-                                .url("/tai-khoan")
-                                .label("Xem tài khoản")
+                                .url("/my-wallet")
+                                .label("Mở Ví của tôi")
                                 .build())
                         .timestamp(LocalDateTime.now())
                         .build();
@@ -712,28 +720,100 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
 
     @Override
     public ChatbotMessageResponse handleReturnGuidance(Integer userId) {
-        Integer latestOrderId = null;
-        if (userId != null) {
-            Page<Order> orders = orderRepository.findByBuyer_Id(userId, PageRequest.of(0, 1, Sort.by(Sort.Direction.DESC, "createdAt")));
-            if (orders.hasContent()) {
-                latestOrderId = orders.getContent().get(0).getOrderId();
-            }
+        ChatbotMessageResponse.ReturnGuidanceDto.ReturnGuidanceDtoBuilder dto = ChatbotMessageResponse.ReturnGuidanceDto.builder()
+                .policyTitle("Chính sách trả hàng / hoàn tiền")
+                .policyContent(RETURN_POLICY);
+
+        if (userId == null) {
+            return returnGuidanceResponse("Bạn đăng nhập để gửi yêu cầu trả hàng cho đơn đã nhận nhé. Chính sách của CapNong như sau:",
+                    dto.actionUrl("/login").actionLabel("Đăng nhập").build());
         }
 
-        ChatbotMessageResponse.ReturnGuidanceDto dto = ChatbotMessageResponse.ReturnGuidanceDto.builder()
-                .orderId(latestOrderId)
-                .policyTitle("Hỗ trợ khi nông sản gặp sự cố")
-                .policyContent("Bạn hãy chụp lại sản phẩm lỗi cùng tem mã đơn, rồi nhắn cho nhà vườn trong đơn hàng hoặc liên hệ bộ phận hỗ trợ của CapNong để được xử lý.")
-                .actionUrl(latestOrderId != null ? "/orders?orderId=" + latestOrderId : "/orders")
-                .actionLabel("Xem đơn hàng")
-                .build();
+        ChatbotMessageResponse.LatestReturnDto latest = returnRequestRepository
+                .findByBuyer_Id(userId, PageRequest.of(0, 1, Sort.by(Sort.Direction.DESC, "createdAt")))
+                .stream().findFirst().map(this::toLatestReturn).orElse(null);
+        dto.latestReturn(latest);
 
+        Order eligible = orderRepository
+                .findByBuyer_Id(userId, PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt")))
+                .stream().filter(o -> returnDeadline(o) != null).findFirst().orElse(null);
+
+        String message;
+        if (eligible != null) {
+            dto.orderId(eligible.getOrderId())
+                    .returnDeadline(returnDeadline(eligible))
+                    .actionUrl("/orders?orderId=" + eligible.getOrderId())
+                    .actionLabel("Yêu cầu trả hàng cho đơn #" + eligible.getOrderId());
+            message = "Đơn #" + eligible.getOrderId() + " của bạn vẫn còn trong hạn trả hàng. Bạn mở đơn, chọn sản phẩm lỗi rồi bấm \"Trả hàng / Hoàn tiền\" nhé:";
+        } else if (latest != null && latest.isActive()) {
+            dto.actionUrl("/orders?tab=REFUND").actionLabel("Xem yêu cầu trả hàng");
+            message = "Yêu cầu trả hàng #" + latest.getReturnId() + " của bạn đang được xử lý:";
+        } else {
+            dto.actionUrl("/orders").actionLabel("Xem đơn hàng");
+            message = "Hiện bạn không có đơn nào còn trong hạn trả hàng (24 giờ sau khi nhận). Chính sách của CapNong như sau:";
+        }
+        return returnGuidanceResponse(message, dto.build());
+    }
+
+    private static final String RETURN_POLICY =
+            "Bạn gửi yêu cầu trong vòng 24 giờ sau khi nhận hàng, cho từng sản phẩm trong đơn đã giao. "
+                    + "Kèm lý do và ảnh sản phẩm lỗi để nhà vườn xem xét. Nếu nhà vườn từ chối, CapNong sẽ xem xét lại. "
+                    + "Khi yêu cầu hoàn tất, tiền hoàn được cộng vào Ví CapNong của bạn.";
+
+    private ChatbotMessageResponse returnGuidanceResponse(String message, ChatbotMessageResponse.ReturnGuidanceDto dto) {
         return ChatbotMessageResponse.builder()
                 .type(AiResponseType.RETURN_GUIDANCE)
-                .message("CapNong rất tiếc nếu đơn hàng của bạn gặp sự cố rau củ dập úng! Bạn làm theo hướng dẫn sau nhé:")
+                .message(message)
                 .returnGuidance(dto)
                 .timestamp(LocalDateTime.now())
                 .build();
+    }
+
+    /**
+     * Hạn chót gửi yêu cầu trả hàng, cùng điều kiện với ReturnRequestServiceImpl.createReturnRequest.
+     * Trả null nếu đơn chưa giao hoặc đã quá hạn.
+     */
+    static LocalDateTime returnDeadline(Order order) {
+        if (order.getStatus() != OrderStatus.DELIVERED && order.getStatus() != OrderStatus.COMPLETED) return null;
+        LocalDateTime deadline;
+        if (order.getDeliveredAt() != null) {
+            deadline = order.getDeliveredAt().plusHours(24);
+        } else if (order.getEstimatedDeliveryDate() != null) {
+            deadline = order.getEstimatedDeliveryDate().plusDays(3);
+        } else {
+            return null;
+        }
+        return LocalDateTime.now().isAfter(deadline) ? null : deadline;
+    }
+
+    private ChatbotMessageResponse.LatestReturnDto toLatestReturn(ReturnRequest request) {
+        ReturnRequestResponse r = returnRequestMapper.toResponse(request);
+        return ChatbotMessageResponse.LatestReturnDto.builder()
+                .returnId(r.getReturnId())
+                .orderId(r.getOrderId())
+                .productName(r.getProductName())
+                .status(r.getStatus() != null ? r.getStatus().name() : null)
+                .statusLabel(returnStatusLabel(r.getStatus()))
+                .refundAmount(r.getRefundAmount())
+                .active(ReturnRequestServiceImpl.isReturnActive(r.getStatus()))
+                .createdAt(r.getCreatedAt())
+                .build();
+    }
+
+    static String returnStatusLabel(ReturnStatus status) {
+        if (status == null) return "Đang xử lý";
+        return switch (status) {
+            case PENDING -> "Chờ nhà vườn phản hồi";
+            case SHOP_APPROVED, ADMIN_APPROVED, APPROVED -> "Đã được duyệt";
+            case DISPUTED -> "CapNong đang xem xét";
+            case RETURN_SHIPPING -> "Chờ shipper lấy hàng hoàn";
+            case RETURN_PICKED_UP -> "Shipper đã lấy hàng hoàn";
+            case RETURN_DELIVERED -> "Hàng hoàn đã về nhà vườn";
+            case RETURN_FAILED -> "Lấy hàng hoàn không thành công";
+            case COMPLETED -> "Đã hoàn tiền";
+            case REJECTED -> "Bị từ chối";
+            case CANCELLED -> "Bạn đã hủy yêu cầu";
+        };
     }
 
     @Override
@@ -2178,29 +2258,87 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
         }
 
         User user = userRepository.findById(userId).orElse(null);
-        String bank = (user != null && user.getBankName() != null && !user.getBankName().isBlank()) ? user.getBankName() : null;
-        String acc = (user != null && user.getBankAccount() != null && user.getBankAccount().length() >= 4)
+        String type = user != null ? walletTypeOf(user) : null;
+        if (type == null) {
+            return ChatbotMessageResponse.builder()
+                    .type(AiResponseType.NAVIGATION)
+                    .message("Ví của Quản trị viên là ví Sàn, bạn xem trong trang quản trị nhé.")
+                    .navigation(ChatbotMessageResponse.NavigationDto.builder().url("/admin/wallet").label("Mở ví Sàn").build())
+                    .timestamp(LocalDateTime.now())
+                    .build();
+        }
+
+        String bank = user.getBankName() != null && !user.getBankName().isBlank() ? user.getBankName() : null;
+        String acc = user.getBankAccount() != null && user.getBankAccount().length() >= 4
                 ? "**** " + user.getBankAccount().substring(user.getBankAccount().length() - 4)
                 : null;
 
-        BigDecimal pts = (user != null && user.getLoyaltyPoints() != null) ? user.getLoyaltyPoints() : BigDecimal.ZERO;
+        // Chỉ đọc: chưa có ví thì coi như số dư 0, không tạo ví từ chatbot.
+        Wallet wallet = walletRepository.findFirstByUser_IdAndType(userId, type).orElse(null);
+        BigDecimal balance = wallet != null && wallet.getTotalBalance() != null ? wallet.getTotalBalance() : BigDecimal.ZERO;
+        BigDecimal frozen = wallet != null && wallet.getFrozenBalance() != null ? wallet.getFrozenBalance() : BigDecimal.ZERO;
+        List<ChatbotMessageResponse.WalletTransactionDto> recent = wallet == null ? List.of()
+                : walletTransactionRepository
+                        .findByWallet_WalletIdOrderByCreatedAtDescIdDesc(wallet.getWalletId(), PageRequest.of(0, 3))
+                        .stream()
+                        .map(t -> ChatbotMessageResponse.WalletTransactionDto.builder()
+                                .description(t.getDescription())
+                                .amount(t.getAmount())
+                                .hold(t.getType() != null && t.getType().name().contains("HOLD"))
+                                .createdAt(t.getCreatedAt())
+                                .build())
+                        .toList();
+
+        String message;
+        if (wallet != null && wallet.getStatus() == WalletStatus.FROZEN) {
+            message = "Ví đang bị tạm khóa nên chưa rút được tiền. Bạn liên hệ CapNong để được hỗ trợ nhé.";
+        } else if ("SHIPPER".equals(type) && balance.signum() < 0) {
+            message = "Số dư âm vì bạn đang giữ tiền mặt COD chưa nộp về sàn. Số dư trở lại bình thường khi CapNong xác nhận đã nhận tiền.";
+        } else if ("BUYER".equals(type)) {
+            message = "Ví nhận tiền hoàn từ các yêu cầu trả hàng. Bạn có thể rút số dư về tài khoản ngân hàng trong Ví của tôi.";
+        } else {
+            message = "Tiền tạm giữ được cộng vào số dư khi đơn hoàn tất. Bạn có thể rút số dư về tài khoản ngân hàng trong Ví của tôi.";
+        }
 
         ChatbotMessageResponse.WalletInfoDto dto = ChatbotMessageResponse.WalletInfoDto.builder()
-                .walletStatus("Chưa mở cho Khách mua")
-                .loyaltyPoints(pts)
+                .walletStatus(walletStatusLabel(wallet))
+                .walletType(type)
+                .balance(balance)
+                .frozenBalance(frozen)
+                .totalWithdrawn(wallet != null && wallet.getTotalWithdrawn() != null ? wallet.getTotalWithdrawn() : BigDecimal.ZERO)
+                .recentTransactions(recent)
+                .loyaltyPoints("BUYER".equals(type) && user.getLoyaltyPoints() != null ? user.getLoyaltyPoints() : null)
                 .linkedBankName(bank)
                 .linkedBankAccount(acc)
-                .message("Hiện CapNong chưa có ví tiền cho Khách mua. Bạn có thể xem điểm tích lũy và thông tin tài khoản trong trang Tài khoản.")
-                .navigationUrl("/tai-khoan")
-                .navigationLabel("Xem tài khoản")
+                .message(message)
+                .navigationUrl("/my-wallet")
+                .navigationLabel("Mở Ví của tôi")
                 .build();
 
         return ChatbotMessageResponse.builder()
                 .type(AiResponseType.WALLET_INFO)
-                .message("Thông tin điểm tích lũy & tài khoản CapNong của bạn:")
+                .message("Thông tin Ví CapNong của bạn:")
                 .walletInfo(dto)
                 .timestamp(LocalDateTime.now())
                 .build();
+    }
+
+    /** Cùng cách chọn loại ví với WalletServiceImpl.getMyWallet; null với Admin (ví Sàn). */
+    private static String walletTypeOf(User user) {
+        String role = user.getRole() != null && user.getRole().getName() != null ? user.getRole().getName().toUpperCase() : "";
+        return switch (role) {
+            case "SHIPPER" -> "SHIPPER";
+            case "SHOP" -> "SHOP";
+            case "BUYER", "USER" -> "BUYER";
+            default -> null;
+        };
+    }
+
+    private static String walletStatusLabel(Wallet wallet) {
+        if (wallet == null) return "Chưa có giao dịch";
+        if (wallet.getStatus() == WalletStatus.FROZEN) return "Tạm khóa";
+        if (wallet.getStatus() == WalletStatus.INACTIVE) return "Ngừng hoạt động";
+        return "Đang hoạt động";
     }
 
     // Case 10.1: Đổi thông tin nhận hàng khẩn cấp (Địa chỉ / Số điện thoại)

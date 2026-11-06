@@ -175,11 +175,35 @@ public class ChatbotMessageResponse {
     @FieldDefaults(level = AccessLevel.PRIVATE)
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class ReturnGuidanceDto {
+        /** Đơn gần nhất còn trong hạn trả hàng; null nếu không có đơn nào đủ điều kiện. */
         Integer orderId;
         String policyTitle;
         String policyContent;
         String actionUrl;
         String actionLabel;
+        /** Hạn chót gửi yêu cầu cho đơn orderId. */
+        LocalDateTime returnDeadline;
+        /** Yêu cầu trả hàng gần nhất của khách, lấy từ /returns. */
+        LatestReturnDto latestReturn;
+    }
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    @FieldDefaults(level = AccessLevel.PRIVATE)
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class LatestReturnDto {
+        Integer returnId;
+        Integer orderId;
+        String productName;
+        /** Mã ReturnStatus của BE. */
+        String status;
+        String statusLabel;
+        BigDecimal refundAmount;
+        boolean active;
+        LocalDateTime createdAt;
     }
 
     @Getter
@@ -468,12 +492,36 @@ public class ChatbotMessageResponse {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class WalletInfoDto {
         String walletStatus;
+        /** BUYER | SHOP | SHIPPER */
+        String walletType;
+        /** Số dư rút được. Ví Shipper có thể âm khi đang giữ tiền mặt COD chưa nộp về sàn. */
+        BigDecimal balance;
+        /** Tiền tạm giữ, nhận khi đơn hoàn tất. */
+        BigDecimal frozenBalance;
+        BigDecimal totalWithdrawn;
+        List<WalletTransactionDto> recentTransactions;
         BigDecimal loyaltyPoints;
         String linkedBankName;
         String linkedBankAccount;
         String message;
         String navigationUrl;
         String navigationLabel;
+    }
+
+    @Getter
+    @Setter
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    @FieldDefaults(level = AccessLevel.PRIVATE)
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class WalletTransactionDto {
+        String description;
+        /** Dương là cộng, âm là trừ. */
+        BigDecimal amount;
+        /** true: bút toán tạm giữ, chưa đổi số dư rút được. */
+        boolean hold;
+        LocalDateTime createdAt;
     }
 
     // Case 10.1: Update Shipping Info DTO
