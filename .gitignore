@@ -71,3 +71,6 @@ credentials.json
 # Tests
 src/test/
 
+
+# Ghi chu rieng cho Claude Code, khong dua len git
+CLAUDE.md
