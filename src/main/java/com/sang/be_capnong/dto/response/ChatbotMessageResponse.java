@@ -355,8 +355,9 @@ public class ChatbotMessageResponse {
     @FieldDefaults(level = AccessLevel.PRIVATE)
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class FlashRescueDto {
-        String flashTitle;
-        String bannerNote;
+        String title;
+        String description;
+        Integer discountRate;
         List<ItemOptionDto> items;
     }
 
@@ -451,9 +452,10 @@ public class ChatbotMessageResponse {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class PaymentAssistanceDto {
         Integer orderId;
+        String paymentMethod;
         String paymentStatus;
         String guidance;
-        String hotline;
+        String supportHotline;
     }
 
     // Case 9.2: Wallet Info DTO
@@ -465,11 +467,13 @@ public class ChatbotMessageResponse {
     @FieldDefaults(level = AccessLevel.PRIVATE)
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class WalletInfoDto {
+        String walletStatus;
         BigDecimal loyaltyPoints;
-        String bankName;
-        String bankAccountMasked;
-        String note;
-        String actionUrl;
+        String linkedBankName;
+        String linkedBankAccount;
+        String message;
+        String navigationUrl;
+        String navigationLabel;
     }
 
     // Case 10.1: Update Shipping Info DTO

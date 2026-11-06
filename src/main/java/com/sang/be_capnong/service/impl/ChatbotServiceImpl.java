@@ -8,6 +8,7 @@ import com.sang.be_capnong.entity.ChatBot;
 import com.sang.be_capnong.entity.User;
 import com.sang.be_capnong.enums.AiItemType;
 import com.sang.be_capnong.enums.AiResponseType;
+import com.sang.be_capnong.enums.ChatbotClient;
 import com.sang.be_capnong.repository.ChatBotRepository;
 import com.sang.be_capnong.repository.UserRepository;
 import com.sang.be_capnong.service.ChatbotActionService;
@@ -38,9 +39,11 @@ public class ChatbotServiceImpl implements ChatbotService {
     RagKnowledgeService ragKnowledgeService;
     ChatbotAiClient chatbotAiClient;
     ChatbotActionService chatbotActionService;
+    ChatbotPendingSelections pendingSelections;
 
+    // Không đặt @Transactional ở đây: addToCart lỗi (hết hàng) sẽ đánh dấu rollback cả transaction chung,
+    // khiến request trả lỗi 9999 dù lỗi đã được bắt và mất luôn lịch sử chat. Mỗi lần ghi tự có transaction riêng.
     @Override
-    @Transactional
     public ChatbotMessageResponse handleMessage(ChatbotMessageRequest request, Integer userId) {
         User user = (userId != null) ? userRepository.findById(userId).orElse(null) : null;
 
@@ -53,10 +56,13 @@ public class ChatbotServiceImpl implements ChatbotService {
                     userId
             );
 
+            if (userId != null) {
+                pendingSelections.clear(userId);
+            }
             if (user != null && response != null && response.getMessage() != null) {
                 saveChatRecord(user, "assistant", response.getMessage());
             }
-            return response;
+            return adaptForClient(response, request.getClient());
         }
 
         String message = (request.getMessage() != null) ? request.getMessage().trim() : "";
@@ -67,6 +73,16 @@ public class ChatbotServiceImpl implements ChatbotService {
         // 2. Persist user message to chat history
         if (user != null) {
             saveChatRecord(user, "user", message);
+        }
+
+        // Trả lời cho danh sách bot vừa đưa ra ("lấy cái đầu tiên")
+        Integer selection = (userId != null && pendingSelections.has(userId)) ? ChatbotSelectionParser.parse(message) : null;
+        if (selection != null) {
+            ChatbotMessageResponse selected = selectFromPending(userId, selection);
+            if (user != null && selected.getMessage() != null) {
+                saveChatRecord(user, "assistant", selected.getMessage());
+            }
+            return adaptForClient(selected, request.getClient());
         }
 
         // 3. Build RAG & catalog contexts
@@ -138,7 +154,7 @@ public class ChatbotServiceImpl implements ChatbotService {
                         .type(AiResponseType.SAFETY_STANDARDS)
                         .message(safetyAnswer != null && !safetyAnswer.isBlank()
                                 ? safetyAnswer
-                                : "100% nông sản trên CapNong đạt chuẩn VietGAP/GlobalGAP hoặc canh tác hữu cơ tự nhiên. 'Xấu mã' chỉ là ngoại quan (cong queo, không đều màu) chứ hoàn toàn tươi mới, an toàn và bổ dưỡng tương đương loại 1!")
+                                : "'Xấu mã' là nói về hình thức của nông sản như cong queo hoặc không đều màu. Bạn có thể xem nhà vườn và thông tin từng sản phẩm tại trang chi tiết nhé!")
                         .timestamp(LocalDateTime.now())
                         .build();
                 break;
@@ -295,6 +311,34 @@ public class ChatbotServiceImpl implements ChatbotService {
             saveChatRecord(user, "assistant", response.getMessage());
         }
 
+        if (userId != null && response != null) {
+            if (response.getItemOptions() != null && !response.getItemOptions().isEmpty()) {
+                pendingSelections.remember(userId, response.getItemOptions());
+            } else {
+                pendingSelections.clear(userId);
+            }
+        }
+
+        return adaptForClient(response, request.getClient());
+    }
+
+    private ChatbotMessageResponse selectFromPending(int userId, int position) {
+        ChatbotMessageResponse.ItemOptionDto picked = pendingSelections.pick(userId, position);
+        if (picked == null) {
+            return ChatbotMessageResponse.text("Số bạn chọn không có trong danh sách vừa rồi. Bạn xem lại danh sách và chọn lại nhé!");
+        }
+        pendingSelections.clear(userId);
+        return chatbotActionService.selectItemOption(picked.getItemId(), picked.getItemType(), picked.getOrderQuantity(), userId);
+    }
+
+    /** App di động chưa có Kế hoạch ăn uống nên bỏ lời mời và nút dẫn tới màn đó. */
+    private ChatbotMessageResponse adaptForClient(ChatbotMessageResponse response, ChatbotClient client) {
+        if (client == ChatbotClient.MOBILE && response != null && response.getMealPlanBridge() != null) {
+            ChatbotMessageResponse.MealPlanBridgeDto bridge = response.getMealPlanBridge();
+            bridge.setPlanUrl(null);
+            bridge.setActionLabel(null);
+            bridge.setCtaMessage(null);
+        }
         return response;
     }
 
