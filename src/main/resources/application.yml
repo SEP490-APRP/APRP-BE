@@ -1,3 +1,21 @@
 spring:
   profiles:
     active: local
+
+# ===============================
+# CAPNONG - CHIA TIỀN VÍ & VÒNG ĐỜI ĐƠN HÀNG
+# ===============================
+capnong:
+  wallet:
+    # Phí dịch vụ nông dân: % trên (tiền hàng - voucher shop), trừ vào tiền Shop nhận
+    farmer-fee-rate: ${CAPNONG_FARMER_FEE_RATE:0.10}
+    # Phí dịch vụ shipper: % trên cước giao hàng, trừ vào tiền Shipper nhận
+    shipper-fee-rate: ${CAPNONG_SHIPPER_FEE_RATE:0.03}
+    # Số tiền rút tối thiểu mỗi lần (VND)
+    min-withdraw: ${CAPNONG_MIN_WITHDRAW:50000}
+  order:
+    # Đơn DELIVERED quá số ngày này mà Buyer chưa bấm "Đã nhận hàng" sẽ tự COMPLETED và chia tiền (0 = tắt)
+    auto-complete-days: ${CAPNONG_AUTO_COMPLETE_DAYS:3}
+  payment:
+    # Đơn PayOS chờ thanh toán quá số phút này sẽ tự huỷ, trả kho (0 = tắt). Link PayOS cũng hết hạn cùng lúc.
+    expire-minutes: ${CAPNONG_PAYMENT_EXPIRE_MINUTES:30}

@@ -24,6 +24,10 @@ public interface OrderService {
     OrderResponse markOrderAsDelivered(int orderId);
     OrderResponse markOrderAsCancelled(int orderId);
     OrderResponse markOrderAsFailed(int orderId);
+    /** BUYER xác nhận đã nhận hàng: DELIVERED -> COMPLETED, sau đó chia tiền vào ví */
+    OrderResponse markOrderAsCompleted(int orderId);
+    /** Hệ thống tự hoàn tất đơn DELIVERED quá hạn (không kiểm tra người gọi) */
+    OrderResponse autoCompleteOrder(int orderId);
 
     // === SHIPPER ===
     org.springframework.data.domain.Page<OrderResponse> getReadyOrders(int page, int size);

@@ -149,6 +149,9 @@ public enum ErrorCode {
     VOUCHER_OUT_OF_STOCK(9004, "Voucher is out of stock (claim limit reached)", HttpStatus.BAD_REQUEST),
     VOUCHER_LIMIT_REACHED(9005, "You have reached the maximum claim limit for this voucher", HttpStatus.BAD_REQUEST),
     VOUCHER_CANNOT_DELETE_ACTIVE(9006, "Voucher đang hoạt động, vui lòng tạm dừng hoạt động trước khi xóa", HttpStatus.BAD_REQUEST),
+    VOUCHER_CANNOT_DELETE_USED(9007, "Không thể xóa voucher đã phát sinh lượt sử dụng trong các đơn hàng. Vui lòng chọn Tạm dừng hoạt động thay thế.", HttpStatus.BAD_REQUEST),
+    VOUCHER_DISCOUNT_EXCEEDS_COMMISSION(9008, "Mức giảm của voucher sàn vượt quá hoa hồng dự kiến (10%), sẽ làm sàn bị lỗ trên đơn hàng. Vui lòng tăng đơn tối thiểu hoặc giảm số tiền ưu đãi.", HttpStatus.BAD_REQUEST),
+    VOUCHER_MIN_ORDER_INVALID(9009, "Giá trị đơn hàng tối thiểu phải lớn hơn hoặc bằng mức giảm giá của voucher", HttpStatus.BAD_REQUEST),
 
     // Blog / Forum Errors (Series 10000)
     BLOG_NOT_FOUND(10001, "Blog post not found", HttpStatus.NOT_FOUND),
@@ -216,7 +219,32 @@ public enum ErrorCode {
     INVALID_NOTIFICATION_REQUEST(14002, "Notification title, message, and receiver types are required", HttpStatus.BAD_REQUEST),
 
     // Bot Knowledge Errors (Series 15000)
-    BOT_KNOWLEDGE_NOT_FOUND(15001, "Bot knowledge not found", HttpStatus.NOT_FOUND);
+    BOT_KNOWLEDGE_NOT_FOUND(15001, "Bot knowledge not found", HttpStatus.NOT_FOUND),
+
+    // Wallet & Settlement Errors (Series 16000)
+    WALLET_NOT_FOUND(16001, "Wallet not found", HttpStatus.NOT_FOUND),
+    ORDER_NOT_SETTLEABLE(16002, "Order must be COMPLETED before settlement", HttpStatus.BAD_REQUEST),
+    PLATFORM_WALLET_OWNER_MISSING(16003, "No ADMIN account found to own the platform wallet", HttpStatus.INTERNAL_SERVER_ERROR),
+    COD_NOT_COLLECTED(16004, "COD cash has not been collected for this order", HttpStatus.BAD_REQUEST),
+    COD_ALREADY_SETTLED(16005, "COD cash for this order was already settled", HttpStatus.BAD_REQUEST),
+    PAYMENT_NOT_OWNER(16006, "You do not have permission to access this payment", HttpStatus.FORBIDDEN),
+    WITHDRAW_MIN_AMOUNT(16007, "Withdrawal amount is below the minimum", HttpStatus.BAD_REQUEST),
+    WITHDRAW_INSUFFICIENT_BALANCE(16008, "Wallet balance is not enough for this withdrawal", HttpStatus.BAD_REQUEST),
+    WITHDRAW_INVALID_BANK(16009, "Bank name, account number and account holder are required", HttpStatus.BAD_REQUEST),
+    WITHDRAW_NOT_FOUND(16010, "Withdrawal request not found", HttpStatus.NOT_FOUND),
+    WITHDRAW_ALREADY_PROCESSED(16011, "Withdrawal request was already processed", HttpStatus.BAD_REQUEST),
+    WALLET_INSUFFICIENT_BALANCE(16012, "Wallet balance is not enough to perform this operation", HttpStatus.BAD_REQUEST),
+
+    // Return & Refund Errors (Series 17000)
+    RETURN_REQUEST_NOT_FOUND(17001, "Return request not found", HttpStatus.NOT_FOUND),
+    RETURN_WINDOW_EXPIRED(17002, "Return window has expired (must be within 24 hours of delivery)", HttpStatus.BAD_REQUEST),
+    ORDER_NOT_DELIVERED_YET(17003, "Only delivered or completed orders can request a return", HttpStatus.BAD_REQUEST),
+    RETURN_ALREADY_REQUESTED(17004, "A return request has already been submitted for this order item", HttpStatus.CONFLICT),
+    RETURN_UNAUTHORIZED(17005, "You do not have permission to perform this action on the return request", HttpStatus.FORBIDDEN),
+    INVALID_RETURN_STATUS(17006, "Current return request status does not allow this operation", HttpStatus.BAD_REQUEST),
+    RETURN_REFUND_AMOUNT_INVALID(17007, "Refund amount cannot exceed item purchase amount", HttpStatus.BAD_REQUEST),
+    SHIPPER_NOT_ASSIGNED_TO_RETURN(17008, "You are not assigned as the shipper for this return order", HttpStatus.FORBIDDEN),
+    RETURN_WALLET_INSUFFICIENT_BALANCE(17009, "Shop wallet balance is not enough to pay return shipping fee. Please top up or choose COD.", HttpStatus.BAD_REQUEST);
 
     private final int code;
     private final String message;

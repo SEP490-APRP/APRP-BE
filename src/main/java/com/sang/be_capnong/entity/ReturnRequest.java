@@ -41,9 +41,37 @@ public class ReturnRequest {
     String reason;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "status", length = 50)
     ReturnStatus status;
 
     BigDecimal refundAmount;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "shipper_id")
+    User shipper;
+
+    @Column(name = "is_return_goods")
+    @Builder.Default
+    Boolean isReturnGoods = true;
+
+    @Column(name = "return_shipping_fee")
+    BigDecimal returnShippingFee;
+
+    /** Hình thức thanh toán cước hoàn hàng do Shop chịu: "WALLET" (ví sàn) hoặc "COD" (tiền mặt cho shipper) */
+    @Column(name = "shipping_payment_method", length = 32)
+    @Builder.Default
+    String shippingPaymentMethod = "WALLET";
+
+    /** Đã thanh toán cước ship hoàn (trừ ví thành công) hay chưa */
+    @Column(name = "is_shipping_fee_paid")
+    @Builder.Default
+    Boolean isShippingFeePaid = false;
+
+    @Column(name = "picked_up_at")
+    LocalDateTime pickedUpAt;
+
+    @Column(name = "returned_at")
+    LocalDateTime returnedAt;
 
     @Column(length = 1000)
     String shopResponse;
@@ -54,7 +82,29 @@ public class ReturnRequest {
     LocalDateTime createdAt;
     LocalDateTime updatedAt;
 
-    @OneToMany(mappedBy = "returnRequest")
+    @OneToMany(mappedBy = "returnRequest", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     List<Image> images;
+
+    @PrePersist
+    public void prePersist() {
+        if (this.createdAt == null) {
+            this.createdAt = LocalDateTime.now();
+        }
+        this.updatedAt = LocalDateTime.now();
+        if (this.isReturnGoods == null) {
+            this.isReturnGoods = true;
+        }
+        if (this.shippingPaymentMethod == null) {
+            this.shippingPaymentMethod = "WALLET";
+        }
+        if (this.isShippingFeePaid == null) {
+            this.isShippingFeePaid = false;
+        }
+    }
+
+    @PreUpdate
+    public void preUpdate() {
+        this.updatedAt = LocalDateTime.now();
+    }
 }

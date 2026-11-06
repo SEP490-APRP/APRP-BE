@@ -65,6 +65,39 @@ public class VoucherServiceImpl implements VoucherService {
             scope = VoucherScope.PLATFORM;
         }
 
+        // BẢO VỆ LỢI NHUẬN SÀN:
+        // Sàn thu 10% hoa hồng từ Shop. Voucher Sàn thông thường (PLATFORM, SYSTEM) không được phép gây lỗ cho sàn.
+        // (Trừ mã WELCOME chào mừng khách mới được tính là chi phí marketing thu hút người dùng).
+        if (isAdmin && scope != VoucherScope.WELCOME) {
+            java.math.BigDecimal minOrder = request.getMinOrderValue() != null ? request.getMinOrderValue() : java.math.BigDecimal.ZERO;
+            java.math.BigDecimal expectedCommission = minOrder.multiply(java.math.BigDecimal.valueOf(0.10));
+
+            boolean isShipping = request.getVoucherTarget() == VoucherTarget.SHIPPING || request.getVoucherType() == VoucherType.FREE_SHIPPING;
+            if (isShipping) {
+                if (minOrder.compareTo(java.math.BigDecimal.ZERO) <= 0) {
+                    throw new AppException(ErrorCode.VOUCHER_DISCOUNT_EXCEEDS_COMMISSION);
+                }
+                java.math.BigDecimal maxShipDisc = request.getMaxDiscount() != null ? request.getMaxDiscount() : request.getDiscountValue();
+                if (maxShipDisc != null && maxShipDisc.compareTo(expectedCommission) > 0) {
+                    throw new AppException(ErrorCode.VOUCHER_DISCOUNT_EXCEEDS_COMMISSION);
+                }
+            } else {
+                if (request.getVoucherType() == VoucherType.PERCENTAGE) {
+                    if (request.getMaxDiscount() != null) {
+                        if (request.getMaxDiscount().compareTo(expectedCommission) > 0) {
+                            throw new AppException(ErrorCode.VOUCHER_DISCOUNT_EXCEEDS_COMMISSION);
+                        }
+                    } else if (request.getDiscountValue() != null && request.getDiscountValue().compareTo(java.math.BigDecimal.valueOf(10)) > 0) {
+                        throw new AppException(ErrorCode.VOUCHER_DISCOUNT_EXCEEDS_COMMISSION);
+                    }
+                } else if (request.getVoucherType() == VoucherType.FIXED_AMOUNT) {
+                    if (minOrder.compareTo(java.math.BigDecimal.ZERO) <= 0 || (request.getDiscountValue() != null && request.getDiscountValue().compareTo(expectedCommission) > 0)) {
+                        throw new AppException(ErrorCode.VOUCHER_DISCOUNT_EXCEEDS_COMMISSION);
+                    }
+                }
+            }
+        }
+
         Voucher voucher = Voucher.builder()
                 .shop(currentUser) // Admin hay Shop thì đều gán ID của người tạo vào đây
                 .voucherCode(request.getVoucherCode().toUpperCase())
@@ -75,6 +108,7 @@ public class VoucherServiceImpl implements VoucherService {
                 .maxDiscount(request.getMaxDiscount())
                 .minOrderValue(request.getMinOrderValue())
                 .claimLimit(request.getClaimLimit())
+                .usageLimit(request.getClaimLimit())
                 .claimedCount(0)
                 .usedCount(0)
                 .perUserLimit(request.getPerUserLimit())
@@ -97,7 +131,7 @@ public class VoucherServiceImpl implements VoucherService {
         if (isAdmin) {
             // Lấy tất cả voucher do Admin tạo hoặc toàn sàn
             List<VoucherScope> adminScopes = List.of(VoucherScope.PLATFORM, VoucherScope.SYSTEM, VoucherScope.WELCOME);
-            voucherPage = voucherRepository.findAllAdminVouchers(adminScopes, pageable);
+            voucherPage = voucherRepository.findByShop_Role_NameOrVoucherScopeIn("ADMIN", adminScopes, pageable);
         } else {
             // Lấy tất cả voucher do Shop này tạo
             voucherPage = voucherRepository.findByShop_Id(currentUser.getId(), pageable);
@@ -146,7 +180,10 @@ public class VoucherServiceImpl implements VoucherService {
         }
 
         voucherUserRepository.deleteByVoucher_VoucherId(voucherId);
-        voucherUsageRepository.deleteByVoucher_VoucherId(voucherId);
+        // Nếu voucher đã từng được sử dụng trong đơn hàng, không được phép xóa cứng vì sẽ làm hỏng dữ liệu đối soát/chia tiền ví
+        if ((voucher.getUsedCount() != null && voucher.getUsedCount() > 0) || voucherUsageRepository.existsByVoucher_VoucherId(voucherId)) {
+            throw new AppException(ErrorCode.VOUCHER_CANNOT_DELETE_USED);
+        }
         voucherRepository.delete(voucher);
 
         return ApiResponse.<Void>builder()
@@ -241,17 +278,19 @@ public class VoucherServiceImpl implements VoucherService {
     // --- HELPER METHODS ---
 
     private ApiResponse<Void> doCollectVoucher(User buyer, Voucher voucher) {
-        if (!Boolean.TRUE.equals(voucher.getActive()) || (voucher.getExpiryDate() != null && voucher.getExpiryDate().isBefore(LocalDateTime.now()))) {
+        Voucher targetVoucher = voucherRepository.findByVoucherId(voucher.getVoucherId())
+                .orElse(voucher);
+        if (!Boolean.TRUE.equals(targetVoucher.getActive()) || (targetVoucher.getExpiryDate() != null && targetVoucher.getExpiryDate().isBefore(LocalDateTime.now()))) {
             throw new AppException(ErrorCode.VOUCHER_INVALID);
         }
-        if (voucher.getClaimLimit() != null && (voucher.getClaimedCount() != null ? voucher.getClaimedCount() : 0) >= voucher.getClaimLimit()) {
+        if (targetVoucher.getClaimLimit() != null && (targetVoucher.getClaimedCount() != null ? targetVoucher.getClaimedCount() : 0) >= targetVoucher.getClaimLimit()) {
             throw new AppException(ErrorCode.VOUCHER_OUT_OF_STOCK);
         }
 
-        Optional<VoucherUser> existingVuOpt = voucherUserRepository.findByUser_IdAndVoucher_VoucherId(buyer.getId(), voucher.getVoucherId());
+        Optional<VoucherUser> existingVuOpt = voucherUserRepository.findByUser_IdAndVoucher_VoucherId(buyer.getId(), targetVoucher.getVoucherId());
         if (existingVuOpt.isPresent()) {
             VoucherUser existingVu = existingVuOpt.get();
-            if (voucher.getPerUserLimit() != null && existingVu.getQuantity() >= voucher.getPerUserLimit()) {
+            if (targetVoucher.getPerUserLimit() != null && existingVu.getQuantity() >= targetVoucher.getPerUserLimit()) {
                 throw new AppException(ErrorCode.VOUCHER_LIMIT_REACHED);
             }
             existingVu.setQuantity(existingVu.getQuantity() + 1);
@@ -259,7 +298,7 @@ public class VoucherServiceImpl implements VoucherService {
         } else {
             VoucherUser newVu = VoucherUser.builder()
                     .user(buyer)
-                    .voucher(voucher)
+                    .voucher(targetVoucher)
                     .quantity(1)
                     .quantityUsed(0)
                     .claimAt(LocalDateTime.now())
@@ -267,8 +306,8 @@ public class VoucherServiceImpl implements VoucherService {
             voucherUserRepository.save(newVu);
         }
 
-        voucher.setClaimedCount((voucher.getClaimedCount() == null ? 0 : voucher.getClaimedCount()) + 1);
-        voucherRepository.save(voucher);
+        targetVoucher.setClaimedCount((targetVoucher.getClaimedCount() == null ? 0 : targetVoucher.getClaimedCount()) + 1);
+        voucherRepository.save(targetVoucher);
 
         return ApiResponse.<Void>builder().message("Lưu voucher thành công").build();
     }
@@ -284,6 +323,8 @@ public class VoucherServiceImpl implements VoucherService {
         } else if (scope == null) {
             scope = VoucherScope.PLATFORM;
         }
+
+
 
         VoucherTarget target = v.getVoucherTarget();
         if (target == null) {
