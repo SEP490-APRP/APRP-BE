@@ -59,6 +59,17 @@ INSERT INTO products (product_id, shop_id, category_id, product_name, unit, sell
 (107, 4, 2, 'Khoai lang mật tím', 'kg', 28000, 75, 'Khoai lang mật tím dẻo ngọt, nướng hoặc hấp thơm lừng.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 15 DAY), 0),
 (108, 4, 3, 'Cà chua bi ngọt mọng nước', 'kg', 35000, 60, 'Cà chua chín cây đỏ mọng, giàu vitamin C và chất chống oxy hóa lycopene.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
 (109, 4, 3, 'Dâu tây giống Nhật Đà Lạt', 'kg', 180000, 30, 'Dâu tây đỏ mọng hái sáng sớm tại nhà kính Đà Lạt, ngọt thanh chua nhẹ.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 3 DAY), 15),
+(110, 4, 1, 'Bông cải xanh Đà Lạt (Broccoli)', 'kg', 45000, 80, 'Bông cải xanh Đà Lạt cuống giòn ngọt, búp hoa dày chắc, giàu vitamin C và chất xơ chống lão hóa.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 6 DAY), 0),
+(111, 4, 1, 'Bắp cải trái tim Đà Lạt', 'bắp', 22000, 110, 'Bắp cải trái tim cuốn chặt lá mỏng giòn ngọt tự nhiên, thích hợp luộc chấm trứng hoặc xào.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 10 DAY), 0),
+(112, 4, 3, 'Ớt chuông Đà Lạt đủ màu', 'kg', 55000, 65, 'Ớt chuông đỏ vàng xanh ngọt mọng nước, không hăng cay, giàu vitamin C tuyệt vời cho món xào và salad.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 8 DAY), 10),
+(113, 4, 2, 'Hành tây vàng Đà Lạt', 'kg', 28000, 95, 'Hành tây vàng củ tròn chắc, vị ngọt thanh không hăng gắt, vỏ khô ráo bảo quản được lâu.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 25 DAY), 0),
+(114, 4, 2, 'Tỏi cô đơn Phan Rang', 'kg', 110000, 50, 'Tỏi cô đơn một nhánh tép to mẩy, hương thơm cay nồng đặc trưng, vị kháng sinh tự nhiên tốt cho sức khỏe.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 45 DAY), 0),
+(115, 4, 3, 'Bơ sáp 034 Đắk Lắk dẻo béo', 'kg', 55000, 85, 'Bơ 034 trái dài hạt lép, cơm vàng ươm dẻo quánh béo ngậy, thu hái đúng độ già.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 5 DAY), 0),
+(116, 4, 3, 'Dưa leo baby giòn ngọt', 'kg', 22000, 90, 'Dưa leo baby vỏ mỏng ruột đặc, giòn ngọt thanh mát không đắng, ăn trực tiếp hoặc cuốn gỏi.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
+(117, 4, 4, 'Nấm đùi gà hữu cơ tươi', 'khay', 32000, 60, 'Nấm đùi gà thân trắng mập mạp giòn sần sật, vị ngọt thịt thanh khiết, nấu lẩu xào chay đều ngon.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 5 DAY), 0),
+(118, 4, 4, 'Bắp ngọt Mỹ giòn hạt', 'bắp', 12000, 120, 'Bắp ngọt Mỹ bắp to đều hạt mẩy căng mọng, vị ngọt thanh mát luộc ăn vặt bổ dưỡng.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
+(119, 4, 3, 'Cà tím quả dài Đà Lạt', 'kg', 24000, 70, 'Cà tím quả thẳng vỏ bóng tím mướt, ruột mềm ngọt nướng mỡ hành hoặc kho thịt ba chỉ.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 10 DAY), 0),
+(120, 4, 1, 'Măng tây xanh loại 1', 'bó', 48000, 40, 'Măng tây xanh ngọn non giòn rụm, giàu axit folic và khoáng chất, xào tỏi hoặc bò tuyệt hảo.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 4 DAY), 0),
 
 (201, 5, 1, 'Rau ngót vườn hữu cơ', 'bó', 10000, 80, 'Rau ngót lá nhỏ xanh đậm, nấu canh thịt bằm ngọt mát.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 4 DAY), 0),
 (202, 5, 1, 'Mồng tơi ngọn non', 'bó', 10000, 90, 'Mồng tơi xanh non, thích hợp nấu canh cua rau đay mồng tơi thanh mát.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 3 DAY), 0),
@@ -67,7 +78,18 @@ INSERT INTO products (product_id, shop_id, category_id, product_name, unit, sell
 (205, 5, 3, 'Bưởi da xanh Bến Tre', 'kg', 65000, 50, 'Bưởi da xanh tép hồng mọng nước, vị ngọt thanh không chua, múi tróc vỏ.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 20 DAY), 0),
 (206, 5, 3, 'Cam sành Tiền Giang', 'kg', 35000, 150, 'Cam sành vỏ mỏng mọng nước, vị chua ngọt tự nhiên giàu vitamin C giải khát.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 12 DAY), 0),
 (207, 5, 3, 'Xoài cát Hòa Lộc Tiền Giang', 'kg', 85000, 40, 'Xoài cát Hòa Lộc nức tiếng thịt vàng ươm, thơm ngát, vị ngọt đậm đà.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 8 DAY), 10),
-(208, 5, 3, 'Dưa hấu ruột đỏ ngọt lịm', 'kg', 14000, 180, 'Dưa hấu vỏ mỏng ruột đỏ đặc ruột, ngọt lịm giải nhiệt.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 14 DAY), 0)
+(208, 5, 3, 'Dưa hấu ruột đỏ ngọt lịm', 'kg', 14000, 180, 'Dưa hấu vỏ mỏng ruột đỏ đặc ruột, ngọt lịm giải nhiệt.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 14 DAY), 0),
+(209, 5, 3, 'Chuối già Nam Mỹ chín tự nhiên', 'nải', 32000, 100, 'Chuối già Nam Mỹ vỏ vàng mướt không tẩm thuốc, thịt ngọt dẻo thơm giàu kali.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 5 DAY), 0),
+(210, 5, 3, 'Thanh long ruột đỏ Bình Thuận', 'kg', 35000, 130, 'Thanh long ruột đỏ tai xanh quả bóng, vị ngọt đậm mọng nước giàu vitamin C.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 12 DAY), 0),
+(211, 5, 3, 'Dứa mật MD2 ngọt lịm', 'trái', 28000, 90, 'Dứa mật giống MD2 vỏ mỏng mắt nông, thơm lừng mọng nước không rát lưỡi.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 10 DAY), 0),
+(212, 5, 3, 'Sầu riêng Ri6 cơm vàng hạt lép', 'kg', 135000, 35, 'Sầu riêng Ri6 Bến Tre múi vàng rực, cơm khô ráo dẻo quánh, hương thơm nồng nàn quyến rũ.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 4 DAY), 5),
+(213, 5, 3, 'Đu đủ ruột đỏ ngọt mát', 'kg', 22000, 80, 'Đu đủ ruột đỏ hạt tiêu thịt dày chắc nịch, vị ngọt thơm thanh mát bồi bổ tiêu hóa.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 8 DAY), 0),
+(214, 5, 3, 'Ổi nữ hoàng giòn ngọt', 'kg', 25000, 110, 'Ổi nữ hoàng quả to vỏ láng mịn, ruột ít hạt giòn rụm ngọt thanh, chấm muối tôm cực ngon.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 10 DAY), 0),
+(215, 5, 3, 'Chanh không hạt mọng nước', 'kg', 22000, 120, 'Chanh không hạt vỏ mỏng thơm ngát, tép mọng nước chua thanh pha nước giải khát hoặc làm gia vị.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 20 DAY), 0),
+(216, 5, 3, 'Nho đen không hạt Ninh Thuận', 'kg', 75000, 45, 'Nho đen chùm chắc quả căng bóng, vị ngọt dịu giòn thơm, trồng theo chuẩn an toàn.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
+(217, 5, 3, 'Táo đỏ giống Envy giòn ngọt', 'kg', 68000, 70, 'Táo đỏ vỏ căng mọng nước, thịt giòn tan vị ngọt đậm đà, thơm mát bồi bổ sức khỏe.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 15 DAY), 0),
+(218, 5, 4, 'Đậu que Nhật giòn ngọt', 'kg', 30000, 75, 'Đậu que thân mập xanh non không xơ, luộc chấm kho quẹt hoặc xào tỏi giòn ngọt.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 6 DAY), 0),
+(219, 5, 3, 'Ớt cay chỉ thiên tươi', 'túi', 15000, 100, 'Ớt chỉ thiên đỏ tươi quả nhỏ cay nồng, đượm vị dùng pha nước chấm thơm lừng.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 15 DAY), 0)
 ON DUPLICATE KEY UPDATE product_name=VALUES(product_name), selling_price=VALUES(selling_price);
 
 -- 5. PRODUCT IMAGES
@@ -81,6 +103,17 @@ INSERT INTO product_images (product_id, image_url, is_primary, display_order, is
 (107, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774249499/brands/pgdvlccom3lid5t24pnk.jpg', 1, 1, 1, 0),
 (108, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916530/brands/xjiiaehe5evwybwhmpmu.jpg', 1, 1, 1, 0),
 (109, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773943061/brands/qtspypfmdjcxtsbme7xi.jpg', 1, 1, 1, 0),
+(110, 'https://images.unsplash.com/photo-1459411621453-7b03977f4bfc?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(111, 'https://images.unsplash.com/photo-1598170845058-32b9d6a5da37?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(112, 'https://images.unsplash.com/photo-1563565375-f3fdfdbefa83?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(113, 'https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(114, 'https://images.unsplash.com/photo-1615485500704-8e990f9900f7?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(115, 'https://images.unsplash.com/photo-1523049673857-eb18f1d7b578?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(116, 'https://images.unsplash.com/photo-1449300079323-02e209d9d3a6?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(117, 'https://images.unsplash.com/photo-1504544750208-dc0358e63f7f?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(118, 'https://images.unsplash.com/photo-1551754655-cd27e38d2076?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(119, 'https://images.unsplash.com/photo-1588879462716-16e03eaeb72e?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(120, 'https://images.unsplash.com/photo-1515471204630-e60b853e3042?w=600&auto=format&fit=crop', 1, 1, 1, 0),
 
 (201, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774250103/brands/qlsbgtgno3kvconpo0c3.jpg', 1, 1, 1, 0),
 (202, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774250212/brands/mtbfbygr3tmlctmfdg0x.jpg', 1, 1, 1, 0),
@@ -89,7 +122,18 @@ INSERT INTO product_images (product_id, image_url, is_primary, display_order, is
 (205, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917344/brands/c2i9gkbkl8vx7iwulwsz.png', 1, 1, 1, 0),
 (206, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916481/brands/s5ld5232nl4s4fwczawr.jpg', 1, 1, 1, 0),
 (207, 'https://images.unsplash.com/photo-1553279768-865429fa0078?w=600&h=400&fit=crop', 1, 1, 1, 0),
-(208, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917373/brands/h0mivuwgipa6hssaawfi.jpg', 1, 1, 1, 0)
+(208, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917373/brands/h0mivuwgipa6hssaawfi.jpg', 1, 1, 1, 0),
+(209, 'https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(210, 'https://images.unsplash.com/photo-1527325678964-54921661f888?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(211, 'https://images.unsplash.com/photo-1550258987-190a2d41a8ba?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(212, 'https://images.unsplash.com/photo-1594282486552-05b4d80fbb9f?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(213, 'https://images.unsplash.com/photo-1617112848923-cc2234396a8d?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(214, 'https://images.unsplash.com/photo-1536511135899-7921860086f6?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(215, 'https://images.unsplash.com/photo-1533082879395-3410c7d15bf4?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(216, 'https://images.unsplash.com/photo-1537640538966-79f369143f8f?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(217, 'https://images.unsplash.com/photo-1560806887-1e4cd0b6cbd6?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(218, 'https://images.unsplash.com/photo-1567375698348-5d9d5ae99de0?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(219, 'https://images.unsplash.com/photo-1588252303782-cb80119abd6d?w=600&auto=format&fit=crop', 1, 1, 1, 0)
 ON DUPLICATE KEY UPDATE product_id=VALUES(product_id);
 
 

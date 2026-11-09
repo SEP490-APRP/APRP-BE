@@ -12,6 +12,7 @@ import com.sang.be_capnong.enums.AiItemType;
 import com.sang.be_capnong.enums.AiResponseType;
 import com.sang.be_capnong.enums.OrderStatus;
 import com.sang.be_capnong.repository.*;
+import com.sang.be_capnong.repository.specification.ProductSpecification;
 import com.sang.be_capnong.service.CartService;
 import com.sang.be_capnong.service.ChatbotActionService;
 import lombok.AccessLevel;
@@ -21,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -62,10 +64,8 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
 
         // 1. Search products if preferredType is null, PRODUCT, or ALL
         if (preferredType == null || preferredType == AiItemType.PRODUCT) {
-            Page<Product> products = productRepository.findProducts(
-                    "ACTIVE",
-                    null,
-                    query,
+            Page<Product> products = productRepository.findAll(
+                    ProductSpecification.filterProducts("ACTIVE", null, query, null),
                     PageRequest.of(0, 6)
             );
 
@@ -749,7 +749,10 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
 
         // Trường hợp câu hỏi về ngân sách rau củ không dính keyword combo (ví dụ: "Tôi có 150k muốn mua rau củ"):
         // Tự động tính toán mâm nông sản sao cho tổng tiền <= ngân sách yêu cầu
-        Page<Product> activeProducts = productRepository.findProducts("ACTIVE", null, null, PageRequest.of(0, 10));
+        Page<Product> activeProducts = productRepository.findAll(
+                ProductSpecification.filterProducts("ACTIVE", null, null, null),
+                PageRequest.of(0, 10)
+        );
         List<ChatbotMessageResponse.ItemOptionDto> selectedItems = new ArrayList<>();
         BigDecimal currentSum = BigDecimal.ZERO;
 
@@ -1589,7 +1592,10 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
     // Case 6.2: Nông sản xả gấp / Flash rescue
     @Override
     public ChatbotMessageResponse getFlashRescueItems() {
-        Page<Product> products = productRepository.findProducts("ACTIVE", null, null, PageRequest.of(0, 10));
+        Page<Product> products = productRepository.findAll(
+                ProductSpecification.filterProducts("ACTIVE", null, null, null),
+                PageRequest.of(0, 10)
+        );
         List<ChatbotMessageResponse.ItemOptionDto> flashItems = new ArrayList<>();
 
         for (Product p : products.getContent()) {
@@ -1720,9 +1726,15 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
         // Lấy 2-3 sản phẩm thật đang có bán trên sàn phù hợp với bệnh lý/chế độ ăn này
         List<ChatbotMessageResponse.ItemOptionDto> recommendedProducts = new ArrayList<>();
         try {
-            Page<Product> pPage = productRepository.findProducts("ACTIVE", null, searchKeyword, PageRequest.of(0, 3));
+            Page<Product> pPage = productRepository.findAll(
+                    ProductSpecification.filterProducts("ACTIVE", null, searchKeyword, null),
+                    PageRequest.of(0, 3)
+            );
             if (!pPage.hasContent()) {
-                pPage = productRepository.findProducts("ACTIVE", null, null, PageRequest.of(0, 3));
+                pPage = productRepository.findAll(
+                        ProductSpecification.filterProducts("ACTIVE", null, null, null),
+                        PageRequest.of(0, 3)
+                );
             }
             for (Product p : pPage.getContent()) {
                 String img = (p.getImages() != null && !p.getImages().isEmpty()) ? p.getImages().get(0).getImageUrl() : null;

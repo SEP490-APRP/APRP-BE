@@ -86,7 +86,18 @@ public enum AgriculturalProduceLabel {
     GRAPE("GRAPE", "Nho"),
     STRAWBERRY("STRAWBERRY", "Dâu tây"),
     PEACH("PEACH", "Đào"),
-    PLUM("PLUM", "Mận");
+    PLUM("PLUM", "Mận"),
+
+    // === NÔNG SẢN PHỔ BIẾN BỔ SUNG ===
+    BITTER_MELON("BITTER MELON", "Khổ qua"),
+    WATER_SPINACH("WATER SPINACH", "Rau muống"),
+    CANTALOUPE("CANTALOUPE", "Dưa lưới"),
+    EGGPLANT("EGGPLANT", "Cà tím"),
+    BELL_PEPPER("BELL PEPPER", "Ớt chuông"),
+    ASPARAGUS("ASPARAGUS", "Măng tây"),
+    CUSTARD_APPLE("CUSTARD APPLE", "Mãng cầu"),
+    SAPODILLA("SAPODILLA", "Hồng xiêm"),
+    PASSION_FRUIT("PASSION FRUIT", "Chanh dây");
 
     private final String label;
     private final String vietnameseName;
@@ -134,7 +145,18 @@ public enum AgriculturalProduceLabel {
     }
 
     /**
-     * Trích xuất loại nông sản cụ thể từ tên sản phẩm tiếng Việt (nếu có).
+     * Trả về từ khóa cần loại trừ khi tìm kiếm để tránh hiện tượng trùng lặp từ khóa con
+     * (Ví dụ: Tìm Bắp / Ngô thì loại trừ "bắp cải" để không lẫn lộn với Cabbage).
+     */
+    public String getExcludeKeyword() {
+        if (this == CORN || this == MAIZE) {
+            return "bắp cải";
+        }
+        return null;
+    }
+
+    /**
+     * Trích xuất loại nông sản cụ thể từ tên sản phẩm tiếng Việt hoặc tiếng Anh.
      */
     public static Optional<AgriculturalProduceLabel> detectExpectedProduce(String text) {
         if (text == null || text.isBlank()) {
@@ -142,45 +164,54 @@ public enum AgriculturalProduceLabel {
         }
         String lower = text.toLowerCase(Locale.ROOT);
 
-        // Thứ tự ưu tiên từ dài đến ngắn để tránh nhận diện nhầm từ con
-        if (lower.contains("dưa hấu")) return Optional.of(WATERMELON);
-        if (lower.contains("thanh long")) return Optional.of(DRAGON_FRUIT);
-        if (lower.contains("sầu riêng")) return Optional.of(DURIAN);
-        if (lower.contains("khoai lang")) return Optional.of(SWEET_POTATO);
-        if (lower.contains("khoai tây")) return Optional.of(POTATO);
-        if (lower.contains("bắp cải")) return Optional.of(CABBAGE);
-        if (lower.contains("bông cải") || lower.contains("súp lơ xanh")) return Optional.of(BROCCOLI);
-        if (lower.contains("súp lơ")) return Optional.of(CAULIFLOWER);
-        if (lower.contains("chôm chôm")) return Optional.of(RAMBUTAN);
-        if (lower.contains("dâu tây")) return Optional.of(STRAWBERRY);
-        if (lower.contains("dưa leo") || lower.contains("dưa chuột")) return Optional.of(CUCUMBER);
-        if (lower.contains("cà chua")) return Optional.of(TOMATO);
-        if (lower.contains("cà rốt")) return Optional.of(CARROT);
-        if (lower.contains("bí đỏ")) return Optional.of(PUMPKIN);
-        if (lower.contains("xà lách")) return Optional.of(LETTUCE);
-        if (lower.contains("rau chân vịt") || lower.contains("cải bó xôi")) return Optional.of(SPINACH);
-        if (lower.contains("bơ")) return Optional.of(AVOCADO);
-        if (lower.contains("chuối")) return Optional.of(BANANA);
-        if (lower.contains("xoài")) return Optional.of(MANGO);
-        if (lower.contains("dứa") || lower.contains("thơm") || lower.contains("khóm")) return Optional.of(PINEAPPLE);
-        if (lower.contains("đu đủ")) return Optional.of(PAPAYA);
-        if (lower.contains("ổi")) return Optional.of(GUAVA);
-        if (lower.contains("vải")) return Optional.of(LYCHEE);
-        if (lower.contains("nhãn")) return Optional.of(LONGAN);
-        if (lower.contains("mít")) return Optional.of(JACKFRUIT);
-        if (lower.contains("bưởi")) return Optional.of(POMELO);
-        if (lower.contains("chanh")) return Optional.of(LIME);
-        if (lower.contains("táo")) return Optional.of(APPLE);
-        if (lower.contains("cam")) return Optional.of(ORANGE);
-        if (lower.contains("nho")) return Optional.of(GRAPE);
-        if (lower.contains("mận")) return Optional.of(PLUM);
-        if (lower.contains("đào")) return Optional.of(PEACH);
-        if (lower.contains("hành tây") || lower.contains("hành lá") || lower.contains("hành củ")) return Optional.of(ONION);
-        if (lower.contains("tỏi")) return Optional.of(GARLIC);
-        if (lower.contains("ớt")) return Optional.of(CHILI);
-        if (lower.contains("bắp") || lower.contains("ngô")) return Optional.of(CORN);
-        if (lower.contains("nấm")) return Optional.of(MUSHROOM);
-        if (lower.contains("đậu phộng") || lower.contains("lạc")) return Optional.of(PEANUT);
+        // Thứ tự ưu tiên từ dài đến ngắn để tránh nhận diện nhầm từ con (Hỗ trợ cả tiếng Việt và tiếng Anh)
+        if (lower.contains("dưa hấu") || lower.contains("watermelon") || lower.contains("citrullus")) return Optional.of(WATERMELON);
+        if (lower.contains("thanh long") || lower.contains("dragon fruit") || lower.contains("pitaya")) return Optional.of(DRAGON_FRUIT);
+        if (lower.contains("sầu riêng") || lower.contains("durian")) return Optional.of(DURIAN);
+        if (lower.contains("khoai lang") || lower.contains("sweet potato")) return Optional.of(SWEET_POTATO);
+        if (lower.contains("khoai tây") || lower.contains("potato")) return Optional.of(POTATO);
+        if (lower.contains("bắp cải") || lower.contains("cabbage")) return Optional.of(CABBAGE);
+        if (lower.contains("bông cải") || lower.contains("súp lơ xanh") || lower.contains("broccoli")) return Optional.of(BROCCOLI);
+        if (lower.contains("súp lơ") || lower.contains("cauliflower")) return Optional.of(CAULIFLOWER);
+        if (lower.contains("chôm chôm") || lower.contains("rambutan")) return Optional.of(RAMBUTAN);
+        if (lower.contains("dâu tây") || lower.contains("strawberry")) return Optional.of(STRAWBERRY);
+        if (lower.contains("dưa leo") || lower.contains("dưa chuột") || lower.contains("cucumber")) return Optional.of(CUCUMBER);
+        if (lower.contains("dưa lưới") || lower.contains("cantaloupe") || lower.contains("muskmelon")) return Optional.of(CANTALOUPE);
+        if (lower.contains("khổ qua") || lower.contains("mướp đắng") || lower.contains("bitter melon") || lower.contains("bitter gourd")) return Optional.of(BITTER_MELON);
+        if (lower.contains("cà chua") || lower.contains("tomato")) return Optional.of(TOMATO);
+        if (lower.contains("cà rốt") || lower.contains("carrot")) return Optional.of(CARROT);
+        if (lower.contains("cà tím") || lower.contains("eggplant") || lower.contains("aubergine")) return Optional.of(EGGPLANT);
+        if (lower.contains("ớt chuông") || lower.contains("bell pepper") || lower.contains("sweet pepper")) return Optional.of(BELL_PEPPER);
+        if (lower.contains("măng tây") || lower.contains("asparagus")) return Optional.of(ASPARAGUS);
+        if (lower.contains("rau muống") || lower.contains("water spinach") || lower.contains("morning glory")) return Optional.of(WATER_SPINACH);
+        if (lower.contains("chanh dây") || lower.contains("chanh leo") || lower.contains("passion fruit")) return Optional.of(PASSION_FRUIT);
+        if (lower.contains("mãng cầu") || lower.contains("trái na") || lower.contains("quả na") || lower.contains("custard apple") || lower.contains("sugar apple")) return Optional.of(CUSTARD_APPLE);
+        if (lower.contains("hồng xiêm") || lower.contains("sa pô chê") || lower.contains("sapodilla")) return Optional.of(SAPODILLA);
+        if (lower.contains("bí đỏ") || lower.contains("pumpkin") || lower.contains("squash")) return Optional.of(PUMPKIN);
+        if (lower.contains("xà lách") || lower.contains("lettuce") || lower.contains("salad greens")) return Optional.of(LETTUCE);
+        if (lower.contains("rau chân vịt") || lower.contains("cải bó xôi") || lower.contains("spinach")) return Optional.of(SPINACH);
+        if (lower.contains("bơ sáp") || lower.contains("quả bơ") || lower.contains("trái bơ") || lower.contains("avocado")) return Optional.of(AVOCADO);
+        if (lower.contains("chuối") || lower.contains("banana")) return Optional.of(BANANA);
+        if (lower.contains("xoài") || lower.contains("mango")) return Optional.of(MANGO);
+        if (lower.contains("dứa") || lower.contains("thơm") || lower.contains("khóm") || lower.contains("pineapple")) return Optional.of(PINEAPPLE);
+        if (lower.contains("đu đủ") || lower.contains("papaya")) return Optional.of(PAPAYA);
+        if (lower.contains("ổi") || lower.contains("guava")) return Optional.of(GUAVA);
+        if (lower.contains("vải") || lower.contains("lychee")) return Optional.of(LYCHEE);
+        if (lower.contains("nhãn") || lower.contains("longan")) return Optional.of(LONGAN);
+        if (lower.contains("mít") || lower.contains("jackfruit")) return Optional.of(JACKFRUIT);
+        if (lower.contains("bưởi") || lower.contains("pomelo") || lower.contains("grapefruit")) return Optional.of(POMELO);
+        if (lower.contains("chanh") || lower.contains("lime") || lower.contains("lemon")) return Optional.of(LIME);
+        if (lower.contains("táo") || lower.contains("apple")) return Optional.of(APPLE);
+        if (lower.contains("cam") || lower.contains("orange")) return Optional.of(ORANGE);
+        if (lower.contains("nho") || lower.contains("grape")) return Optional.of(GRAPE);
+        if (lower.contains("mận") || lower.contains("plum")) return Optional.of(PLUM);
+        if (lower.contains("đào") || lower.contains("peach")) return Optional.of(PEACH);
+        if (lower.contains("hành tây") || lower.contains("onion")) return Optional.of(ONION);
+        if (lower.contains("tỏi") || lower.contains("garlic")) return Optional.of(GARLIC);
+        if (lower.contains("ớt") || lower.contains("chili") || lower.contains("pepper")) return Optional.of(CHILI);
+        if (lower.contains("bắp") || lower.contains("ngô") || lower.contains("corn") || lower.contains("maize")) return Optional.of(CORN);
+        if (lower.contains("nấm") || lower.contains("mushroom")) return Optional.of(MUSHROOM);
+        if (lower.contains("đậu phộng") || lower.contains("lạc") || lower.contains("peanut")) return Optional.of(PEANUT);
 
         return Optional.empty();
     }
