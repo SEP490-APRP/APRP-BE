@@ -28,5 +28,9 @@ public class WalletResponse {
     BigDecimal commissionEarned;
     /** Chỉ ví Shipper: tiền mặt COD đang giữ, chưa nộp về sàn */
     BigDecimal codCashHolding;
+    /** Shipper: tiền đang ký quỹ cho đơn COD đang giao */
+    BigDecimal codReserved;
+    /** Số dư khả dụng = balance - codReserved (dùng để nhận đơn COD và rút tiền) */
+    BigDecimal availableBalance;
     LocalDateTime updatedAt;
 }

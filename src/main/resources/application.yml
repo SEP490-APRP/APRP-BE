@@ -13,6 +13,18 @@ capnong:
     shipper-fee-rate: ${CAPNONG_SHIPPER_FEE_RATE:0.03}
     # Số tiền rút tối thiểu mỗi lần (VND)
     min-withdraw: ${CAPNONG_MIN_WITHDRAW:50000}
+    # Nạp ví qua PayOS (VND)
+    min-topup: ${CAPNONG_MIN_TOPUP:10000}
+    max-topup: ${CAPNONG_MAX_TOPUP:20000000}
+  dispatch:
+    # Bán kính quét shipper từng đợt (km), tăng dần; hết đợt thì quét lại bán kính lớn nhất
+    radii-km: ${CAPNONG_DISPATCH_RADII_KM:3,6,10}
+    # Khoảng cách giữa 2 đợt quét (giây)
+    wave-interval-seconds: ${CAPNONG_DISPATCH_WAVE_SECONDS:60}
+    # Shipper không gửi heartbeat quá số giây này thì tự chuyển offline
+    heartbeat-timeout-seconds: ${CAPNONG_SHIPPER_HEARTBEAT_TIMEOUT:300}
+    # Đơn READY quá số phút này chưa ai nhận thì báo Shop + Admin
+    no-taker-alert-minutes: ${CAPNONG_DISPATCH_ALERT_MINUTES:15}
   order:
     # Đơn DELIVERED quá số ngày này mà Buyer chưa bấm "Đã nhận hàng" sẽ tự COMPLETED và chia tiền (0 = tắt)
     auto-complete-days: ${CAPNONG_AUTO_COMPLETE_DAYS:3}

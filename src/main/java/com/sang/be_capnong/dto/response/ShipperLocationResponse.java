@@ -35,4 +35,8 @@ public class ShipperLocationResponse {
     Boolean isFake;
     Boolean gpsOff;
     String deliveryPhase;
+    /** Quãng đường còn lại tới điểm đến của chặng hiện tại (km, ước tính) */
+    Double distanceKm;
+    /** Số phút dự kiến tới nơi */
+    Integer estimatedMinutes;
 }

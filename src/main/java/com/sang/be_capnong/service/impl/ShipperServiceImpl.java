@@ -1,279 +1,260 @@
 package com.sang.be_capnong.service.impl;
 
+import com.sang.be_capnong.dto.request.ShipperLocationRequest;
 import com.sang.be_capnong.dto.request.ShipperStatusRequest;
+import com.sang.be_capnong.dto.response.ShipperLocationResponse;
 import com.sang.be_capnong.dto.response.ShipperStatusResponse;
+import com.sang.be_capnong.entity.Order;
 import com.sang.be_capnong.entity.ShipperLocation;
 import com.sang.be_capnong.entity.User;
+import com.sang.be_capnong.enums.OrderStatus;
 import com.sang.be_capnong.exception.AppException;
 import com.sang.be_capnong.exception.ErrorCode;
+import com.sang.be_capnong.repository.OrderRepository;
 import com.sang.be_capnong.repository.ShipperLocationRepository;
 import com.sang.be_capnong.repository.UserRepository;
+import com.sang.be_capnong.service.GoogleMapService;
 import com.sang.be_capnong.service.ShipperService;
-import lombok.AccessLevel;
+import com.sang.be_capnong.util.GeoUtils;
+import com.sang.be_capnong.util.SecurityUtils;
 import lombok.RequiredArgsConstructor;
-import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.security.Principal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
-@FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 @Slf4j
 public class ShipperServiceImpl implements ShipperService {
 
-    ShipperLocationRepository shipperLocationRepository;
-    UserRepository userRepository;
-    com.sang.be_capnong.repository.OrderRepository orderRepository;
-    com.sang.be_capnong.service.GoogleMapService googleMapService;
+    private final ShipperLocationRepository shipperLocationRepository;
+    private final UserRepository userRepository;
+    private final OrderRepository orderRepository;
+    private final GoogleMapService googleMapService;
+
+    /** Quá số giây này không có heartbeat thì coi như offline */
+    @Value("${capnong.dispatch.heartbeat-timeout-seconds:300}")
+    private int heartbeatTimeoutSeconds;
 
     private User getCurrentUser() {
-        String subject = SecurityContextHolder.getContext().getAuthentication().getName();
-        int userId = Integer.parseInt(subject);
-        return userRepository.findById(userId)
+        return userRepository.findById(SecurityUtils.getCurrentUserId())
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
     }
 
-    @Override
-    @Transactional
-    public void goOnline(Integer shipperId, ShipperStatusRequest request) {
-        log.info("Shipper {} went online at {}, {}", shipperId, request.getLatitude(), request.getLongitude());
-        User shipper = userRepository.findById(shipperId)
-                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
-
-        if (!"SHIPPER".equalsIgnoreCase(shipper.getRole().getName())) {
-            throw new AppException(ErrorCode.UNAUTHORIZED);
-        }
-
-        ShipperLocation location = shipperLocationRepository.findByShipper(shipper)
+    /** Mỗi shipper dùng 1 dòng; dữ liệu cũ có thể có nhiều dòng nên luôn lấy dòng mới nhất */
+    private ShipperLocation findOrNew(User shipper) {
+        return shipperLocationRepository.findFirstByShipperOrderByUpdatedAtDesc(shipper)
                 .orElse(ShipperLocation.builder().shipper(shipper).build());
-
-        location.setLatitude(request.getLatitude());
-        location.setLongitude(request.getLongitude());
-        location.setUpdatedAt(LocalDateTime.now());
-
-        shipperLocationRepository.save(location);
     }
 
-    @Override
-    @Transactional
-    public void goOffline(Integer shipperId) {
-        log.info("Shipper {} went offline", shipperId);
-        User shipper = userRepository.findById(shipperId)
-                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
-
-        shipperLocationRepository.deleteByShipper(shipper);
-    }
+    // ───────────────────────────── Trực tuyến ─────────────────────────────
 
     @Override
     @Transactional
     public void goOnlineCurrentShipper(ShipperStatusRequest request) {
         User shipper = getCurrentUser();
-        goOnline(shipper.getId(), request);
+        ShipperLocation location = findOrNew(shipper);
+        boolean wasOnline = Boolean.TRUE.equals(location.getOnline());
+        LocalDateTime now = LocalDateTime.now();
+        location.setLatitude(request.getLatitude());
+        location.setLongitude(request.getLongitude());
+        location.setUpdatedAt(now);
+        location.setLastSeenAt(now);
+        location.setOnline(true);
+        shipperLocationRepository.save(location);
+        if (!wasOnline) {
+            log.info("Shipper {} went online at {}, {}", shipper.getId(), request.getLatitude(), request.getLongitude());
+        }
     }
 
     @Override
     @Transactional
     public void goOfflineCurrentShipper() {
         User shipper = getCurrentUser();
-        goOffline(shipper.getId());
+        shipperLocationRepository.findFirstByShipperOrderByUpdatedAtDesc(shipper).ifPresent(location -> {
+            // Không xoá dòng: đơn đang giao vẫn cần vị trí cuối để theo dõi
+            location.setOnline(false);
+            shipperLocationRepository.save(location);
+        });
+        log.info("Shipper {} went offline", shipper.getId());
     }
 
     @Override
+    @Transactional(readOnly = true)
     public ShipperStatusResponse getCurrentShipperStatus() {
         User shipper = getCurrentUser();
-        return shipperLocationRepository.findByShipper(shipper)
+        return shipperLocationRepository.findFirstByShipperOrderByUpdatedAtDesc(shipper)
+                .filter(this::isFresh)
                 .map(loc -> ShipperStatusResponse.builder()
                         .isOnline(true)
                         .latitude(loc.getLatitude())
                         .longitude(loc.getLongitude())
                         .updatedAt(loc.getUpdatedAt())
                         .build())
-                .orElse(ShipperStatusResponse.builder()
-                        .isOnline(false)
-                        .build());
+                .orElse(ShipperStatusResponse.builder().isOnline(false).build());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean isOnline(int shipperId) {
+        return userRepository.findById(shipperId)
+                .flatMap(shipperLocationRepository::findFirstByShipperOrderByUpdatedAtDesc)
+                .map(this::isFresh)
+                .orElse(false);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public double[] getLastPosition(int shipperId) {
+        return userRepository.findById(shipperId)
+                .flatMap(shipperLocationRepository::findFirstByShipperOrderByUpdatedAtDesc)
+                .filter(l -> l.getLatitude() != null && l.getLongitude() != null)
+                .map(l -> new double[]{l.getLatitude(), l.getLongitude()})
+                .orElse(null);
     }
 
     @Override
     @Transactional
-    public com.sang.be_capnong.dto.response.ShipperLocationResponse updateLocation(com.sang.be_capnong.dto.request.ShipperLocationRequest request, Principal principal) {
-        User shipper = null;
-        if (principal != null) {
-            try {
-                int userId = Integer.parseInt(principal.getName());
-                shipper = userRepository.findById(userId).orElse(null);
-            } catch (Exception e) {
-                log.warn("[ShipperService] Could not parse principal userId: {}", principal.getName());
-            }
-        }
+    public int markStaleShippersOffline() {
+        List<ShipperLocation> stale = shipperLocationRepository.findByOnlineTrueAndLastSeenAtBefore(
+                LocalDateTime.now().minusSeconds(heartbeatTimeoutSeconds));
+        stale.forEach(l -> l.setOnline(false));
+        shipperLocationRepository.saveAll(stale);
+        return stale.size();
+    }
 
-        // Fallback: nếu không có principal thì lấy shipper được gán cho order
-        if (shipper == null && request.getOrderId() != null) {
-            com.sang.be_capnong.entity.Order order = orderRepository.findById(request.getOrderId()).orElse(null);
-            if (order != null && order.getShipper() != null) {
-                shipper = userRepository.findById(order.getShipper().getId()).orElse(null);
-            }
-        }
+    private boolean isFresh(ShipperLocation l) {
+        return Boolean.TRUE.equals(l.getOnline()) && l.getLastSeenAt() != null
+                && l.getLastSeenAt().isAfter(LocalDateTime.now().minusSeconds(heartbeatTimeoutSeconds));
+    }
 
-        if (shipper == null) {
-            log.warn("[ShipperService] No shipper found for location update on order {}", request.getOrderId());
+    // ───────────────────────────── Vị trí realtime ─────────────────────────────
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean canPublishLocation(Integer orderId, Principal principal) {
+        if (orderId == null || principal == null) {
+            return false;
+        }
+        Integer userId;
+        try {
+            userId = Integer.parseInt(principal.getName());
+        } catch (NumberFormatException e) {
+            return false;
+        }
+        return orderRepository.findById(orderId)
+                .filter(o -> o.getShipper() != null && o.getShipper().getId() == userId)
+                .filter(o -> o.getStatus() == OrderStatus.SHIPPING || o.getStatus() == OrderStatus.PICKED_UP)
+                .isPresent();
+    }
+
+    @Override
+    @Transactional
+    public ShipperLocationResponse updateLocation(ShipperLocationRequest request, Principal principal) {
+        if (!canPublishLocation(request.getOrderId(), principal)) {
+            log.warn("[ShipperService] Rejected location update for order {} from principal {}",
+                    request.getOrderId(), principal != null ? principal.getName() : null);
             return null;
         }
-
-        log.debug("[ShipperService] Location update: orderId={}, shipperId={}, lat={}, lng={}, isFake={}",
-                request.getOrderId(), shipper.getId(), request.getLatitude(), request.getLongitude(), request.getIsFake());
-
-        return updateLocationByShipper(shipper, request);
+        User shipper = userRepository.findById(Integer.parseInt(principal.getName())).orElse(null);
+        return shipper == null ? null : updateLocationByShipper(shipper, request);
     }
 
     @Override
     @Transactional
-    public com.sang.be_capnong.dto.response.ShipperLocationResponse updateLocationByShipper(User shipper, com.sang.be_capnong.dto.request.ShipperLocationRequest request) {
-        if (shipper != null) {
-            shipper = userRepository.findById(shipper.getId()).orElse(shipper);
+    public ShipperLocationResponse updateLocationByShipper(User shipper, ShipperLocationRequest request) {
+        Order order = request.getOrderId() != null ? orderRepository.findById(request.getOrderId()).orElse(null) : null;
+        ShipperLocation location = findOrNew(shipper);
+        LocalDateTime now = LocalDateTime.now();
+        location.setOrder(order);
+        location.setLatitude(request.getLatitude());
+        location.setLongitude(request.getLongitude());
+        if (request.getDeliveryPhase() != null && !request.getDeliveryPhase().isBlank()) {
+            location.setDeliveryPhase(request.getDeliveryPhase());
         }
+        location.setUpdatedAt(now);
+        // Gửi vị trí cũng là heartbeat, nhưng không tự bật online
+        location.setLastSeenAt(now);
+        if (location.getOnline() == null) {
+            location.setOnline(false);
+        }
+        shipperLocationRepository.save(location);
 
-        com.sang.be_capnong.entity.Order order = null;
-        if (request.getOrderId() != null) {
-            order = orderRepository.findById(request.getOrderId()).orElse(null);
-        }
-
-        if (shipper == null && order != null && order.getShipper() != null) {
-            shipper = userRepository.findById(order.getShipper().getId()).orElse(null);
-        }
-
-        ShipperLocation location = null;
-        if (order != null && shipper != null) {
-            location = shipperLocationRepository.findByShipperAndOrder_OrderId(shipper, order.getOrderId())
-                    .orElse(null);
-        }
-        if (location == null && shipper != null) {
-            location = shipperLocationRepository.findByShipper(shipper)
-                    .orElse(ShipperLocation.builder().shipper(shipper).build());
-        }
-
-        if (location != null) {
-            location.setOrder(order);
-            location.setLatitude(request.getLatitude());
-            location.setLongitude(request.getLongitude());
-            if (request.getDeliveryPhase() != null && !request.getDeliveryPhase().isBlank()) {
-                location.setDeliveryPhase(request.getDeliveryPhase());
-            }
-            location.setUpdatedAt(LocalDateTime.now());
-            shipperLocationRepository.save(location);
-        }
-
-        String phase = location != null ? location.getDeliveryPhase() : request.getDeliveryPhase();
-        return buildLocationResponse(order, shipper, location, request.getIsFake(), request.getGpsOff(), phase);
+        return buildLocationResponse(order, shipper, location, request.getIsFake(), request.getGpsOff(), location.getDeliveryPhase());
     }
 
     @Override
-    public com.sang.be_capnong.dto.response.ShipperLocationResponse getShipperLocationByOrder(Integer orderId) {
-        com.sang.be_capnong.entity.Order order = orderRepository.findById(orderId)
+    @Transactional
+    public ShipperLocationResponse getShipperLocationByOrder(Integer orderId) {
+        Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
 
-        User shipper = null;
-        if (order.getShipper() != null) {
-            shipper = userRepository.findById(order.getShipper().getId()).orElse(null);
-        }
-
+        User shipper = order.getShipper();
         ShipperLocation location = null;
         if (shipper != null) {
             location = shipperLocationRepository.findByShipperAndOrder_OrderId(shipper, orderId)
+                    .or(() -> shipperLocationRepository.findFirstByShipperOrderByUpdatedAtDesc(shipper))
                     .orElse(null);
-            if (location == null) {
-                location = shipperLocationRepository.findByShipper(shipper).orElse(null);
-            }
         }
         if (location == null) {
             location = shipperLocationRepository.findTopByOrder_OrderIdOrderByUpdatedAtDesc(orderId).orElse(null);
         }
 
         String phase = location != null ? location.getDeliveryPhase() : null;
-        if (phase == null && order.getStatus() != null) {
-            if (order.getStatus() == com.sang.be_capnong.enums.OrderStatus.SHIPPING) {
-                phase = "TO_BUYER";
-            } else if (order.getStatus() == com.sang.be_capnong.enums.OrderStatus.DELIVERED || order.getStatus() == com.sang.be_capnong.enums.OrderStatus.COMPLETED) {
-                phase = "DELIVERED";
-            } else {
-                phase = "TO_SHOP";
-            }
+        if (phase == null || phase.isBlank()) {
+            phase = phaseOf(order.getStatus());
         }
-
         return buildLocationResponse(order, shipper, location, false, false, phase);
     }
 
-    private com.sang.be_capnong.dto.response.ShipperLocationResponse buildLocationResponse(
-            com.sang.be_capnong.entity.Order order,
-            User shipper,
-            ShipperLocation location,
-            Boolean isFake,
-            Boolean gpsOff,
-            String deliveryPhase) {
+    /** SHIPPING = đang tới nhà vườn lấy hàng, PICKED_UP = đang giao cho khách */
+    static String phaseOf(OrderStatus status) {
+        if (status == null) return "TO_SHOP";
+        return switch (status) {
+            case PICKED_UP -> "TO_BUYER";
+            case DELIVERED, COMPLETED -> "DELIVERED";
+            default -> "TO_SHOP";
+        };
+    }
 
+    private ShipperLocationResponse buildLocationResponse(Order order, User shipper, ShipperLocation location,
+                                                          Boolean isFake, Boolean gpsOff, String deliveryPhase) {
         Double lat = location != null ? location.getLatitude() : null;
         Double lng = location != null ? location.getLongitude() : null;
         LocalDateTime updatedAt = location != null ? location.getUpdatedAt() : LocalDateTime.now();
 
-        // Shipper info (null-safe and lazy-safe)
         String shipperName = "Tài xế";
         String shipperPhone = "";
         String vehicleNumber = "";
         Integer shipperId = null;
-
         if (shipper != null) {
             shipperId = shipper.getId();
-            try {
-                shipperName = shipper.getFullName() != null ? shipper.getFullName() : "Tài xế";
-                shipperPhone = shipper.getPhoneNumber() != null ? shipper.getPhoneNumber() : "";
-                vehicleNumber = shipper.getVehicleNumber() != null ? shipper.getVehicleNumber() : "";
-            } catch (Exception e) {
-                User fullShipper = userRepository.findById(shipperId).orElse(null);
-                if (fullShipper != null) {
-                    shipperName = fullShipper.getFullName() != null ? fullShipper.getFullName() : "Tài xế";
-                    shipperPhone = fullShipper.getPhoneNumber() != null ? fullShipper.getPhoneNumber() : "";
-                    vehicleNumber = fullShipper.getVehicleNumber() != null ? fullShipper.getVehicleNumber() : "";
-                }
-            }
+            shipperName = shipper.getFullName() != null ? shipper.getFullName() : "Tài xế";
+            shipperPhone = shipper.getPhoneNumber() != null ? shipper.getPhoneNumber() : "";
+            vehicleNumber = shipper.getVehicleNumber() != null ? shipper.getVehicleNumber() : "";
         }
 
-        // Shop info (null-safe and lazy-safe)
         Double shopLat = order != null ? order.getShopLatitude() : null;
         Double shopLng = order != null ? order.getShopLongitude() : null;
         String shopAddress = null;
         String shopName = null;
-
         if (order != null && order.getShop() != null) {
-            try {
-                shopAddress = order.getShop().getAddress();
-                shopName = order.getShop().getShopName();
-            } catch (Exception e) {
-                User fullShop = userRepository.findById(order.getShop().getId()).orElse(null);
-                if (fullShop != null) {
-                    shopAddress = fullShop.getAddress();
-                    shopName = fullShop.getShopName();
-                }
-            }
+            shopAddress = order.getShop().getAddress();
+            shopName = order.getShop().getShopName();
         }
-
         if ((shopLat == null || shopLng == null) && shopAddress != null && !shopAddress.isBlank()) {
-            try {
-                double[] coords = googleMapService.geocodeAddress(shopAddress);
-                if (coords != null && coords.length == 2) {
-                    shopLat = coords[0];
-                    shopLng = coords[1];
-                    if (order != null) {
-                        order.setShopLatitude(shopLat);
-                        order.setShopLongitude(shopLng);
-                        orderRepository.save(order);
-                    }
-                }
-            } catch (Exception e) {
-                log.warn("Geocode shop address error: {}", e.getMessage());
+            double[] coords = geocode(shopAddress);
+            if (coords != null) {
+                shopLat = coords[0];
+                shopLng = coords[1];
+                order.setShopLatitude(shopLat);
+                order.setShopLongitude(shopLng);
+                orderRepository.save(order);
             }
         }
         if (shopLat == null || shopLng == null) {
@@ -281,27 +262,17 @@ public class ShipperServiceImpl implements ShipperService {
             shopLng = 106.7720;
         }
 
-        // Destination info
         Double destLat = order != null ? order.getShippingLatitude() : null;
         Double destLng = order != null ? order.getShippingLongitude() : null;
         String destAddress = order != null ? order.getShippingAddress() : null;
-        String recipientName = order != null ? order.getRecipientName() : null;
-        String recipientPhone = order != null ? order.getRecipientPhone() : null;
-
         if ((destLat == null || destLng == null) && destAddress != null && !destAddress.isBlank()) {
-            try {
-                double[] coords = googleMapService.geocodeAddress(destAddress);
-                if (coords != null && coords.length == 2) {
-                    destLat = coords[0];
-                    destLng = coords[1];
-                    if (order != null) {
-                        order.setShippingLatitude(destLat);
-                        order.setShippingLongitude(destLng);
-                        orderRepository.save(order);
-                    }
-                }
-            } catch (Exception e) {
-                log.warn("Geocode dest address error: {}", e.getMessage());
+            double[] coords = geocode(destAddress);
+            if (coords != null) {
+                destLat = coords[0];
+                destLng = coords[1];
+                order.setShippingLatitude(destLat);
+                order.setShippingLongitude(destLng);
+                orderRepository.save(order);
             }
         }
         if (destLat == null || destLng == null) {
@@ -309,14 +280,31 @@ public class ShipperServiceImpl implements ShipperService {
             destLng = 106.6578;
         }
 
-        return com.sang.be_capnong.dto.response.ShipperLocationResponse.builder()
+        double curLat = lat != null ? lat : shopLat;
+        double curLng = lng != null ? lng : shopLng;
+
+        // Quãng đường còn lại và ETA của chặng hiện tại
+        Double remainingKm;
+        Integer etaMinutes;
+        if ("DELIVERED".equals(deliveryPhase)) {
+            remainingKm = 0.0;
+            etaMinutes = 0;
+        } else {
+            boolean toShop = !"TO_BUYER".equals(deliveryPhase);
+            double targetLat = toShop ? shopLat : destLat;
+            double targetLng = toShop ? shopLng : destLng;
+            remainingKm = GeoUtils.roadKm(curLat, curLng, targetLat, targetLng);
+            etaMinutes = GeoUtils.etaMinutes(remainingKm);
+        }
+
+        return ShipperLocationResponse.builder()
                 .orderId(order != null ? order.getOrderId() : null)
                 .shipperId(shipperId)
                 .shipperName(shipperName)
                 .shipperPhone(shipperPhone)
                 .vehicleNumber(vehicleNumber)
-                .latitude(lat != null ? lat : shopLat)
-                .longitude(lng != null ? lng : shopLng)
+                .latitude(curLat)
+                .longitude(curLng)
                 .updatedAt(updatedAt)
                 .shopLatitude(shopLat)
                 .shopLongitude(shopLng)
@@ -325,12 +313,24 @@ public class ShipperServiceImpl implements ShipperService {
                 .destinationLatitude(destLat)
                 .destinationLongitude(destLng)
                 .destinationAddress(destAddress)
-                .recipientName(recipientName)
-                .recipientPhone(recipientPhone)
+                .recipientName(order != null ? order.getRecipientName() : null)
+                .recipientPhone(order != null ? order.getRecipientPhone() : null)
                 .orderStatus(order != null && order.getStatus() != null ? order.getStatus().name() : "")
                 .isFake(isFake)
                 .gpsOff(gpsOff)
                 .deliveryPhase(deliveryPhase)
+                .distanceKm(remainingKm)
+                .estimatedMinutes(etaMinutes)
                 .build();
+    }
+
+    private double[] geocode(String address) {
+        try {
+            double[] coords = googleMapService.geocodeAddress(address);
+            return coords != null && coords.length == 2 ? coords : null;
+        } catch (Exception e) {
+            log.warn("Geocode address error: {}", e.getMessage());
+            return null;
+        }
     }
 }

@@ -23,6 +23,9 @@ import com.sang.be_capnong.enums.VoucherType;
 import com.sang.be_capnong.dto.request.ShippingFeeRequest;
 import com.sang.be_capnong.dto.response.ShippingFeeResponse;
 import java.util.Objects;
+import java.util.Comparator;
+import com.sang.be_capnong.dto.request.DeliverOrderRequest;
+import com.sang.be_capnong.dto.request.FailOrderRequest;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
@@ -71,6 +74,11 @@ public class OrderServiceImpl implements OrderService {
     com.sang.be_capnong.service.CartService cartService;
     com.sang.be_capnong.service.WalletService walletService;
     com.sang.be_capnong.service.PaymentService paymentService;
+    com.sang.be_capnong.service.DispatchService dispatchService;
+    com.sang.be_capnong.service.ShipperService shipperService;
+
+    /** Bán kính tối đa (km) để shipper thấy đơn READY trong danh sách */
+    static final double READY_LIST_MAX_KM = 15.0;
 
     // ============================================================
     //  TẠO ĐƠN HÀNG
@@ -984,7 +992,14 @@ public class OrderServiceImpl implements OrderService {
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
         order.setStatus(OrderStatus.READY);
+        order.setReadyAt(LocalDateTime.now());
+        order.setDispatchWave(null);
+        order.setLastDispatchedAt(null);
+        order.setDispatchAlertedAt(null);
         Order saved = orderRepository.save(order);
+        // Bước 1: quét shipper trực tuyến quanh nhà vườn và mời nhận đơn (sau khi commit)
+        dispatchService.dispatchAfterCommit(saved.getOrderId());
+        dispatchService.notifyStatusChangedAfterCommit(saved.getOrderId());
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
         return buildOrderResponse(saved, details);
     }
@@ -992,12 +1007,20 @@ public class OrderServiceImpl implements OrderService {
     @Transactional
     @Override
     public OrderResponse markOrderAsShipping(int orderId) {
-        Order order = findOrderById(orderId);
+        // Khoá dòng đơn: 2 shipper bấm nhận cùng lúc thì người sau thấy đơn đã có chủ
+        Order order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
         User currentUser = getCurrentUser();
         // Flow: READY -> SHIPPING
+        if (order.getShipper() != null && order.getShipper().getId() != currentUser.getId()) {
+            throw new AppException(ErrorCode.ORDER_ALREADY_TAKEN);
+        }
         if (order.getStatus() != OrderStatus.READY) {
             log.error("Invalid state transition to SHIPPING for order id {}. Current status: {}", orderId, order.getStatus());
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
+        }
+        if (!shipperService.isOnline(currentUser.getId())) {
+            throw new AppException(ErrorCode.SHIPPER_NOT_ONLINE);
         }
 
         // Bắt buộc 1 đơn tại 1 thời điểm: Kiểm tra xem shipper đã có đơn đang giao hoặc đang lấy hàng chưa
@@ -1012,9 +1035,13 @@ public class OrderServiceImpl implements OrderService {
 
         order.setShipper(currentUser);
         order.setStatus(OrderStatus.SHIPPING);
-        Order saved = orderRepository.save(order);
+        Order saved = orderRepository.saveAndFlush(order);
+        // Ví âm (nợ COD cũ) bị chặn; đơn COD phải ký quỹ đủ tiền trong ví. Lỗi thì rollback cả việc nhận đơn
+        walletService.reserveForShipperAccept(saved.getOrderId());
         // Shipper thấy ngay cước giao ở mục "tạm giữ", nhận thật khi đơn COMPLETED
         walletService.holdShipperIncome(saved.getOrderId());
+        dispatchService.notifyOrderTakenAfterCommit(saved.getOrderId(), currentUser.getId());
+        dispatchService.notifyStatusChangedAfterCommit(saved.getOrderId());
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
         return buildOrderResponse(saved, details);
     }
@@ -1035,13 +1062,14 @@ public class OrderServiceImpl implements OrderService {
         order.setStatus(OrderStatus.PICKED_UP);
         order.setPickedUpAt(LocalDateTime.now());
         Order saved = orderRepository.save(order);
+        dispatchService.notifyStatusChangedAfterCommit(saved.getOrderId());
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
         return buildOrderResponse(saved, details);
     }
 
     @Transactional
     @Override
-    public OrderResponse markOrderAsDelivered(int orderId) {
+    public OrderResponse markOrderAsDelivered(int orderId, DeliverOrderRequest request) {
         Order order = findOrderById(orderId);
         User currentUser = getCurrentUser();
         if (order.getShipper() != null && !Objects.equals(order.getShipper().getId(), currentUser.getId())) {
@@ -1052,6 +1080,11 @@ public class OrderServiceImpl implements OrderService {
             log.error("Invalid state transition to DELIVERED for order id {}. Current status: {}", orderId, order.getStatus());
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
+        List<String> proofs = cleanUrls(request != null ? request.getProofImageUrls() : null);
+        if (proofs.isEmpty()) {
+            throw new AppException(ErrorCode.DELIVERY_PROOF_REQUIRED);
+        }
+        order.setDeliveryProofUrls(String.join("\n", proofs));
         order.setStatus(OrderStatus.DELIVERED);
         order.setDeliveredAt(LocalDateTime.now());
 
@@ -1081,8 +1114,26 @@ public class OrderServiceImpl implements OrderService {
             // Tiền mặt đã vào hệ thống -> Shop và Sàn thấy phần của mình ở mục "tạm giữ"
             walletService.holdShopAndPlatformIncome(saved.getOrderId());
         }
+        dispatchService.notifyStatusChangedAfterCommit(saved.getOrderId());
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
         return buildOrderResponse(saved, details);
+    }
+
+    /** URL ảnh hợp lệ (http/https), bỏ trùng, tối đa 5 ảnh */
+    private static List<String> cleanUrls(List<String> urls) {
+        if (urls == null) return List.of();
+        return urls.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(u -> u.startsWith("http://") || u.startsWith("https://"))
+                .distinct()
+                .limit(5)
+                .toList();
+    }
+
+    private static List<String> splitUrls(String joined) {
+        if (joined == null || joined.isBlank()) return List.of();
+        return java.util.Arrays.stream(joined.split("\n")).map(String::trim).filter(s -> !s.isEmpty()).toList();
     }
 
     private void restoreOrderVouchers(Order order) {
@@ -1175,7 +1226,7 @@ public class OrderServiceImpl implements OrderService {
 
     @Transactional
     @Override
-    public OrderResponse markOrderAsFailed(int orderId) {
+    public OrderResponse markOrderAsFailed(int orderId, FailOrderRequest request) {
         Order order = findOrderById(orderId);
         User currentUser = getCurrentUser();
         if (order.getShipper() != null && !Objects.equals(order.getShipper().getId(), currentUser.getId())) {
@@ -1187,6 +1238,28 @@ public class OrderServiceImpl implements OrderService {
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
         
+        // Bằng chứng: lý do, số cuộc gọi (>= 3 nếu không liên lạc được), ảnh
+        if (request == null || request.getReason() == null) {
+            throw new AppException(ErrorCode.FAIL_REASON_REQUIRED);
+        }
+        String note = request.getNote() != null ? request.getNote().trim() : "";
+        int calls = request.getCallAttempts() != null ? Math.max(0, request.getCallAttempts()) : 0;
+        if (request.getReason() == com.sang.be_capnong.enums.DeliveryFailReason.KHONG_LIEN_LAC_DUOC && calls < 3) {
+            throw new AppException(ErrorCode.FAIL_CALL_ATTEMPTS_REQUIRED);
+        }
+        if (request.getReason() == com.sang.be_capnong.enums.DeliveryFailReason.KHAC && note.isEmpty()) {
+            throw new AppException(ErrorCode.FAIL_NOTE_REQUIRED);
+        }
+        List<String> proofs = cleanUrls(request.getProofImageUrls());
+        if (proofs.isEmpty()) {
+            throw new AppException(ErrorCode.DELIVERY_PROOF_REQUIRED);
+        }
+        order.setFailReason(request.getReason());
+        order.setFailNote(note.isEmpty() ? null : note.substring(0, Math.min(note.length(), 500)));
+        order.setFailCallAttempts(calls);
+        order.setFailProofUrls(String.join("\n", proofs));
+        order.setFailedAt(LocalDateTime.now());
+
         // Giao hàng thất bại -> Hàng trả về shop -> Trả lại kho
         restoreStock(order);
         restoreOrderVouchers(order);
@@ -1198,8 +1271,11 @@ public class OrderServiceImpl implements OrderService {
         }
 
         walletService.cancelHolds(order.getOrderId(), "giao hàng thất bại");
+        // Đơn COD: trả lại tiền ký quỹ cho Shipper
+        walletService.releaseCodReserve(order.getOrderId(), "giao hàng thất bại");
         order.setStatus(OrderStatus.FAILED);
         Order saved = orderRepository.save(order);
+        dispatchService.notifyStatusChangedAfterCommit(saved.getOrderId());
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
         return buildOrderResponse(saved, details);
     }
@@ -1374,13 +1450,33 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
-    public Page<OrderResponse> getReadyOrders(int page, int size) {
-        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
-        Page<Order> orders = orderRepository.findByStatus(OrderStatus.READY, pageable);
-        return orders.map(order -> {
+    public Page<OrderResponse> getReadyOrders(int page, int size, Double latitude, Double longitude) {
+        User shipper = getCurrentUser();
+        if (!shipperService.isOnline(shipper.getId())) {
+            throw new AppException(ErrorCode.SHIPPER_NOT_ONLINE);
+        }
+        double[] me = latitude != null && longitude != null
+                ? new double[]{latitude, longitude}
+                : shipperService.getLastPosition(shipper.getId());
+
+        // Số đơn READY tại 1 thời điểm nhỏ: lọc + sắp theo khoảng cách trong bộ nhớ rồi tự phân trang
+        List<OrderResponse> nearby = new ArrayList<>();
+        for (Order order : orderRepository.findByStatusAndShipperIsNull(OrderStatus.READY)) {
             List<OrderDetail> details = order.getOrderDetails() != null ? order.getOrderDetails() : Collections.emptyList();
-            return buildOrderResponse(order, details);
-        });
+            OrderResponse res = buildOrderResponse(order, details);
+            if (me != null && res.getShopLatitude() != null && res.getShopLongitude() != null) {
+                double km = com.sang.be_capnong.util.GeoUtils.roadKm(me[0], me[1], res.getShopLatitude(), res.getShopLongitude());
+                if (km > READY_LIST_MAX_KM) continue;
+                res.setDistanceToShopKm(km);
+            }
+            nearby.add(res);
+        }
+        nearby.sort(Comparator.comparing((OrderResponse r) -> r.getDistanceToShopKm() == null ? Double.MAX_VALUE : r.getDistanceToShopKm())
+                .thenComparing(OrderResponse::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder())));
+        int safeSize = Math.max(1, Math.min(size, 100));
+        int from = Math.min(Math.max(page, 0) * safeSize, nearby.size());
+        int to = Math.min(from + safeSize, nearby.size());
+        return new org.springframework.data.domain.PageImpl<>(nearby.subList(from, to), PageRequest.of(Math.max(page, 0), safeSize), nearby.size());
     }
 
     @Override
@@ -1557,6 +1653,14 @@ public class OrderServiceImpl implements OrderService {
                 .distanceKm(distanceKm)
                 .rescuedWeight(order.getRescuedWeight())
                 .refundAmount(order.getRefundAmount())
+                .codReservedAmount(order.getCodReservedAmount())
+                .deliveredAt(order.getDeliveredAt())
+                .deliveryProofUrls(splitUrls(order.getDeliveryProofUrls()))
+                .failReason(order.getFailReason() != null ? order.getFailReason().name() : null)
+                .failNote(order.getFailNote())
+                .failCallAttempts(order.getFailCallAttempts())
+                .failProofUrls(splitUrls(order.getFailProofUrls()))
+                .failedAt(order.getFailedAt())
                 .items(itemResponses)
                 .build();
     }
