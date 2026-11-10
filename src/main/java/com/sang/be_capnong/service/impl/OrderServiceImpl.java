@@ -1558,7 +1558,8 @@ public class OrderServiceImpl implements OrderService {
 
         BigDecimal codAmount = BigDecimal.ZERO;
         if ("COD".equalsIgnoreCase(order.getPaymentMethod())) {
-            codAmount = order.getCodAmount() != null ? order.getCodAmount() : order.getTotalAmount();
+            // cod_amount chỉ có giá trị thật sau khi giao (tiền mặt đã thu); trước đó (NULL hoặc 0 trong dữ liệu mẫu) = tổng tiền đơn
+            codAmount = order.getCodAmount() != null && order.getCodAmount().signum() > 0 ? order.getCodAmount() : order.getTotalAmount();
         }
 
         Double shopLat = order.getShopLatitude();

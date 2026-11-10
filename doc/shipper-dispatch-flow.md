@@ -237,95 +237,136 @@ Tiền mặt tài xế thu của khách chính là `total_amount`. Giữ chỗ �
 **Hai tài xế bấm nhận cùng lúc thì sao?**
 BE khoá dòng đơn bằng `SELECT … FOR UPDATE` trước khi kiểm tra. Người đến sau thấy đơn đã có chủ và nhận lỗi 7005, không ai bị trừ tiền hai lần.
 
-## 10. Test case (input / output)
+## 10. Test case trên giao diện (web + mobile)
 
-Quy ước dữ liệu mẫu (dùng lại cho các case):
+Mỗi case ghi **thao tác trên màn hình (input)** và **những gì màn hình phải hiện (output)**, dùng đúng câu chữ trong app. Cột "Nền tảng": **W** = web (`APRP-FE`), **M** = app mobile (`APRP-Mobile`).
 
-| Ký hiệu | Giá trị |
+Phần kiểm tra ở mức API và công thức đã có unit test (BE: `WalletCodReserveTest`, `ShipperFlowRulesTest`; FE: `shipper.service.test.ts`, `eta.test.ts`, `orderCode.test.ts`; Mobile: `deliveryProof.test.ts`, `topup.test.ts`, `trackingRules.test.ts`).
+
+### 10.0. Chuẩn bị
+
+| Mục | Cách chuẩn bị |
 |---|---|
-| Shop S | Nhà vườn tại (10.8500, 106.7720) |
-| Shipper A | ACTIVE, online, vị trí (10.8600, 106.7720), cách S ~1,4 km. Ví 500.000đ, `cod_reserved` 0 |
-| Shipper B | ACTIVE, online, vị trí cách S ~8 km. Ví 0đ |
-| Đơn COD #1 | `paymentMethod = COD`, tiền hàng 200.000đ, ship 15.000đ, `totalAmount` 215.000đ, READY |
-| Đơn PayOS #2 | `paymentMethod = PAYOS`, đã trả 215.000đ, READY |
+| Tài khoản | 1 Buyer, 1 Shop **S**, 2 Shipper: **A** (dùng web) và **B** (dùng mobile). Shipper đều đã được duyệt |
+| Địa chỉ | Shop S và Buyer có địa chỉ thật ở TP.HCM để geocode được (xem 9.1) |
+| Vị trí shipper | **Bắt buộc giả lập**, vì Chrome trên máy tính đoán vị trí theo IP nên thường lệch hàng chục km. Muốn được **mời** thì thẻ đơn phải hiện **"Cách bạn" ≤ 10 km** (≤ 3 km để được mời ngay đợt 1); danh sách thì hiện tới 15 km. Web: Chrome DevTools → **More tools → Sensors → Location**, đặt gần S (vd. cách ~1–2 km). Mobile máy ảo: **Extended controls → Location**. Máy thật: đứng gần địa chỉ S hoặc chọn địa chỉ S gần mình |
+| Đơn COD #1 | Buyer đặt đơn COD ở shop S, tổng **215.000đ**. Shop xác nhận để đơn ở **Đã xác nhận** |
+| Đơn PayOS #2 | Buyer đặt đơn PayOS ở shop S và thanh toán xong. Shop xác nhận |
+| Ví shipper | Dùng chức năng **Nạp ví** (10.6) để đặt số dư theo từng case |
+| Đường dẫn | Web shipper: `/shipper`. Ví web: `/shipper?tab=wallet`. Web nhà vườn: cổng nhà vườn → tab Đơn hàng. Mobile: đăng nhập tài khoản shipper / shop |
 
-Mã `1000` = thành công. Cột "Tự động" ghi test đã có trong code (BE: `WalletCodReserveTest`, `ShipperFlowRulesTest`; FE: `shipper.service.test.ts`, `eta.test.ts`, `orderCode.test.ts`; Mobile: `deliveryProof.test.ts`, `topup.test.ts`, `trackingRules.test.ts`). Ô trống = test tay qua Swagger / app.
+### 10.1. Trực tuyến
 
-### 10.1. Trực tuyến và heartbeat
+| ID | Nền tảng | Input (thao tác) | Output (màn hình) |
+|---|---|---|---|
+| UI-ON-01 | W | A mở `/shipper`, đang Ngoại tuyến | Tab Đơn hàng mới hiện khối **"Bạn đang ở trạng thái Ngoại tuyến"** và nút **"Bật Trực Tuyến Để Nhận Đơn Ngay"**, không hiện đơn nào |
+| UI-ON-02 | W | Bấm **"Bật Trực Tuyến Để Nhận Đơn Ngay"**, cho phép trình duyệt lấy vị trí | Popup **"Đã bật Trực tuyến! Đang quét các đơn hàng mới sẵn sàng quanh bạn."**. Nút trạng thái đổi thành **"🟢 Đang Trực Tuyến"**, danh sách đơn tải ra |
+| UI-ON-03 | M | B mở tab **Đơn mới** khi đang nghỉ | Thẻ **"Bạn đang nghỉ"**, nút **"Bật nhận đơn"** |
+| UI-ON-04 | M | Bấm **"Bật nhận đơn"**, cho phép quyền vị trí | Toast **"Đã bật nhận đơn. Đơn sẵn sàng sẽ hiện ngay bên dưới."**. Header đổi thành **"Đang nhận đơn"** |
+| UI-ON-05 | M | Đang nhận đơn, từ chối quyền vị trí rồi bật lại | Toast **"Đã bật nhận đơn (vị trí mặc định). Hãy bật GPS để tính quãng đường chính xác."** |
+| UI-ON-06 | W | Đang online, đóng hẳn tab `/shipper` khoảng **6 phút**, rồi mở lại | Trạng thái hiện **Ngoại tuyến** (hệ thống tự tắt do mất tín hiệu) |
+| UI-ON-07 | W | Đang online, bấm nút **"🟢 Đang Trực Tuyến"** | Popup **"Đã chuyển sang Ngoại tuyến. Bạn đang tạm dừng nhận đơn mới."**, danh sách đơn ẩn |
 
-| ID | Điều kiện | Input | Output mong đợi | Tự động |
-|---|---|---|---|---|
-| ON-01 | A offline | `POST /shippers/status/online {"latitude":10.86,"longitude":106.772}` | `1000`. `shipper_locations.online = true`, `last_seen_at` = bây giờ. `GET /shippers/status` → `isOnline: true` | |
-| ON-02 | A online, app gọi lại sau 60s | `POST /shippers/status/online` (toạ độ mới) | `1000`, `last_seen_at` cập nhật, không tạo dòng mới | |
-| ON-03 | A online, không gửi heartbeat quá 5 phút | Chờ scheduler `markStaleShippersOffline` | `online = false`, `GET /shippers/status` → `isOnline: false` | |
-| ON-04 | A online | `POST /shippers/status/offline` | `1000`, `online = false`, dòng vẫn còn (vị trí cuối giữ lại) | |
-| ON-05 | Bất kỳ | `POST /shippers/5/status/online` (API cũ) | 404/405: endpoint đã bị gỡ | |
+### 10.2. Đơn mới và thông báo (Bước 1)
 
-### 10.2. Điều phối (Bước 1)
+| ID | Nền tảng | Input (thao tác) | Output (màn hình) |
+|---|---|---|---|
+| UI-DP-01 | W (Shop) | Shop S mở đơn #2 (đã xác nhận), bấm **"📦 Đã Chuẩn Bị Xong (Sẵn Sàng Giao)"** | Thông báo **"Đơn hàng #2 đã chuyển sang SẴN SÀNG!..."**. Thẻ đơn có khung **"Mã dán lên túi hàng"** với mã **#2** chữ to |
+| UI-DP-02 | W (A online, thẻ đơn hiện "Cách bạn" ≤ 3 km) | Ngay sau UI-DP-01, để yên màn `/shipper` | Đơn #2 **tự xuất hiện** trong danh sách sau vài giây, không cần bấm tải lại. Chuông thông báo (tải lại mỗi 30 giây) có **"Có đơn mới gần bạn"**: **"Đơn #2 tại {tên shop} cách bạn … km. Đơn đã thanh toán online"** |
+| UI-DP-03 | M (B online, cách S ≤ 3 km) | Như UI-DP-02, B đang mở app | Toast **"Có đơn mới #2 tại {tên shop} cách bạn … km"**, danh sách **Đơn mới** tự thêm đơn #2 |
+| UI-DP-04 | M | B đặt vị trí **cách S khoảng 8 km**, Shop báo sẵn sàng một đơn mới | Không có toast ngay. Khoảng **2 phút** sau (đợt quét 10 km) mới có toast mời |
+| UI-DP-05 | W | A xem thẻ đơn #2 trong danh sách | Thẻ hiện **"Cách bạn ~x km"** (tới kho), **"Giao hàng ~y km"**, tổng quãng đường, **"Tiền ship nhận"**. Đơn gần hơn đứng trước |
+| UI-DP-06 | M | B xem danh sách | Dòng **"N đơn chờ giao · gần bạn trước"**, đơn gần hơn đứng trước |
+| UI-DP-07 | W + M | A đang thấy đơn #2 trên web. B bấm nhận đơn #2 trên mobile thành công | Trên web của A, đơn #2 **tự biến mất** khỏi danh sách (không cần tải lại) |
+| UI-DP-08 | W (Shop) | Đơn sẵn sàng **quá 15 phút** không ai nhận | Shop nhận thông báo **"Chưa có tài xế nhận đơn"**, nội dung **"Đơn #… đã sẵn sàng hơn 15 phút nhưng chưa có tài xế nhận..."**. Admin cũng nhận **"Đơn chưa có tài xế"** |
+| UI-DP-10 | M | B online nhưng thẻ đơn hiện **"Cách bạn 12 km"**, Shop báo sẵn sàng một đơn | Đơn **có trong danh sách** (≤ 15 km) nhưng **không có toast / thông báo mời**, vì ngoài bán kính mời 10 km |
+| UI-DP-09 | W (Buyer) | Shop báo sẵn sàng đơn của Buyer | Buyer nhận thông báo **"Cập nhật đơn hàng"**: **"Đơn #… đã được nhà vườn đóng gói, đang tìm tài xế."** |
 
-| ID | Điều kiện | Input | Output mong đợi | Tự động |
-|---|---|---|---|---|
-| DP-01 | A, B online; đơn PayOS #2 CONFIRMED | Shop gọi `PUT /orders/2/ready` | `1000`, đơn READY. Đợt 1 (3 km): A nhận thông báo `type = NEW_ORDER_OFFER, referenceId = 2` và tin `/user/queue/shipper-offers {type: NEW_ORDER, orderId: 2, distanceToShopKm: ~1.4}`. B **không** được mời. Buyer nhận "đang tìm tài xế" | |
-| DP-02 | Tiếp DP-01, chưa ai nhận sau 60s và 120s | Scheduler chạy | Đợt 2 (6 km) rồi đợt 3 (10 km): B được mời ở đợt 3. A không bị mời lại (`dispatch_offers` unique) | |
-| DP-03 | Đơn COD #1 READY, B ví 0đ, cách S 2 km | Đợt quét | B **không** được mời (không đủ ký quỹ 215.000đ), nhưng vẫn thấy đơn trong `GET /orders/ready` | |
-| DP-04 | Đơn READY quá 15 phút chưa ai nhận | Scheduler | Shop và mọi Admin nhận 1 thông báo `DISPATCH_TIMEOUT`. `orders.dispatch_alerted_at` có giá trị, không gửi lặp | |
-| DP-05 | A đã được mời đơn #2, C nhận đơn #2 | C gọi `PUT /orders/2/ship` | A nhận `/user/queue/shipper-offers {type: ORDER_TAKEN, orderId: 2}`, đơn biến mất khỏi danh sách trên app | |
-| DP-06 | A offline | `GET /orders/ready` | Lỗi `7006 SHIPPER_NOT_ONLINE` | |
-| DP-07 | A online | `GET /orders/ready?page=0&size=10&lat=10.86&lng=106.772` | `1000`, chỉ đơn READY chưa có shipper trong 15 km, sắp gần nhất trước, mỗi đơn có `distanceToShopKm` | FE ✓ (tham số) |
+### 10.3. Nhận đơn và ký quỹ COD
 
-### 10.3. Nhận đơn và ký quỹ
+| ID | Nền tảng | Input (thao tác) | Output (màn hình) |
+|---|---|---|---|
+| UI-AC-01 | W | A (ví bất kỳ ≥ 0) bấm **"Nhận đơn này"** ở đơn PayOS #2 | Popup **"Nhận đơn thành công"**: **"Đã nhận đơn #2 thành công! Đang chuyển đến bảng "Đơn đang giao"..."**, tự chuyển sang tab Đơn đang giao |
+| UI-AC-02 | W | A ví khả dụng **500.000đ** bấm **"Nhận đơn này"** ở đơn COD #1 | Mở hộp **"Nhận đơn COD #1"**: ô **Cần ký quỹ 215.000đ**, ô **Số dư khả dụng 500.000đ** (màu xanh), nút **"Để sau"** và **"Ký quỹ và nhận đơn"** |
+| UI-AC-03 | W | Tiếp UI-AC-02, bấm **"Ký quỹ và nhận đơn"** | Popup nhận đơn thành công. Vào `/shipper?tab=wallet`: **SỐ DƯ KHẢ DỤNG 285.000đ**, dòng dưới **"Tổng số dư 500.000đ"**, ô **ĐANG KÝ QUỸ COD 215.000đ**. Lịch sử có **"Ký quỹ đơn COD · Đơn #1"** −215.000đ |
+| UI-AC-04 | W | A ví khả dụng **200.000đ** bấm **"Nhận đơn này"** ở đơn COD #1 | Hộp **"Nhận đơn COD #1"**: số dư khả dụng **200.000đ** màu đỏ, dòng đỏ **"Ví còn thiếu 15.000đ. Nạp thêm để nhận đơn này."**, nút **"Đóng"** và **"Nạp ví"** (không có nút nhận đơn) |
+| UI-AC-05 | W | Tiếp UI-AC-04, bấm **"Nạp ví"** | Mở hộp **"Nạp tiền vào ví"**, ô số tiền điền sẵn **15.000** |
+| UI-AC-06 | M | B ví khả dụng **500.000đ** bấm **"Nhận đơn này"** ở đơn COD #1 | Tấm **"Nhận đơn #1?"**: các dòng Lấy hàng tại / Giao cho / Quãng đường / Phí ship / Thu của khách **215.000đ**. Khung vàng **"Đơn COD: ký quỹ 215.000đ · ví khả dụng 500.000đ"**. Nút **"Để sau"** và **"Ký quỹ và nhận"** |
+| UI-AC-07 | M | Tiếp UI-AC-06, bấm **"Ký quỹ và nhận"** | Toast **"Đã nhận đơn #1. Đến nhà vườn lấy hàng nhé!"**, chuyển sang tab **Đang giao** |
+| UI-AC-08 | M | B ví khả dụng **200.000đ** mở đơn COD #1 | Khung đỏ **"Ví còn thiếu 15.000đ. Nạp thêm để nhận đơn này."**, nút bên phải là **"Nạp ví"** |
+| UI-AC-09 | W | A đang giao 1 đơn, xem danh sách đơn mới | Mỗi thẻ hiện cảnh báo **"Bạn đang có 1 đơn đang giao..."**, nút nhận đổi thành **"Đang bận giao 1 đơn khác"** và bị khoá |
+| UI-AC-10 | M | B đang giao 1 đơn | Banner **"Bạn đang giao đơn #…"**, nút trên thẻ đơn là **"Giao xong đơn hiện tại để nhận thêm"** và bị mờ |
+| UI-AC-11 | W + M | A (web) và B (mobile) cùng mở đơn #2, **bấm nhận gần như cùng lúc** | Một người thấy nhận thành công. Người còn lại thấy **"Đơn này đã được tài xế khác nhận."** và đơn biến mất khỏi danh sách |
+| UI-AC-12 | W | A đang ký quỹ 215.000đ, khả dụng 285.000đ. Vào ví, bấm **"Rút tiền"**, nhập **300.000** | Hộp rút tiền chỉ cho rút tối đa **285.000đ**, gửi 300.000đ thì báo không đủ số dư |
 
-| ID | Điều kiện | Input | Output mong đợi | Tự động |
-|---|---|---|---|---|
-| AC-01 | A online, ví 500.000đ | `PUT /orders/2/ship` (PayOS) | `1000`, đơn SHIPPING, `shipperId = A`. Ví: số dư 500.000đ, `cod_reserved` 0, `SHIPPER_INCOME_HOLD` +14.550đ vào tạm giữ. Buyer + Shop nhận thông báo | BE ✓ |
-| AC-02 | A online, ví 500.000đ | `PUT /orders/1/ship` (COD) | `1000`. `orders.cod_reserved_amount = 215000`. Ví: số dư 500.000đ, `cod_reserved` 215.000đ, **khả dụng 285.000đ**. Bút toán `COD_RESERVED` amount −215.000 | BE ✓ |
-| AC-03 | A ví 200.000đ | `PUT /orders/1/ship` | Lỗi `16013`, `result = {required: 215000, available: 200000, missing: 15000}`. Đơn vẫn READY, ví không đổi. App: "Nạp thêm 15.000đ để nhận đơn" + nút Nạp ví | BE ✓ FE ✓ Mobile ✓ |
-| AC-04 | A ví −50.000đ (nợ COD cũ) | `PUT /orders/2/ship` (PayOS) | Lỗi `16014 WALLET_HAS_DEBT` | BE ✓ |
-| AC-05 | A đang giao đơn khác | `PUT /orders/2/ship` | Lỗi `7004 SHIPPER_HAS_ACTIVE_ORDER`, không giữ chỗ ví | BE ✓ |
-| AC-06 | Đơn #2 đã thuộc C | A gọi `PUT /orders/2/ship` | Lỗi `7005 ORDER_ALREADY_TAKEN` | BE ✓ FE ✓ |
-| AC-07 | A offline | `PUT /orders/2/ship` | Lỗi `7006` | BE ✓ |
-| AC-08 | A và C cùng bấm nhận #2 trong cùng 1 giây | 2 request song song | Đúng 1 request `1000`, request còn lại `7005`. Chỉ 1 ví có `SHIPPER_INCOME_HOLD` | |
-| AC-09 | A khả dụng 285.000đ (đang ký quỹ 215.000đ) | `POST /wallets/withdrawals {amount: 300000, ...}` | Lỗi `16008`: tiền ký quỹ không được rút | |
+### 10.4. Lấy hàng và đối soát mã (Bước 2)
 
-### 10.4. Lấy hàng và theo dõi realtime (Bước 2)
+| ID | Nền tảng | Input (thao tác) | Output (màn hình) |
+|---|---|---|---|
+| UI-PK-01 | W (Shop) | Shop mở danh sách đơn, đơn #1 đang **Đã xác nhận / Sẵn sàng giao / Shipper đang tới** | Thẻ có khung nét đứt **"Mã dán lên túi hàng"**, mã **#1** chữ to, dòng **"Tài xế sẽ so mã này trước khi bấm "Đã lấy hàng""**. Đơn **Chờ xác nhận** hoặc **Đã lấy hàng** không có khung này |
+| UI-PK-02 | M (Shop) | Shop mở tab **Đơn hàng** và màn chi tiết đơn #1 | Cùng khung **"Mã dán lên túi hàng" · #1** ở thẻ và ở màn chi tiết |
+| UI-PK-03 | W | A mở tab **Đơn đang giao**, đơn #1 đang tới vườn | Thẻ hiện mã **#1** chữ to và dòng **"Mã trên túi hàng phải trùng mã này"**, nhãn **"Chặng 1: Đang đến Shop lấy hàng"** |
+| UI-PK-04 | W | Bấm **"📦 Xác nhận đã lấy hàng tại Shop"** | Hộp xác nhận tiêu đề **"Đối soát mã đơn #1"**, nội dung **"Kiểm tra mã trên túi hàng trùng #1 rồi mới xác nhận đã lấy hàng."** |
+| UI-PK-05 | W | Ở hộp UI-PK-04 bấm **Huỷ** | Hộp đóng, đơn vẫn **Chặng 1**, không có thông báo nào |
+| UI-PK-06 | W | Ở hộp UI-PK-04 bấm **Xác nhận** | Popup **"Đã xác nhận lấy hàng tại shop thành công! Bắt đầu chặng giao đến người mua."**, nhãn đổi thành **"Chặng 2: Đã lấy hàng · Đang giao khách"** |
+| UI-PK-07 | W | Mở **"🗺️ Xem Bản Đồ Map"** lúc đang tới vườn, bấm nút xác nhận lấy hàng trên bản đồ | Cũng hiện hộp **"Đối soát mã đơn #1"** trước khi gọi |
+| UI-PK-08 | M | B mở tab **Đang giao**, đơn #1 đang tới vườn | Thanh chặng **"1. Đến vườn lấy hàng"** sáng, khung **"Mã đối soát" · #1** với dòng **"Mã trên túi hàng phải trùng mã này"** |
+| UI-PK-09 | M | Bấm **"Đã lấy hàng"** | Hộp **"Đối soát mã đơn"**, nội dung **"Kiểm tra mã trên túi hàng trùng #1, rồi bấm khi đã nhận đủ hàng của {tên shop}."**, nút **"Chưa"** và **"Mã trùng, đã lấy hàng"** |
+| UI-PK-10 | M | Bấm **"Mã trùng, đã lấy hàng"** | Toast **"Đã lấy hàng. Giao cho khách nhé!"**, thanh chặng chuyển sang **"2. Giao cho khách"**, khung mã đối soát ẩn đi |
+| UI-PK-11 | W + M (Buyer, Shop) | Sau khi tài xế nhận đơn, rồi lấy hàng | Buyer nhận **"{Tài xế} đã nhận đơn #1 và đang tới nhà vườn lấy hàng."**, sau đó **"Đơn #1 đã được lấy hàng và đang giao tới bạn. Mở bản đồ để theo dõi."**. Shop nhận **"{Tài xế} đã lấy hàng đơn #1."** |
 
-| ID | Điều kiện | Input | Output mong đợi | Tự động |
-|---|---|---|---|---|
-| PK-01 | Đơn #1 SHIPPING, shipper A | A gọi `PUT /orders/1/pickup` | `1000`, PICKED_UP, `pickedUpAt` có giá trị. Buyer + Shop nhận thông báo | |
-| PK-02 | Đơn #1 SHIPPING của A | C gọi `PUT /orders/1/pickup` | Lỗi `1004 UNAUTHORIZED` | |
-| PK-03 | Đơn #1 READY | Nhà vườn mở danh sách đơn (web / mobile) | Thẻ đơn hiện khung "Mã dán lên túi hàng **#1**". Đơn PENDING hoặc PICKED_UP không hiện khung này | FE ✓ Mobile ✓ (`needsPickupCode`) |
-| PK-04 | Đơn #1 SHIPPING của A | A bấm "Đã lấy hàng" | Hiện hộp "Đối soát mã đơn #1" với câu "Kiểm tra mã trên túi hàng trùng #1". Bấm huỷ: không gọi API, đơn vẫn SHIPPING. Bấm xác nhận: gọi `PUT /orders/1/pickup` → PICKED_UP | |
-| GPS-01 | Đơn #1 PICKED_UP của A | A publish STOMP `/app/shipper/location {"orderId":1,"latitude":10.80,"longitude":106.70}` | Topic `/topic/order/1/location` nhận vị trí kèm `deliveryPhase: TO_BUYER`, `distanceKm` (quãng còn lại tới khách), `estimatedMinutes` | BE ✓ (công thức) |
-| GPS-02 | Đơn #1 của A | C (hoặc Buyer) publish vị trí / `gpsOff` cho đơn #1 | Bị bỏ qua, topic không nhận gì | |
-| GPS-03 | Đơn #1 SHIPPING, chưa có vị trí | `GET /shippers/location/order/1` | `deliveryPhase: TO_SHOP` (trước đây sai thành `TO_BUYER`) | BE ✓ |
-| GPS-04 | Còn 5 km tới khách | Tính ETA | `estimatedMinutes = 12` (25 km/h, làm tròn lên) | BE ✓ |
-| GPS-05 | Đơn #1 PICKED_UP, BE trả `distanceKm = 2.3`, `estimatedMinutes = 6` | Buyer / nhà vườn mở bản đồ | Hiện "Còn ~2,3 km · khoảng 6 phút", tự cập nhật theo mỗi lần nhận vị trí | FE ✓ Mobile ✓ (`formatEta`) |
-| GPS-06 | `distanceKm = 0.42`, `estimatedMinutes = 1` | Hiển thị | "Còn ~400 m · sắp tới nơi" | FE ✓ Mobile ✓ |
-| GPS-07 | Đơn DELIVERED (`distanceKm = 0`, `estimatedMinutes = 0`) | Hiển thị | Ẩn dòng km/phút | FE ✓ Mobile ✓ |
+### 10.5. Theo dõi bản đồ: km và số phút (Bước 2)
 
-### 10.5. Giao hàng và phân nhánh (Bước 3)
+| ID | Nền tảng | Input (thao tác) | Output (màn hình) |
+|---|---|---|---|
+| UI-MAP-01 | W (Buyer / Shop) | Đơn #1 đã lấy hàng, tài xế đang chạy (hoặc bật **🎭 Demo GPS**). Mở bản đồ theo dõi | Dưới dòng trạng thái chặng có dòng xanh đậm **"Còn ~x,x km · khoảng y phút"**, con số giảm dần khi xe di chuyển |
+| UI-MAP-02 | W | Kiểm tra số liệu: còn **5,0 km** | Hiện **"Còn ~5,0 km · khoảng 12 phút"** (công thức ở 9.3) |
+| UI-MAP-03 | W / M | Xe tới gần khách, còn dưới 1 km | Đổi sang mét, ví dụ **"Còn ~400 m · sắp tới nơi"** |
+| UI-MAP-04 | W / M | Đơn đã giao thành công | Dòng km/phút **không còn hiện** |
+| UI-MAP-05 | M (Buyer) | Mở **Theo dõi** khi tài xế còn đang tới vườn | Không hiện dòng km/phút (Buyer chưa được xem xe ở chặng 1). Sau khi tài xế lấy hàng thì dòng xuất hiện |
+| UI-MAP-06 | M (Shop / Shipper) | Mở màn theo dõi đơn đang giao | Hiện **"Còn ~… · khoảng … phút"** dưới thẻ trạng thái |
 
-| ID | Điều kiện | Input | Output mong đợi | Tự động |
-|---|---|---|---|---|
-| DL-01 | Đơn #1 PICKED_UP | `PUT /orders/1/deliver {}` hoặc `{"proofImageUrls":["abc"]}` | Lỗi `7007 DELIVERY_PROOF_REQUIRED` | BE ✓ Mobile ✓ |
-| DL-02 | Đơn COD #1 PICKED_UP, A ký quỹ 215.000đ | `PUT /orders/1/deliver {"proofImageUrls":["https://res.cloudinary.com/.../1.jpg"]}` | `1000`, DELIVERED, `deliveryProofUrls` có 1 ảnh. Ví A: `COD_RESERVE_RELEASED` +215.000 rồi `COD_CASH_COLLECTED` −215.000. **Số dư 285.000đ, `cod_reserved` 0**, `codSettled = true`. Shop + Sàn có tạm giữ. Buyer nhận "Hãy bấm Đã nhận hàng" | BE ✓ FE ✓ |
-| DL-03 | Đơn PayOS #2 PICKED_UP | `PUT /orders/2/deliver` (có ảnh) | `1000`, DELIVERED, ví A không đổi số dư | |
-| DL-04 | Tiếp DL-02 | Buyer `PUT /orders/1/complete` | `1000`, COMPLETED. Ví A +14.550đ (299.550đ). Shop +180.000đ. Sàn +20.450đ | |
-| FL-01 | Đơn #1 PICKED_UP | `PUT /orders/1/fail {"proofImageUrls":["https://..."]}` (không có reason) | Lỗi `7008 FAIL_REASON_REQUIRED` | |
-| FL-02 | Đơn #1 PICKED_UP | `{"reason":"KHONG_LIEN_LAC_DUOC","callAttempts":2,"proofImageUrls":["https://..."]}` | Lỗi `7009` (cần ≥ 3 cuộc) | BE ✓ Mobile ✓ |
-| FL-03 | Đơn #1 SHIPPING | `{"reason":"KHAC","proofImageUrls":["https://..."]}` | Lỗi `7010` (lý do khác phải ghi chú) | BE ✓ Mobile ✓ |
-| FL-04 | Đơn COD #1 PICKED_UP, A ký quỹ 215.000đ, đơn có 2 sản phẩm + 1 Mystery Box + 1 Combo | `{"reason":"KHONG_LIEN_LAC_DUOC","callAttempts":3,"note":"Gọi 3 lần không nghe","proofImageUrls":["https://..."]}` | `1000`, FAILED, lưu `failReason`, `failCallAttempts = 3`, `failProofUrls`. Tồn kho cả 4 món được cộng lại (`increaseStockAtomic`). Ví A: `COD_RESERVE_RELEASED`, **khả dụng lại 500.000đ**, `SHIPPER_INCOME_HOLD` bị gỡ. Voucher trả lại. Buyer + Shop nhận thông báo | BE ✓ (luật + ví) |
-| FL-05 | Đơn PayOS #2 PICKED_UP | `PUT /orders/2/fail` hợp lệ | `1000`, FAILED, `refundAmount = 215000`, `refundReason` "Giao hàng thất bại...", đơn hiện trong `GET /wallets/refunds` để Admin hoàn tiền | |
+### 10.6. Giao hàng và phân nhánh (Bước 3)
 
-### 10.6. Nạp ví
+| ID | Nền tảng | Input (thao tác) | Output (màn hình) |
+|---|---|---|---|
+| UI-DL-01 | W | Đơn #1 ở chặng 2, A bấm **"Giao thành công"** | Hộp **"Xác nhận giao hàng · Đơn #1"**, có tên + số khách và nút **Gọi**. Khung vàng **"Thu tiền mặt của khách: 215.000đ..."** |
+| UI-DL-02 | W | Không chọn ảnh, bấm **"Xác nhận đã giao"** | Dòng đỏ **"Chụp ít nhất 1 ảnh bằng chứng."**, hộp không đóng |
+| UI-DL-03 | W | Bấm **"Thêm ảnh"**, chọn 1 ảnh, bấm **"Xác nhận đã giao"** | Ảnh hiện thu nhỏ. Sau khi gửi: popup **"Giao hàng thành công! Cước giao vào ví khi khách xác nhận đã nhận hàng."**, đơn biến mất khỏi Đơn đang giao |
+| UI-DL-04 | W | Sau UI-DL-03, mở ví | **SỐ DƯ KHẢ DỤNG 285.000đ**, **ĐANG KÝ QUỸ COD 0đ**. Lịch sử có **"Gỡ ký quỹ đơn COD · Đơn #1"** và **"Thu tiền mặt COD · Đơn #1"** −215.000đ |
+| UI-DL-05 | W (Buyer) | Buyer mở đơn #1, bấm **Đã nhận hàng** | Đơn **Hoàn thành**. Ví A (tải lại) tăng **14.550đ** thành **299.550đ**, lịch sử có **"Cước giao hàng về ví"** |
+| UI-DL-06 | W | Thử chọn **6 ảnh** | Chỉ giữ **5 ảnh**, ô **"Thêm ảnh"** ẩn đi |
+| UI-DL-07 | M | Đơn #1 chặng 2, B bấm **"Giao thành công"** | Tấm **"Xác nhận đã giao · #1"**, khung **"Thu đủ 215.000đ tiền mặt của khách..."**, nút **"Chụp ảnh"** và **"Chọn ảnh"** |
+| UI-DL-08 | M | Không chụp ảnh, bấm **"Đã giao"** | Toast **"Kiểm tra lại các mục được đánh dấu đỏ nhé."**, dòng đỏ **"Chụp ít nhất 1 ảnh bằng chứng."** |
+| UI-DL-09 | M | Chụp 1 ảnh, bấm **"Đã giao"** | Toast **"Giao thành công! Cước giao vào ví khi khách xác nhận đã nhận hàng."**, đơn rời tab Đang giao |
+| UI-FL-01 | W | Chặng 2, bấm **"Giao thất bại"** | Hộp **"Báo giao thất bại · Đơn #1"** với 4 lựa chọn lý do: **Không liên lạc được**, **Sai địa chỉ**, **Khách từ chối nhận**, **Lý do khác**; bộ đếm **"Số cuộc đã gọi khách"** |
+| UI-FL-02 | W | Có ảnh nhưng chưa chọn lý do, bấm **"Báo thất bại"** | Dòng đỏ **"Chọn lý do giao thất bại."** |
+| UI-FL-03 | W | Chọn **Không liên lạc được**, bấm **+** 2 lần (số cuộc = 2), bấm **"Báo thất bại"** | Dòng đỏ **"Cần gọi khách tối thiểu 3 cuộc."** |
+| UI-FL-04 | W | Chọn **Lý do khác**, để trống ghi chú | Dòng đỏ **"Ghi rõ lý do."** |
+| UI-FL-05 | W | Chọn **Không liên lạc được**, số cuộc **3**, 1 ảnh, bấm **"Báo thất bại"** | Popup **"Đã báo giao thất bại. Hàng được hoàn kho, tiền ký quỹ COD (nếu có) đã trả lại ví."**. Ví: **SỐ DƯ KHẢ DỤNG 500.000đ**, **ĐANG KÝ QUỸ COD 0đ**, lịch sử có **"Gỡ ký quỹ đơn COD"** |
+| UI-FL-06 | W (Shop) | Sau UI-FL-05, Shop mở danh sách sản phẩm / túi mù / combo của đơn | Tồn kho các món trong đơn **tăng lại** đúng số lượng đã đặt. Shop nhận **"Đơn #1 giao thất bại, hàng được hoàn về kho."** |
+| UI-FL-07 | W (Buyer) | Đơn PayOS #2 bị báo giao thất bại | Buyer nhận **"Đơn #2 giao không thành công. Đơn đã được huỷ, sàn sẽ hoàn 215.000đ cho bạn."**. Admin thấy đơn trong danh sách cần hoàn tiền |
+| UI-FL-08 | W | Chặng 1 (chưa lấy hàng), bấm **"Không lấy được"** | Mở cùng hộp **"Báo giao thất bại · Đơn #1"** |
+| UI-FL-09 | M | Chặng 2, bấm **"Thất bại"** | Tấm **"Báo giao thất bại · #1"**, nhóm chọn **"Lý do"**, bộ đếm cuộc gọi, ô **"Ghi chú"** |
+| UI-FL-10 | M | Chọn **Không liên lạc được**, số cuộc 2, có ảnh, bấm **"Báo thất bại"** | Toast **"Kiểm tra lại các mục được đánh dấu đỏ nhé."**, dòng đỏ **"Cần gọi khách tối thiểu 3 cuộc."** |
+| UI-FL-11 | M | Chặng 1, bấm **"Không lấy được"** | Tấm tiêu đề **"Không lấy được hàng · #1"** |
+| UI-FL-12 | M | Điền hợp lệ, bấm **"Báo thất bại"** | Toast **"Đã báo giao thất bại. Hàng được hoàn kho, tiền ký quỹ COD đã trả lại ví."** |
 
-| ID | Điều kiện | Input | Output mong đợi | Tự động |
-|---|---|---|---|---|
-| TU-01 | A đăng nhập | `POST /wallets/topups {"amount":5000}` | Lỗi `16015` (tối thiểu 10.000đ) | Mobile ✓ |
-| TU-02 | A đăng nhập | `POST /wallets/topups {"amount":100000,"returnUrl":"http://localhost:3000/shipper?tab=wallet"}` | `1000`, `{status: PENDING, orderCode, checkoutUrl}`, có dòng `wallet_topups` | |
-| TU-03 | Tiếp TU-02, đã trả trên PayOS | PayOS gọi webhook với `orderCode` đó | Ví A +100.000đ (`TOP_UP`), lệnh `PAID`. Không đi vào luồng thanh toán đơn | |
-| TU-04 | Tiếp TU-03 | Gọi lại webhook hoặc `POST /wallets/topups/{orderCode}/confirm` | Không cộng thêm (idempotent), trả `status: PAID` | |
-| TU-05 | Lệnh của A | C gọi `POST /wallets/topups/{orderCode}/confirm` | Lỗi `1034 FORBIDDEN` | |
+### 10.7. Ví và nạp ví
+
+| ID | Nền tảng | Input (thao tác) | Output (màn hình) |
+|---|---|---|---|
+| UI-W-01 | W | A mở `/shipper?tab=wallet` | 4 ô: **SỐ DƯ KHẢ DỤNG** (kèm "Tổng số dư …"), **ĐANG KÝ QUỸ COD**, **CƯỚC ĐANG TẠM GIỮ**, **TỔNG THU NHẬP**. Nút **"Nạp ví"**, **"Rút tiền"** |
+| UI-W-02 | W | Bấm **"Nạp ví"**, nhập **5.000**, bấm **"Thanh toán"** | Dòng đỏ **"Tối thiểu 10.000đ"**, không chuyển trang |
+| UI-W-03 | W | Bấm nút nhanh **100.000đ**, bấm **"Thanh toán 100.000đ"** | Chuyển sang trang thanh toán PayOS |
+| UI-W-04 | W | Thanh toán xong trên PayOS | Quay về tab ví, khung xanh **"Đã nạp 100.000đ vào ví."**. Số dư tăng 100.000đ, lịch sử có **"Nạp ví qua PayOS"** +100.000đ |
+| UI-W-05 | W | Trên PayOS bấm **Huỷ** | Quay về tab ví, khung đỏ **"Lệnh nạp đã huỷ, ví không thay đổi."** |
+| UI-W-06 | W | Sau UI-W-04, tải lại trang (F5) | Không hiện lại thông báo, số dư **không cộng thêm lần nữa** |
+| UI-W-07 | M | B vào **Tài khoản → "Ví tài xế"** | Thẻ xanh **"Số dư khả dụng"** kèm **"Tổng số dư …"** và nút **"Nạp ví"**. Hai ô **"Đang ký quỹ COD"**, **"Cước tạm giữ"**. Mục **"Lịch sử biến động"** |
+| UI-W-08 | M | Bấm **"Nạp ví"**, nhập 5.000, bấm **"Nạp 5.000đ"** | Ô số tiền báo đỏ **"Tối thiểu 10.000đ"** |
+| UI-W-09 | M | Chọn **100.000đ**, bấm **"Nạp 100.000đ"**, thanh toán trong trình duyệt của app | Quay về app, toast **"Đã nạp tiền vào ví."**, số dư tăng |
+| UI-W-10 | M | Mở PayOS rồi đóng trình duyệt không trả tiền | Toast **"Đã huỷ nạp tiền, ví không thay đổi."** hoặc **"Đang chờ PayOS xác nhận. Kéo xuống để tải lại sau ít phút."** |
+| UI-W-11 | M | Từ tấm nhận đơn COD thiếu tiền (UI-AC-08), bấm **"Nạp ví"** và nạp đủ | Ô số tiền điền sẵn số còn thiếu (làm tròn lên nghìn, tối thiểu 10.000đ). Nạp xong, tấm nhận đơn đổi nút thành **"Ký quỹ và nhận"** |
 
 ## 11. Ngoài phạm vi 3 bước của tài liệu (chưa làm)
 
