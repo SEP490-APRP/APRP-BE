@@ -12,6 +12,9 @@ import java.math.BigDecimal;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class OrderDetailResponse {
     int orderDetailId;
+    Integer productId;
+    Integer mysteryBoxId;
+    Integer buildComboId;
     String itemType;   // PRODUCT, MYSTERY_BOX, BUILD_COMBO
     String itemName;   // tên sản phẩm/combo/box
     String imageUrl;   // ảnh đại diện

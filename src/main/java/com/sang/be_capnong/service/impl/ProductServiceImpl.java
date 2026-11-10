@@ -125,13 +125,14 @@ public class ProductServiceImpl implements ProductService {
             Integer categoryId,
             String keyword,
             String status,
+            Integer shopId,
             int page,
             int size,
             String sortBy,
             String sortDirection
     ) {
-        log.info("Fetching products list - category: {}, keyword: {}, status: {}, page: {}, size: {}",
-                categoryId, keyword, status, page, size);
+        log.info("Fetching products list - category: {}, keyword: {}, status: {}, shopId: {}, page: {}, size: {}",
+                categoryId, keyword, status, shopId, page, size);
 
         String effectiveSortBy = (sortBy != null && !sortBy.isBlank()) ? sortBy : "productId";
         Sort.Direction direction = "asc".equalsIgnoreCase(sortDirection) ? Sort.Direction.ASC : Sort.Direction.DESC;
@@ -152,7 +153,7 @@ public class ProductServiceImpl implements ProductService {
             }
         }
 
-        Specification<Product> spec = ProductSpecification.filterProducts(effectiveStatus, categoryId, keyword, null);
+        Specification<Product> spec = ProductSpecification.filterProducts(effectiveStatus, categoryId, keyword, shopId);
         Page<Product> productPage = productRepository.findAll(spec, pageable);
 
         List<ProductResponse> content = productPage.getContent().stream()
