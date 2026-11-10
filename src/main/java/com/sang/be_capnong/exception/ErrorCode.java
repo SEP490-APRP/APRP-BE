@@ -202,6 +202,7 @@ public enum ErrorCode {
     EMPTY_MESSAGE_CONTENT(12005, "Message content or attachment cannot be empty", HttpStatus.BAD_REQUEST),
     MESSAGE_NOT_FOUND(12006, "Message not found", HttpStatus.NOT_FOUND),
     NOT_MESSAGE_SENDER(12007, "You can only delete messages sent by yourself", HttpStatus.FORBIDDEN),
+    CHATBOT_RATE_LIMITED(12008, "Bạn gửi tin nhắn hơi nhanh. Vui lòng thử lại sau ít phút.", HttpStatus.TOO_MANY_REQUESTS),
 
     // Review Errors (Series 13000)
     REVIEW_NOT_FOUND(13001, "Review not found", HttpStatus.NOT_FOUND),
