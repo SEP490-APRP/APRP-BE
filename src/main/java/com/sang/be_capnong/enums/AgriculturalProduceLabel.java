@@ -97,7 +97,19 @@ public enum AgriculturalProduceLabel {
     ASPARAGUS("ASPARAGUS", "Măng tây"),
     CUSTARD_APPLE("CUSTARD APPLE", "Mãng cầu"),
     SAPODILLA("SAPODILLA", "Hồng xiêm"),
-    PASSION_FRUIT("PASSION FRUIT", "Chanh dây");
+    PASSION_FRUIT("PASSION FRUIT", "Chanh dây"),
+    MANGOSTEEN("MANGOSTEEN", "Măng cụt"),
+    COCONUT("COCONUT", "Dừa"),
+    GINGER("GINGER", "Gừng"),
+    BEETROOT("BEETROOT", "Củ dền"),
+    ZUCCHINI("ZUCCHINI", "Bí ngòi"),
+    BOK_CHOY("BOK CHOY", "Cải thìa"),
+    BASIL("BASIL", "Húng quế"),
+    LEMONGRASS("LEMONGRASS", "Sả"),
+    MINT("MINT", "Bạc hà"),
+    CORIANDER("CORIANDER", "Ngò rí"),
+    PERILLA("PERILLA", "Tía tô"),
+    NONI("NONI", "Quả nhàu");
 
     private final String label;
     private final String vietnameseName;
@@ -152,6 +164,9 @@ public enum AgriculturalProduceLabel {
         if (this == CORN || this == MAIZE) {
             return "bắp cải";
         }
+        if (this == COCONUT) {
+            return "dưa";
+        }
         return null;
     }
 
@@ -165,6 +180,7 @@ public enum AgriculturalProduceLabel {
         String lower = text.toLowerCase(Locale.ROOT);
 
         // Thứ tự ưu tiên từ dài đến ngắn để tránh nhận diện nhầm từ con (Hỗ trợ cả tiếng Việt và tiếng Anh)
+        if (lower.contains("quả nhàu") || lower.contains("trái nhàu") || lower.contains("cây nhàu") || lower.contains("noni") || lower.contains("morinda")) return Optional.of(NONI);
         if (lower.contains("dưa hấu") || lower.contains("watermelon") || lower.contains("citrullus")) return Optional.of(WATERMELON);
         if (lower.contains("thanh long") || lower.contains("dragon fruit") || lower.contains("pitaya")) return Optional.of(DRAGON_FRUIT);
         if (lower.contains("sầu riêng") || lower.contains("durian")) return Optional.of(DURIAN);
@@ -173,6 +189,7 @@ public enum AgriculturalProduceLabel {
         if (lower.contains("bắp cải") || lower.contains("cabbage")) return Optional.of(CABBAGE);
         if (lower.contains("bông cải") || lower.contains("súp lơ xanh") || lower.contains("broccoli")) return Optional.of(BROCCOLI);
         if (lower.contains("súp lơ") || lower.contains("cauliflower")) return Optional.of(CAULIFLOWER);
+        if (lower.contains("măng cụt") || lower.contains("mangosteen")) return Optional.of(MANGOSTEEN);
         if (lower.contains("chôm chôm") || lower.contains("rambutan")) return Optional.of(RAMBUTAN);
         if (lower.contains("dâu tây") || lower.contains("strawberry")) return Optional.of(STRAWBERRY);
         if (lower.contains("dưa leo") || lower.contains("dưa chuột") || lower.contains("cucumber")) return Optional.of(CUCUMBER);
@@ -187,6 +204,11 @@ public enum AgriculturalProduceLabel {
         if (lower.contains("chanh dây") || lower.contains("chanh leo") || lower.contains("passion fruit")) return Optional.of(PASSION_FRUIT);
         if (lower.contains("mãng cầu") || lower.contains("trái na") || lower.contains("quả na") || lower.contains("custard apple") || lower.contains("sugar apple")) return Optional.of(CUSTARD_APPLE);
         if (lower.contains("hồng xiêm") || lower.contains("sa pô chê") || lower.contains("sapodilla")) return Optional.of(SAPODILLA);
+        if (lower.contains("dừa xiêm") || lower.contains("trái dừa") || lower.contains("quả dừa") || lower.contains("coconut")) return Optional.of(COCONUT);
+        if (lower.contains("củ gừng") || lower.contains("gừng") || lower.contains("ginger")) return Optional.of(GINGER);
+        if (lower.contains("củ dền") || lower.contains("beetroot") || lower.contains("beet")) return Optional.of(BEETROOT);
+        if (lower.contains("bí ngòi") || lower.contains("zucchini") || lower.contains("courgette")) return Optional.of(ZUCCHINI);
+        if (lower.contains("cải thìa") || lower.contains("bok choy") || lower.contains("pak choi")) return Optional.of(BOK_CHOY);
         if (lower.contains("bí đỏ") || lower.contains("pumpkin") || lower.contains("squash")) return Optional.of(PUMPKIN);
         if (lower.contains("xà lách") || lower.contains("lettuce") || lower.contains("salad greens")) return Optional.of(LETTUCE);
         if (lower.contains("rau chân vịt") || lower.contains("cải bó xôi") || lower.contains("spinach")) return Optional.of(SPINACH);
@@ -200,6 +222,11 @@ public enum AgriculturalProduceLabel {
         if (lower.contains("nhãn") || lower.contains("longan")) return Optional.of(LONGAN);
         if (lower.contains("mít") || lower.contains("jackfruit")) return Optional.of(JACKFRUIT);
         if (lower.contains("bưởi") || lower.contains("pomelo") || lower.contains("grapefruit")) return Optional.of(POMELO);
+        if (lower.contains("húng quế") || lower.contains("húng chanh") || lower.contains("húng tây") || lower.contains("húng chó") || lower.contains("rau húng") || lower.contains("lemon basil") || lower.contains("lime basil") || lower.contains("thai basil") || lower.contains("sweet basil") || lower.contains("basil") || lower.contains("ocimum")) return Optional.of(BASIL);
+        if (lower.contains("cây sả") || lower.contains("củ sả") || lower.contains("lemongrass") || lower.contains("sả")) return Optional.of(LEMONGRASS);
+        if (lower.contains("bạc hà") || lower.contains("húng lủi") || lower.contains("peppermint") || lower.contains("spearmint") || lower.contains("mint")) return Optional.of(MINT);
+        if (lower.contains("ngò rí") || lower.contains("rau mùi") || lower.contains("ngò gai") || lower.contains("rau ngò") || lower.contains("coriander") || lower.contains("cilantro")) return Optional.of(CORIANDER);
+        if (lower.contains("tía tô") || lower.contains("perilla") || lower.contains("shiso")) return Optional.of(PERILLA);
         if (lower.contains("chanh") || lower.contains("lime") || lower.contains("lemon")) return Optional.of(LIME);
         if (lower.contains("táo") || lower.contains("apple")) return Optional.of(APPLE);
         if (lower.contains("cam") || lower.contains("orange")) return Optional.of(ORANGE);

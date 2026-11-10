@@ -45,7 +45,7 @@ public class GoogleVisionImageSearchServiceImpl implements ImageSearchService {
     // ==========================================
     static final long WINDOW_MS = 60_000L;
     static final int MAX_REQUESTS_PER_MINUTE = 10;
-    static final long MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+    static final long MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
     final Map<String, ConcurrentLinkedDeque<Long>> ipRequestTimestamps = new ConcurrentHashMap<>();
 
@@ -366,7 +366,7 @@ public class GoogleVisionImageSearchServiceImpl implements ImageSearchService {
         }
 
         if (file.getSize() > MAX_FILE_SIZE) {
-            log.warn("Image file size {} exceeds limit of 5MB", file.getSize());
+            log.warn("Image file size {} exceeds limit of 10MB", file.getSize());
             throw new AppException(ErrorCode.FILE_TOO_LARGE);
         }
 

@@ -70,6 +70,19 @@ INSERT INTO products (product_id, shop_id, category_id, product_name, unit, sell
 (118, 4, 4, 'Bắp ngọt Mỹ giòn hạt', 'bắp', 12000, 120, 'Bắp ngọt Mỹ bắp to đều hạt mẩy căng mọng, vị ngọt thanh mát luộc ăn vặt bổ dưỡng.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
 (119, 4, 3, 'Cà tím quả dài Đà Lạt', 'kg', 24000, 70, 'Cà tím quả thẳng vỏ bóng tím mướt, ruột mềm ngọt nướng mỡ hành hoặc kho thịt ba chỉ.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 10 DAY), 0),
 (120, 4, 1, 'Măng tây xanh loại 1', 'bó', 48000, 40, 'Măng tây xanh ngọn non giòn rụm, giàu axit folic và khoáng chất, xào tỏi hoặc bò tuyệt hảo.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 4 DAY), 0),
+(121, 4, 3, 'Khổ qua rừng Đà Lạt tươi giòn', 'kg', 35000, 70, 'Khổ qua rừng trái nhỏ gai nhọn, vị đắng thanh đậm đà, cực kỳ tốt cho người tiểu đường và thanh nhiệt.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 6 DAY), 0),
+(122, 4, 3, 'Dưa lưới hoàng kim ruột cam', 'kg', 65000, 85, 'Dưa lưới giống Nhật vỏ vân lưới dày đẹp, thịt quả màu cam giòn tan ngọt lịm mọng nước.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 12 DAY), 5),
+(123, 4, 3, 'Chanh dây tím Đà Lạt mọng nước', 'kg', 38000, 90, 'Chanh dây tím quả tròn căng mẩy, dịch quả vàng ươm thơm ngát, vị chua ngọt hài hòa làm nước giải khát.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 15 DAY), 0),
+(124, 4, 4, 'Nấm rơm tươi loại 1 hữu cơ', 'kg', 45000, 60, 'Nấm rơm búp tròn chắc thịt, thu hái sáng sớm không ngâm hóa chất, nấu canh xào kho đều ngọt thanh.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 3 DAY), 0),
+(125, 4, 1, 'Bí ngòi xanh Đà Lạt (Zucchini)', 'kg', 24000, 95, 'Bí ngòi xanh quả thon dài vỏ mỏng bóng mướt, ruột mềm ngọt thích hợp làm món xào nướng hoặc nấu súp.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 8 DAY), 0),
+(126, 4, 2, 'Củ dền đỏ Đà Lạt bổ dưỡng', 'kg', 28000, 80, 'Củ dền đỏ thẫm tươi cứng cáp, giàu chất sắt và khoáng chất, ép nước hoặc hầm súp canh màu sắc bắt mắt.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 20 DAY), 0),
+(127, 4, 3, 'Mận hậu Mộc Châu giòn ngọt', 'kg', 55000, 60, 'Mận hậu quả to tròn căng mọng phủ phấn trắng, thịt quả đỏ au giòn rụm vị chua ngọt đậm đà.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
+(128, 4, 3, 'Đào hồng Sa Pa mọng ngọt', 'kg', 65000, 50, 'Đào hồng Sa Pa lông tơ mịn màng má ửng hồng, thịt quả giòn ngọt thơm lừng hương vị núi rừng Tây Bắc.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 5 DAY), 10),
+(129, 4, 1, 'Cải thìa (Bok choy) thủy canh', 'túi', 18000, 100, 'Cải thìa bẹ trắng lá xanh non mướt, cuống giòn ngọt tự nhiên không dư lượng thuốc, xào dầu hào siêu ngon.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 4 DAY), 0),
+(130, 4, 2, 'Cà rốt baby giòn ngọt ăn sống', 'túi', 32000, 75, 'Cà rốt baby củ nhỏ xinh vỏ mỏng ruột đặc, giòn ngọt thanh khiết rửa sạch ăn sống ngay hoặc làm salad.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 12 DAY), 0),
+(131, 4, 1, 'Rau húng quế sạch VietGAP', 'bó', 8000, 100, 'Rau húng quế ngọn non thơm ngát, lá xanh dày không dập nát, ăn kèm phở bún bò hoặc làm gia vị dậy mùi.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 4 DAY), 0),
+(132, 4, 2, 'Củ sả tươi Tây Ninh thơm nồng', 'bó', 12000, 80, 'Củ sả cây mập mạp bẹ trắng tinh thơm ngát tinh dầu, đập dập kho thịt cá hoặc nấu lẩu thơm lừng.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 15 DAY), 0),
+(133, 4, 1, 'Rau bạc hà (Húng lủi) hữu cơ', 'bó', 10000, 90, 'Rau bạc hà húng lủi lá nhỏ the mát sảng khoái, ăn sống giải nhiệt hoặc pha trà decor đồ uống.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 4 DAY), 0),
 
 (201, 5, 1, 'Rau ngót vườn hữu cơ', 'bó', 10000, 80, 'Rau ngót lá nhỏ xanh đậm, nấu canh thịt bằm ngọt mát.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 4 DAY), 0),
 (202, 5, 1, 'Mồng tơi ngọn non', 'bó', 10000, 90, 'Mồng tơi xanh non, thích hợp nấu canh cua rau đay mồng tơi thanh mát.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 3 DAY), 0),
@@ -89,7 +102,18 @@ INSERT INTO products (product_id, shop_id, category_id, product_name, unit, sell
 (216, 5, 3, 'Nho đen không hạt Ninh Thuận', 'kg', 75000, 45, 'Nho đen chùm chắc quả căng bóng, vị ngọt dịu giòn thơm, trồng theo chuẩn an toàn.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
 (217, 5, 3, 'Táo đỏ giống Envy giòn ngọt', 'kg', 68000, 70, 'Táo đỏ vỏ căng mọng nước, thịt giòn tan vị ngọt đậm đà, thơm mát bồi bổ sức khỏe.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 15 DAY), 0),
 (218, 5, 4, 'Đậu que Nhật giòn ngọt', 'kg', 30000, 75, 'Đậu que thân mập xanh non không xơ, luộc chấm kho quẹt hoặc xào tỏi giòn ngọt.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 6 DAY), 0),
-(219, 5, 3, 'Ớt cay chỉ thiên tươi', 'túi', 15000, 100, 'Ớt chỉ thiên đỏ tươi quả nhỏ cay nồng, đượm vị dùng pha nước chấm thơm lừng.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 15 DAY), 0)
+(219, 5, 3, 'Ớt cay chỉ thiên tươi', 'túi', 15000, 100, 'Ớt chỉ thiên đỏ tươi quả nhỏ cay nồng, đượm vị dùng pha nước chấm thơm lừng.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 15 DAY), 0),
+(220, 5, 3, 'Chôm chôm nhãn Tiền Giang tróc múi', 'kg', 40000, 120, 'Chôm chôm nhãn vỏ vàng đỏ râu ngắn, cơm dày khô ráo tróc múi hoàn toàn, vị ngọt đậm thơm mát.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 5 DAY), 0),
+(221, 5, 3, 'Măng cụt Lái Thiêu múi trắng tinh', 'kg', 95000, 50, 'Măng cụt nữ hoàng trái cây miền nhiệt đới, vỏ mềm mỏng múi to mọng ngọt thanh mát không sượng.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 6 DAY), 0),
+(222, 5, 3, 'Mít Thái siêu sớm múi vàng ươm', 'kg', 35000, 140, 'Mít Thái múi dày cùi mỏng hạt nhỏ, xơ vàng ngọt đậm giòn sần sật, thơm ngát mùi mít quê.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 5 DAY), 0),
+(223, 5, 3, 'Nhãn xuồng cơm vàng Bến Tre', 'kg', 50000, 80, 'Nhãn xuồng quả to tròn vỏ vàng sậm, cơm dày vàng ươm giòn ngọt nước thơm lừng đậm đà.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
+(224, 5, 3, 'Vải thiều chín đỏ ngọt lịm', 'kg', 65000, 70, 'Vải thiều cùi dày mọng nước hạt bé xíu, vị ngọt thanh khiết thơm mát xua tan cơn khát mùa hè.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 5 DAY), 0),
+(225, 5, 3, 'Mãng cầu xiêm chua ngọt dầm đá', 'kg', 48000, 65, 'Mãng cầu xiêm quả to gai mềm ruột trắng muốt, vị chua ngọt hài hòa tuyệt hảo làm sinh tố giải nhiệt.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 8 DAY), 0),
+(226, 5, 3, 'Hồng xiêm Tiền Giang ngọt đậm cát mịn', 'kg', 38000, 90, 'Hồng xiêm quả thon dài vỏ mỏng hạt tiêu, thịt mềm ngọt lịm như mật ong, thơm mát dễ tiêu hóa.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
+(227, 5, 3, 'Dừa xiêm xanh Bến Tre ngọt mát', 'trái', 16000, 200, 'Dừa xiêm xanh gọt sẵn nước trong veo ngọt lịm tự nhiên, giải khát bù khoáng cực tốt cho sức khỏe.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 25 DAY), 0),
+(228, 5, 2, 'Đậu phộng tươi củ chắc hạt', 'kg', 28000, 110, 'Đậu phộng củ vừa nhổ cuống tươi rói, vỏ mỏng hạt đều béo bùi, luộc ăn vặt thơm ngọt tự nhiên.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 10 DAY), 0),
+(229, 5, 4, 'Bắp nếp dẻo thơm Tây Ninh', 'bắp', 10000, 150, 'Bắp nếp bắp thon hạt trắng đều mẩy, luộc lên dẻo thơm mềm ngọt đậm đà hương đồng gió nội.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
+(230, 5, 2, 'Gừng sẻ củ già thơm cay nồng', 'kg', 42000, 60, 'Gừng sẻ củ nhỏ nhánh nhiều gân, hương thơm cay nồng ấm bụng, thích hợp làm gia vị và hãm trà.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 45 DAY), 0)
 ON DUPLICATE KEY UPDATE product_name=VALUES(product_name), selling_price=VALUES(selling_price);
 
 -- 5. PRODUCT IMAGES
@@ -114,6 +138,19 @@ INSERT INTO product_images (product_id, image_url, is_primary, display_order, is
 (118, 'https://images.unsplash.com/photo-1551754655-cd27e38d2076?w=600&auto=format&fit=crop', 1, 1, 1, 0),
 (119, 'https://images.unsplash.com/photo-1588879462716-16e03eaeb72e?w=600&auto=format&fit=crop', 1, 1, 1, 0),
 (120, 'https://images.unsplash.com/photo-1515471204630-e60b853e3042?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(121, 'https://images.unsplash.com/photo-1590483866160-5cf7b38cb09b?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(122, 'https://images.unsplash.com/photo-1571575173700-afb9492e6a50?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(123, 'https://images.unsplash.com/photo-1589135233689-d56d94f71120?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(124, 'https://images.unsplash.com/photo-1511688878353-3a2f5be94cd7?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(125, 'https://images.unsplash.com/photo-1563245372-f21724e3856d?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(126, 'https://images.unsplash.com/photo-1593105544559-ecb03bf76f82?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(127, 'https://images.unsplash.com/photo-1519782772591-36455665e067?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(128, 'https://images.unsplash.com/photo-1595124245030-41448b199d6d?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(129, 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(130, 'https://images.unsplash.com/photo-1445282768818-728615cc910a?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(131, 'https://images.unsplash.com/photo-1618375569909-3c8616cf7733?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(132, 'https://images.unsplash.com/photo-1596797882870-8c33deeac224?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(133, 'https://images.unsplash.com/photo-1628556270448-4d4e4148e1b1?w=600&auto=format&fit=crop', 1, 1, 1, 0),
 
 (201, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774250103/brands/qlsbgtgno3kvconpo0c3.jpg', 1, 1, 1, 0),
 (202, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774250212/brands/mtbfbygr3tmlctmfdg0x.jpg', 1, 1, 1, 0),
@@ -133,7 +170,18 @@ INSERT INTO product_images (product_id, image_url, is_primary, display_order, is
 (216, 'https://images.unsplash.com/photo-1537640538966-79f369143f8f?w=600&auto=format&fit=crop', 1, 1, 1, 0),
 (217, 'https://images.unsplash.com/photo-1560806887-1e4cd0b6cbd6?w=600&auto=format&fit=crop', 1, 1, 1, 0),
 (218, 'https://images.unsplash.com/photo-1567375698348-5d9d5ae99de0?w=600&auto=format&fit=crop', 1, 1, 1, 0),
-(219, 'https://images.unsplash.com/photo-1588252303782-cb80119abd6d?w=600&auto=format&fit=crop', 1, 1, 1, 0)
+(219, 'https://images.unsplash.com/photo-1588252303782-cb80119abd6d?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(220, 'https://images.unsplash.com/photo-1582281298055-e25b84a30b0b?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(221, 'https://images.unsplash.com/photo-1597714026732-3907092c7304?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(222, 'https://images.unsplash.com/photo-1592417817098-8f3d6910985c?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(223, 'https://images.unsplash.com/photo-1628088062854-d1870b4553da?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(224, 'https://images.unsplash.com/photo-1550258987-190a2d41a8ba?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(225, 'https://images.unsplash.com/photo-1615485500704-8e990f9900f7?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(226, 'https://images.unsplash.com/photo-1596040033229-a9821ebd058d?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(227, 'https://images.unsplash.com/photo-1525385133512-2f3bdd039054?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(228, 'https://images.unsplash.com/photo-1567375698348-5d9d5ae99de0?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(229, 'https://images.unsplash.com/photo-1551754655-cd27e38d2076?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(230, 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=600&auto=format&fit=crop', 1, 1, 1, 0)
 ON DUPLICATE KEY UPDATE product_id=VALUES(product_id);
 
 
@@ -217,5 +265,41 @@ INSERT INTO images (id, image_url, media_type, created_at, review_id) VALUES
 (1004, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916481/brands/s5ld5232nl4s4fwczawr.jpg', 'PHOTO', DATE_SUB(NOW(), INTERVAL 2 DAY), 4),
 (1005, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917344/brands/c2i9gkbkl8vx7iwulwsz.png', 'PHOTO', DATE_SUB(NOW(), INTERVAL 1 DAY), 5)
 ON DUPLICATE KEY UPDATE image_url=VALUES(image_url);
+
+-- 13. BLOGS (CÂU CHUYỆN NÔNG DÂN & BÀI VIẾT NHÀ VƯỜN)
+INSERT INTO blogs (blog_id, shop_id, title, content, picture_url, status, category, views, create_at, updated_at) VALUES
+(1, 4, 'Bí quyết canh tác rau hữu cơ sạch tại thung lũng Đà Lạt', 'Canh tác rau hữu cơ sạch không chỉ là một phương pháp trồng trọt mà còn là triết lý sống hòa hợp với thiên nhiên.\n\n1. Hiểu đất và nuôi dưỡng đất: Vườn chúng tôi ủ phân vi sinh từ vỏ cà phê, rơm rạ và chế phẩm sinh học EM trong 60 ngày để đất luôn tơi xốp, giàu mùn hữu cơ.\n2. Nguồn nước tưới tinh khiết: Nước suối đầu nguồn chảy qua hệ thống lắng lọc tự nhiên, kiểm định định kỳ không nhiễm kim loại nặng.\n3. Thiên địch thay thế thuốc trừ sâu: Trồng cúc vạn thọ xua đuổi tuyến trùng, nuôi bọ rùa và bọ ngựa bắt rệp sáp.\n\nNhờ vậy, từng bó rau xà lách, ngọn mồng tơi hay bắp cải gửi đến bàn ăn gia đình bạn đều giữ trọn độ giòn ngọt và an toàn tuyệt đối!', 'https://images.unsplash.com/photo-1595974482597-4b8da8879bc5?w=900&auto=format&fit=crop', 'PUBLISHED', 'NHA_NONG', 152, DATE_SUB(NOW(), INTERVAL 2 DAY), DATE_SUB(NOW(), INTERVAL 2 DAY)),
+
+(2, 5, 'Mùa trái chín miền Tây: Nhật ký vườn sầu riêng & bưởi da xanh', 'Về Bến Tre và Tiền Giang những ngày vào vụ, hương bưởi da xanh thơm ngát khắp các rặng kênh mương.\n\nNăm nay thời tiết thuận lợi, phù sa bồi đắp dồi dào giúp múi bưởi hồng hào, tép mọng nước và ngọt lịm. Bà con nông dân thu hái bằng kéo chuyên dụng, bọc từng trái trong túi giấy chống côn trùng từ lúc còn nhỏ để không phải phun xịt hóa chất.\n\nCapNong đã trực tiếp liên kết với tổ hợp tác xã nhà vườn, thu mua tận gốc và phân loại nghiêm ngặt để đưa những trái đặc sản tươi ngon nhất đến tay người tiêu dùng thành phố trong vòng 24 giờ!', 'https://images.unsplash.com/photo-1619566636858-adf3ef46400b?w=900&auto=format&fit=crop', 'PUBLISHED', 'STORY', 230, DATE_SUB(NOW(), INTERVAL 3 DAY), DATE_SUB(NOW(), INTERVAL 3 DAY)),
+
+(3, 4, 'Thực đơn thanh lọc detox 7 ngày từ rau củ quả tươi', 'Cơ thể mệt mỏi sau những ngày ăn uống nhiều dầu mỡ? Hãy cùng CapNong tái tạo năng lượng với thực đơn detox tự nhiên:\n\n- Sáng: Nước ép cần tây + táo xanh + gừng sẻ ấm bụng.\n- Trưa: Salad ớt chuông, dưa leo baby và cà chua bi hữu cơ cùng sốt mè rang.\n- Chiều: Sinh tố bơ sáp 034 dẻo mịn bổ sung chất béo lành mạnh.\n- Tối: Canh súp củ dền đỏ hầm bắp ngọt thanh mát.\n\nChỉ sau 1 tuần, bạn sẽ cảm nhận rõ làn da sáng khỏe, hệ tiêu hóa nhẹ nhàng và tinh thần tràn đầy sảng khoái!', 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=900&auto=format&fit=crop', 'PUBLISHED', 'SUC_KHOE', 315, DATE_SUB(NOW(), INTERVAL 4 DAY), DATE_SUB(NOW(), INTERVAL 4 DAY)),
+
+(4, 5, 'Bảo quản rau củ tươi lâu trong tủ lạnh - Mẹo vặt từ nhà nông', 'Nhiều gia đình mua rau về để tủ lạnh 2-3 ngày là héo úa hoặc úng nước. Sau đây là mẹo từ kinh nghiệm bảo quản của các bác nông dân:\n\n1. Không rửa rau trước khi cho vào tủ: Độ ẩm đọng lại trên lá là nguyên nhân hàng đầu khiến vi khuẩn phân hủy rau nhanh chóng. Chỉ rửa ngay trước khi nấu.\n2. Tách riêng chuối và cà chua: Chuối chín giải phóng khí ethylene kích thích các loại rau củ xung quanh chín ép và mau hỏng.\n3. Cà rốt và củ cải: Cắt bỏ phần cuống lá xanh ngay sau khi mua về để tránh lá hút ngược chất dinh dưỡng và nước từ củ.\n4. Bọc giấy thấm ẩm: Cho rau vào túi zip hoặc hộp nhựa có lót khăn giấy sạch bên dưới, giữ rau tươi giòn suốt cả tuần!', 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=900&auto=format&fit=crop', 'PUBLISHED', 'CAM_NANG', 180, DATE_SUB(NOW(), INTERVAL 5 DAY), DATE_SUB(NOW(), INTERVAL 5 DAY)),
+
+(5, 4, 'Hành trình giải cứu nông sản xấu mã - Biến cái "xấu" thành điều kỳ diệu', 'Tại sao một củ cà rốt có hai chân hay quả cà chua hơi cong vẹo lại bị bỏ rơi ngoài ruộng?\n\nThực tế, hình thức bên ngoài không hề quyết định giá trị dinh dưỡng bên trong. Những củ quả xấu mã lớn lên tự nhiên, không dùng thuốc kích thích tăng trưởng nên thường giòn ngọt và đượm vị hơn cả.\n\nCapNong ra đời với sứ mệnh đồng hành cùng người nông dân, trân quý từng giọt mồ hôi trên đồng ruộng và kết nối những nông sản thuần tự nhiên đến gian bếp của mỗi gia đình với mức giá tiết kiệm đến 40%!', 'https://images.unsplash.com/photo-1500937386664-56d1dfef3854?w=900&auto=format&fit=crop', 'PUBLISHED', 'TIN_TUC_CAPNONG', 420, DATE_SUB(NOW(), INTERVAL 6 DAY), DATE_SUB(NOW(), INTERVAL 6 DAY)),
+
+(6, 5, 'Xu hướng tiêu dùng xanh: Vì sao người trẻ chuộng nông sản địa phương?', 'Người tiêu dùng hiện đại ngày càng quan tâm đến nguồn gốc thực phẩm và dấu chân carbon (carbon footprint).\n\nLựa chọn nông sản địa phương mang lại 3 giá trị to lớn:\n1. Nông sản tươi ngon tối đa: Không qua các kho bảo quản lạnh hóa chất dài ngày.\n2. Hỗ trợ kinh tế gia đình nông dân: Tiền chi trả đến trực tiếp tay người trồng thay vì qua nhiều tầng trung gian.\n3. Bảo vệ môi trường: Giảm thiểu quãng đường vận chuyển và bao bì nhựa sử dụng một lần.\n\nHãy chung tay cùng CapNong xây dựng thói quen ăn sạch - sống xanh mỗi ngày!', 'https://images.unsplash.com/photo-1488459716781-31db52582fe9?w=900&auto=format&fit=crop', 'PUBLISHED', 'XU_HUONG', 195, DATE_SUB(NOW(), INTERVAL 7 DAY), DATE_SUB(NOW(), INTERVAL 7 DAY)),
+
+(7, 4, 'Bí quyết làm sốt chấm chanh dây chua ngọt thần thánh', 'Chanh dây tím Đà Lạt đang vào mùa chín rộ mọng nước. Hãy thử ngay công thức sốt chấm chanh dây siêu bắt vị cho các món hải sản và đồ nướng:\n\n- Nguyên liệu: 4 quả chanh dây lọc hạt lấy cốt, 3 thìa đường cát, 1 thìa nước mắm ngon, 1 quả ớt sừng băm nhỏ, 1 tép tỏi nhuyễn.\n- Cách làm: Đun sôi nhẹ cốt chanh dây với đường cho tan sánh lại, tắt bếp để nguội rồi hòa cùng nước mắm, tỏi ớt.\n\nVị chua thanh kích thích vị giác kết hợp cùng vị ngọt dịu sẽ nâng tầm bất kỳ bữa cơm sum vầy nào!', 'https://images.unsplash.com/photo-1589135233689-d56d94f71120?w=900&auto=format&fit=crop', 'PUBLISHED', 'ME_O_VAT', 260, DATE_SUB(NOW(), INTERVAL 8 DAY), DATE_SUB(NOW(), INTERVAL 8 DAY)),
+
+(8, 5, 'Kinh nghiệm nhận biết nông sản VietGAP và nông sản hữu cơ', 'Rất nhiều người tiêu dùng còn nhầm lẫn giữa tiêu chuẩn VietGAP và Organic (Hữu cơ):\n\n- VietGAP: Cho phép sử dụng phân bón và thuốc BVTV trong danh mục được cấp phép, nhưng phải tuân thủ nghiêm ngặt thời gian cách ly trước thu hoạch để đảm bảo dư lượng bằng 0.\n- Organic: Tuyệt đối không sử dụng bất kỳ hóa chất tổng hợp, phân vô cơ, thuốc trừ sâu hóa học hay sinh vật biến đổi gen (Non-GMO).\n\nTại CapNong, từng lô nông sản đều có thông tin nhà vườn minh bạch, giấy chứng nhận được kiểm duyệt định kỳ để bảo vệ quyền lợi tối đa cho người tiêu dùng.', 'https://images.unsplash.com/photo-1592417817098-8f3d6910985c?w=900&auto=format&fit=crop', 'PUBLISHED', 'CAM_NANG', 310, DATE_SUB(NOW(), INTERVAL 10 DAY), DATE_SUB(NOW(), INTERVAL 10 DAY))
+ON DUPLICATE KEY UPDATE title=VALUES(title), content=VALUES(content), picture_url=VALUES(picture_url), status=VALUES(status);
+
+-- 14. BLOG LIKES & COMMENTS
+INSERT INTO blog_likes (like_id, blog_id, user_id, create_at) VALUES
+(1, 1, 2, NOW()),
+(2, 1, 3, NOW()),
+(3, 2, 2, NOW()),
+(4, 3, 3, NOW()),
+(5, 5, 2, NOW())
+ON DUPLICATE KEY UPDATE create_at=VALUES(create_at);
+
+INSERT INTO blog_comments (comment_id, blog_id, user_id, content, create_at) VALUES
+(1, 1, 2, 'Bài viết rất hữu ích và chân thực! Nhà em mua rau xà lách của vườn ăn giòn ngọt lắm ạ.', DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(2, 1, 3, 'Cảm ơn anh Kiệt đã chia sẻ bí quyết nuôi đất. Ủng hộ nhà vườn tiếp tục làm nông nghiệp sạch!', DATE_SUB(NOW(), INTERVAL 12 HOUR)),
+(3, 2, 2, 'Bưởi da xanh đợt này ngọt lịm không hạt, cả nhà ai cũng khen.', DATE_SUB(NOW(), INTERVAL 2 DAY)),
+(4, 3, 3, 'Mình đang áp dụng thực đơn detox này được 3 ngày, cảm giác nhẹ bụng và sảng khoái hẳn.', DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(5, 5, 2, 'Rất thích thông điệp giải cứu nông sản xấu mã của CapNong. Rau củ tuy vẻ ngoài hơi kỳ nhưng ăn ngon và an tâm!', DATE_SUB(NOW(), INTERVAL 3 DAY))
+ON DUPLICATE KEY UPDATE content=VALUES(content);
 
 SET FOREIGN_KEY_CHECKS = 1;
