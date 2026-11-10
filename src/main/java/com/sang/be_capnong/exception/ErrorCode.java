@@ -243,7 +243,31 @@ public enum ErrorCode {
     INVALID_RETURN_STATUS(17006, "Current return request status does not allow this operation", HttpStatus.BAD_REQUEST),
     RETURN_REFUND_AMOUNT_INVALID(17007, "Refund amount cannot exceed item purchase amount", HttpStatus.BAD_REQUEST),
     SHIPPER_NOT_ASSIGNED_TO_RETURN(17008, "You are not assigned as the shipper for this return order", HttpStatus.FORBIDDEN),
-    RETURN_WALLET_INSUFFICIENT_BALANCE(17009, "Shop wallet balance is not enough to pay return shipping fee. Please top up or choose COD.", HttpStatus.BAD_REQUEST);
+    RETURN_WALLET_INSUFFICIENT_BALANCE(17009, "Shop wallet balance is not enough to pay return shipping fee. Please top up or choose COD.", HttpStatus.BAD_REQUEST),
+
+    // Rescue Campaign Errors (Series 18000)
+    CAMPAIGN_NOT_FOUND(18001, "Không tìm thấy chiến dịch", HttpStatus.NOT_FOUND),
+    CAMPAIGN_INVALID_DATA(18002, "Dữ liệu chiến dịch không hợp lệ (mục tiêu, ngưỡng, giá, % cọc hoặc ngày chốt)", HttpStatus.BAD_REQUEST),
+    CAMPAIGN_INVALID_STATUS(18003, "Trạng thái chiến dịch hiện tại không cho phép thao tác này", HttpStatus.BAD_REQUEST),
+    CAMPAIGN_CALL_NOT_OPEN(18004, "Chiến dịch chưa mở đăng ký cho nhà vườn", HttpStatus.BAD_REQUEST),
+    CAMPAIGN_NO_APPROVED_FARM(18005, "Chiến dịch cần ít nhất một nhà vườn được duyệt trước khi mở bán", HttpStatus.BAD_REQUEST),
+    CAMPAIGN_ALREADY_REGISTERED(18006, "Nhà vườn đã đăng ký chiến dịch này", HttpStatus.CONFLICT),
+    CAMPAIGN_REGISTRATION_NOT_FOUND(18007, "Không tìm thấy đăng ký của nhà vườn", HttpStatus.NOT_FOUND),
+    CAMPAIGN_REGISTRATION_INVALID(18008, "Số kg dư phải lớn hơn 0 và ngày thu hoạch không được ở quá khứ", HttpStatus.BAD_REQUEST),
+    CAMPAIGN_CUTOFF_PASSED(18009, "Chiến dịch đã qua hạn chốt", HttpStatus.BAD_REQUEST),
+    CAMPAIGN_VOLUME_EXCEEDED(18010, "Số kg đặt vượt quá sản lượng còn lại của chiến dịch", HttpStatus.BAD_REQUEST),
+    PRE_ORDER_NOT_FOUND(18011, "Không tìm thấy đơn đặt trước", HttpStatus.NOT_FOUND),
+    PRE_ORDER_INVALID(18012, "Đơn đặt trước không hợp lệ (loại thùng, số lượng hoặc địa chỉ)", HttpStatus.BAD_REQUEST),
+    PRE_ORDER_INVALID_STATUS(18013, "Trạng thái đơn đặt trước không cho phép thao tác này", HttpStatus.BAD_REQUEST),
+    PRE_ORDER_NOT_OWNER(18014, "Bạn không có quyền với đơn đặt trước này", HttpStatus.FORBIDDEN),
+    CAMPAIGN_INTAKE_INVALID(18015, "Số kg cân thực tế không hợp lệ", HttpStatus.BAD_REQUEST),
+    CAMPAIGN_NOT_ALL_DELIVERED(18016, "Vẫn còn đơn đặt trước chưa giao xong", HttpStatus.BAD_REQUEST),
+    CAMPAIGN_PRODUCT_INVALID(18017, "Cần nhập tên sản phẩm, 1-5 ảnh minh hoạ, giá đề xuất, thời gian bảo quản và tick cam kết", HttpStatus.BAD_REQUEST),
+    CAMPAIGN_PRODUCT_NOT_OWNED(18018, "Sản phẩm không thuộc gian hàng của bạn", HttpStatus.FORBIDDEN),
+    CAMPAIGN_PRICE_ABOVE_RESCUE(18019, "Giá chốt cho nhà vườn không được cao hơn giá giải cứu bán cho người mua", HttpStatus.BAD_REQUEST),
+    CAMPAIGN_INTAKE_PENDING(18021, "Còn nhà vườn chưa được cân nhận hàng tại điểm tập kết", HttpStatus.BAD_REQUEST),
+    CAMPAIGN_SHORTFALL(18022, "Hàng đạt chuẩn không đủ cho đơn này. Hãy bấm Xử lý thiếu hàng trước khi đóng gói", HttpStatus.BAD_REQUEST),
+    CAMPAIGN_SHELF_LIFE_TOO_SHORT(18020, "Hàng không giữ được tới ngày giao: ngày thu hoạch + thời gian bảo quản phải tới ngày giao của chiến dịch", HttpStatus.BAD_REQUEST);
 
     private final int code;
     private final String message;

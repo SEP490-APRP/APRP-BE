@@ -62,6 +62,7 @@ public class PaymentServiceImpl implements PaymentService {
     final VoucherUsageRepository voucherUsageRepository;
     final UserRepository userRepository;
     final WalletService walletService;
+    final com.sang.be_capnong.service.CampaignService campaignService;
 
     /** Số phút giữ đơn chờ thanh toán PayOS. 0 = không tự huỷ */
     @Value("${capnong.payment.expire-minutes:30}")
@@ -441,7 +442,10 @@ public class PaymentServiceImpl implements PaymentService {
                 String orderCode = String.valueOf(webhookData.getOrderCode());
                 log.info("[PayOS Webhook] Verified webhook for orderCode: {}, code: {}", orderCode, webhookData.getCode());
                 if ("00".equals(webhookData.getCode())) {
-                    settlePaidOrderCode(orderCode);
+                    // Tiền cọc chiến dịch giải cứu (WF-01) dùng chung webhook PayOS
+                    if (!campaignService.handlePaidOrderCode(orderCode)) {
+                        settlePaidOrderCode(orderCode);
+                    }
                 }
             }
         } catch (Exception e) {

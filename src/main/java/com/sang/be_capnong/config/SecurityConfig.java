@@ -101,7 +101,9 @@ public class SecurityConfig {
             "/reviews/product/**",
             "/reviews/shop/{id:[0-9]+}",
             "/reviews/shop/{id:[0-9]+}/**",
-            "/reviews/mystery-box/**"
+            "/reviews/mystery-box/**",
+            "/campaigns",
+            "/campaigns/{id:[0-9]+}"
     };
 
     @Autowired
