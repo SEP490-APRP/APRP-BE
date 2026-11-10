@@ -25,6 +25,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.security.Principal;
 import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 @Service
@@ -194,12 +196,40 @@ public class ShipperServiceImpl implements ShipperService {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
 
+        // Phân quyền: chỉ Buyer của đơn, Shop của đơn, Shipper của đơn hoặc Admin mới được xem toạ độ
+        Integer currentUserId = SecurityUtils.getCurrentUserIdOrNull();
+        if (currentUserId != null && !SecurityUtils.isAdmin()) {
+            boolean isBuyer = order.getBuyer() != null && order.getBuyer().getId() == currentUserId;
+            boolean isShop = order.getShop() != null && order.getShop().getId() == currentUserId;
+            boolean isShipper = order.getShipper() != null && order.getShipper().getId() == currentUserId;
+            if (!isBuyer && !isShop && !isShipper) {
+                throw new AppException(ErrorCode.UNAUTHORIZED);
+            }
+        }
+
+        OrderStatus status = order.getStatus();
+        boolean isFinished = status == OrderStatus.DELIVERED
+                || status == OrderStatus.COMPLETED
+                || status == OrderStatus.CANCELLED
+                || status == OrderStatus.FAILED;
+
+        if (isFinished) {
+            // Đơn đã giao xong/kết thúc: Ngắt tracking realtime, chỉ trả toạ độ điểm nhận hàng tĩnh và ảnh PoD
+            return buildFinishedLocationResponse(order);
+        }
+
         User shipper = order.getShipper();
         ShipperLocation location = null;
         if (shipper != null) {
-            location = shipperLocationRepository.findByShipperAndOrder_OrderId(shipper, orderId)
-                    .or(() -> shipperLocationRepository.findFirstByShipperOrderByUpdatedAtDesc(shipper))
-                    .orElse(null);
+            // Chỉ lấy toạ độ nếu nó thuộc đúng đơn hàng này; không fallback sang vị trí đơn khác
+            location = shipperLocationRepository.findByShipperAndOrder_OrderId(shipper, orderId).orElse(null);
+            if (location == null) {
+                // Kiểm tra xem vị trí mới nhất của shipper có đang không gắn với đơn nào khác không
+                ShipperLocation latest = shipperLocationRepository.findFirstByShipperOrderByUpdatedAtDesc(shipper).orElse(null);
+                if (latest != null && (latest.getOrder() == null || latest.getOrder().getOrderId().equals(orderId))) {
+                    location = latest;
+                }
+            }
         }
         if (location == null) {
             location = shipperLocationRepository.findTopByOrder_OrderIdOrderByUpdatedAtDesc(orderId).orElse(null);
@@ -210,6 +240,79 @@ public class ShipperServiceImpl implements ShipperService {
             phase = phaseOf(order.getStatus());
         }
         return buildLocationResponse(order, shipper, location, false, false, phase);
+    }
+
+    private ShipperLocationResponse buildFinishedLocationResponse(Order order) {
+        Double shopLat = order.getShopLatitude() != null ? order.getShopLatitude() : 10.8500;
+        Double shopLng = order.getShopLongitude() != null ? order.getShopLongitude() : 106.7720;
+        Double destLat = order.getShippingLatitude() != null ? order.getShippingLatitude() : 10.7725;
+        Double destLng = order.getShippingLongitude() != null ? order.getShippingLongitude() : 106.6578;
+
+        User shipper = order.getShipper();
+        String shipperName = shipper != null && shipper.getFullName() != null ? shipper.getFullName() : "Tài xế";
+        String shipperPhone = shipper != null && shipper.getPhoneNumber() != null ? shipper.getPhoneNumber() : "";
+        String vehicleNumber = shipper != null && shipper.getVehicleNumber() != null ? shipper.getVehicleNumber() : "";
+        Integer shipperId = shipper != null ? shipper.getId() : null;
+
+        String shopName = order.getShop() != null ? order.getShop().getShopName() : null;
+        String shopAddress = order.getShop() != null ? order.getShop().getAddress() : null;
+
+        LocalDateTime updatedAt = order.getDeliveredAt() != null
+                ? order.getDeliveredAt()
+                : (order.getUpdatedAt() != null ? order.getUpdatedAt() : LocalDateTime.now());
+
+        String phase = order.getStatus() == OrderStatus.FAILED || order.getStatus() == OrderStatus.CANCELLED
+                ? "FAILED"
+                : "DELIVERED";
+
+        List<String> proofs = parseProofUrls(order.getDeliveryProofUrls());
+
+        return ShipperLocationResponse.builder()
+                .orderId(order.getOrderId())
+                .shipperId(shipperId)
+                .shipperName(shipperName)
+                .shipperPhone(shipperPhone)
+                .vehicleNumber(vehicleNumber)
+                .latitude(destLat)
+                .longitude(destLng)
+                .updatedAt(updatedAt)
+                .shopLatitude(shopLat)
+                .shopLongitude(shopLng)
+                .shopAddress(shopAddress)
+                .shopName(shopName)
+                .destinationLatitude(destLat)
+                .destinationLongitude(destLng)
+                .destinationAddress(order.getShippingAddress())
+                .recipientName(order.getRecipientName())
+                .recipientPhone(order.getRecipientPhone())
+                .orderStatus(order.getStatus() != null ? order.getStatus().name() : "")
+                .isFake(false)
+                .gpsOff(false)
+                .deliveryPhase(phase)
+                .distanceKm(0.0)
+                .estimatedMinutes(0)
+                .trackingActive(false)
+                .proofImageUrls(proofs)
+                .build();
+    }
+
+    @Override
+    @Transactional
+    public void detachOrderFromShipperLocation(int orderId) {
+        List<ShipperLocation> locations = shipperLocationRepository.findByOrder_OrderId(orderId);
+        for (ShipperLocation loc : locations) {
+            loc.setOrder(null);
+            loc.setDeliveryPhase("DELIVERED");
+            shipperLocationRepository.save(loc);
+        }
+    }
+
+    private List<String> parseProofUrls(String joined) {
+        if (joined == null || joined.isBlank()) return Collections.emptyList();
+        return Arrays.stream(joined.split("\n"))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
     }
 
     /** SHIPPING = đang tới nhà vườn lấy hàng, PICKED_UP = đang giao cho khách */
@@ -297,6 +400,11 @@ public class ShipperServiceImpl implements ShipperService {
             etaMinutes = GeoUtils.etaMinutes(remainingKm);
         }
 
+        boolean isFinished = order != null && (order.getStatus() == OrderStatus.DELIVERED
+                || order.getStatus() == OrderStatus.COMPLETED
+                || order.getStatus() == OrderStatus.FAILED
+                || order.getStatus() == OrderStatus.CANCELLED);
+
         return ShipperLocationResponse.builder()
                 .orderId(order != null ? order.getOrderId() : null)
                 .shipperId(shipperId)
@@ -321,6 +429,8 @@ public class ShipperServiceImpl implements ShipperService {
                 .deliveryPhase(deliveryPhase)
                 .distanceKm(remainingKm)
                 .estimatedMinutes(etaMinutes)
+                .trackingActive(!isFinished)
+                .proofImageUrls(parseProofUrls(order != null ? order.getDeliveryProofUrls() : null))
                 .build();
     }
 

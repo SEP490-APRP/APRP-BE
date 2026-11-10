@@ -15,6 +15,7 @@ public interface ShipperLocationRepository extends JpaRepository<ShipperLocation
     Optional<ShipperLocation> findFirstByShipperOrderByUpdatedAtDesc(User shipper);
     Optional<ShipperLocation> findTopByOrder_OrderIdOrderByUpdatedAtDesc(int orderId);
     Optional<ShipperLocation> findByShipperAndOrder_OrderId(User shipper, int orderId);
+    java.util.List<ShipperLocation> findByOrder_OrderId(int orderId);
     void deleteByShipper(User shipper);
 
     /** Shipper đang bật nhận đơn và còn heartbeat sau mốc thời gian */

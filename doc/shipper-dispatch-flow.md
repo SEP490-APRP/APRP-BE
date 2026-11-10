@@ -31,7 +31,7 @@ READY ──(điều phối: quét shipper online quanh vườn, mời qua STOMP
 - Có người nhận: các shipper đã được mời nhận `ORDER_TAKEN` để gỡ đơn khỏi danh sách.
 - Mô hình mời: phát cho nhiều shipper gần, **ai bấm nhận trước được đơn** (kiểu Ahamove/Lalamove).
 
-`GET /orders/ready?page&size&lat&lng`: bắt buộc online (7006). Trả đơn READY chưa có người nhận trong 15 km quanh vị trí gửi lên (hoặc vị trí gần nhất), gần nhất trước, kèm `distanceToShopKm`.
+`GET /orders/ready?page&size&lat&lng`: bắt buộc online (7006). Trả đơn READY chưa có người nhận trong 15 km quanh vị trí gửi lên (hoặc vị trí gần nhất), gần nhất trước, kèm `distanceToShopKm`. Trên Mobile App, vị trí GPS được lắng nghe liên tục (`watchPositionAsync`), tự động tải lại danh sách đơn khi shipper di chuyển (>100m) và cập nhật toạ độ vệ tinh mới nhất khi vuốt làm mới (pull-to-refresh).
 
 ## 3. Nhận đơn `PUT /orders/{id}/ship`
 
@@ -89,12 +89,17 @@ Không đổi API (`PUT /orders/{id}/pickup`). Đối soát làm ở giao diện
 - **Nhà vườn** (web `pages/farmer/Orders.tsx`, mobile `ShopOrderCard`, `shop/order/[id]`): đơn CONFIRMED / READY / SHIPPING hiện khung **"Mã dán lên túi hàng #123"** để ghi/dán lên túi.
 - **Tài xế** (web Dashboard, bản đồ, FakeGPS; mobile tab Đang giao): thẻ đơn hiện mã to rõ. Bấm "Đã lấy hàng" mở hộp **"Đối soát mã đơn #123 — Kiểm tra mã trên túi hàng trùng #123"**, xác nhận rồi mới gọi API.
 
-## 7. Theo dõi realtime
+## 7. Theo dõi realtime và bảo mật vị trí
 
 - STOMP `/app/shipper/location` chỉ nhận từ **shipper được gán** khi đơn SHIPPING / PICKED_UP (chặn giả mạo vị trí và `gpsOff`).
-- `ShipperLocationResponse` có thêm `distanceKm` (quãng còn lại tới điểm của chặng hiện tại) và `estimatedMinutes` (25 km/h).
-- Chặng mặc định: SHIPPING → `TO_SHOP`, PICKED_UP → `TO_BUYER`, DELIVERED/COMPLETED → `DELIVERED`.
-- Bản đồ web (`GoogleMapTrackingModal`) và mobile (`ShipperTrackingView`) hiện dòng **"Còn ~2,3 km · khoảng 6 phút"** dưới trạng thái chặng (`utils/eta.ts`, `trackingRules.formatEta`). Dưới 1 km đổi sang mét, còn ≤ 1 phút hiện "sắp tới nơi", đã giao thì ẩn. Mobile ẩn dòng này khi Buyer chưa được xem vị trí xe (chặng tới vườn).
+- `ShipperLocationResponse` có thêm `distanceKm` (quãng còn lại tới điểm của chặng hiện tại), `estimatedMinutes` (25 km/h), `trackingActive` (cờ báo tracking đang chạy hay đã chốt), và `proofImageUrls` (danh sách ảnh PoD).
+- Chặng mặc định: SHIPPING → `TO_SHOP`, PICKED_UP → `TO_BUYER`, DELIVERED/COMPLETED → `DELIVERED`, FAILED → `FAILED`.
+- **Bảo mật và chống rò rỉ GPS đơn cũ:**
+  - Endpoint `GET /shippers/location/order/{orderId}` được bảo vệ chặt chẽ: chỉ Buyer của đơn, Shop của đơn, chính Shipper được gán hoặc Admin mới được xem toạ độ.
+  - Khi đơn đã kết thúc (`DELIVERED`, `COMPLETED`, `CANCELLED`, `FAILED`): BE **không bao giờ** trả toạ độ realtime của tài xế (tránh lộ toạ độ khi shipper bắt đầu chạy đơn khác). Thay vào đó, BE trả về toạ độ điểm nhận hàng của khách (ghim tĩnh), `distanceKm = 0`, `estimatedMinutes = 0`, `deliveryPhase = "DELIVERED"`, `trackingActive = false` và kèm danh sách ảnh PoD.
+  - Khi shipper hoàn thành đơn (`markOrderAsDelivered`) hoặc báo thất bại (`markOrderAsFailed`), BE tự động gỡ `order_id` khỏi `shipper_locations` (`detachOrderFromShipperLocation`) và broadcast frame WebSocket mang `{ trackingActive: false, orderStatus: ... }` lên `/topic/order/{id}/location` để client ngắt kết nối STOMP và ẩn icon xe.
+- Bản đồ mobile (`ShipperTrackingView`) hiện dòng **"Còn ~2,3 km · khoảng 6 phút"** dưới trạng thái chặng (`trackingRules.formatEta`). Dưới 1 km đổi sang mét, còn ≤ 1 phút hiện "sắp tới nơi", đã giao thì ẩn dòng km/phút và ẩn xe di chuyển. Mobile ẩn dòng này khi Buyer chưa được xem vị trí xe (chặng tới vườn).
+- **Quy hoạch nền tảng:** Toàn bộ nghiệp vụ tác nghiệp của Shipper (Bật/tắt trực tuyến, GPS Tracking di chuyển, Nhận đơn theo bán kính, Đối soát mã lấy hàng, Chụp ảnh bằng chứng giao hàng, Quản lý ví tiền) được triển khai độc quyền trên ứng dụng di động **Mobile App** (`APRP-Mobile`). Web (`APRP-FE`) không dùng cho shipper tác nghiệp.
 
 ## 8. Thông báo trạng thái
 

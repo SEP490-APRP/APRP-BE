@@ -250,6 +250,30 @@ public class DispatchServiceImpl implements DispatchService {
         if (shopMsg != null && order.getShop() != null) {
             notificationService.sendNotificationToUser(order.getShop(), "Cập nhật đơn hàng", shopMsg, "ORDER_STATUS", orderId);
         }
+
+        // Broadcast WebSocket cập nhật trạng thái tracking cho các bên theo dõi (Buyer, Shop, Shipper)
+        try {
+            boolean trackingActive = order.getStatus() == OrderStatus.SHIPPING || order.getStatus() == OrderStatus.PICKED_UP;
+            String phase = switch (order.getStatus()) {
+                case PICKED_UP -> "TO_BUYER";
+                case DELIVERED, COMPLETED -> "DELIVERED";
+                case FAILED, CANCELLED -> "FAILED";
+                default -> "TO_SHOP";
+            };
+            messagingTemplate.convertAndSend(
+                    "/topic/order/" + orderId + "/location",
+                    java.util.Map.of(
+                            "orderId", orderId,
+                            "orderStatus", order.getStatus().name(),
+                            "deliveryPhase", phase,
+                            "trackingActive", trackingActive,
+                            "distanceKm", 0.0,
+                            "estimatedMinutes", 0
+                    )
+            );
+        } catch (Exception wsEx) {
+            log.warn("[Dispatch] Cannot send WS location update for #{}: {}", orderId, wsEx.getMessage());
+        }
     }
 
     // ───────────────────────────── Tiện ích ─────────────────────────────

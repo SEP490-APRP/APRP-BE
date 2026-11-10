@@ -1107,6 +1107,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         Order saved = orderRepository.save(order);
+        shipperService.detachOrderFromShipperLocation(saved.getOrderId());
 
         // Đơn COD: Shipper vừa thu tiền mặt của khách -> ghi nợ vào ví Shipper cho tới khi nộp về sàn
         if ("COD".equalsIgnoreCase(saved.getPaymentMethod())) {
@@ -1275,6 +1276,7 @@ public class OrderServiceImpl implements OrderService {
         walletService.releaseCodReserve(order.getOrderId(), "giao hàng thất bại");
         order.setStatus(OrderStatus.FAILED);
         Order saved = orderRepository.save(order);
+        shipperService.detachOrderFromShipperLocation(saved.getOrderId());
         dispatchService.notifyStatusChangedAfterCommit(saved.getOrderId());
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
         return buildOrderResponse(saved, details);

@@ -37,4 +37,7 @@ public interface ShipperService {
     ShipperLocationResponse updateLocationByShipper(User shipper, ShipperLocationRequest request);
 
     ShipperLocationResponse getShipperLocationByOrder(Integer orderId);
+
+    /** Huỷ gắn kết đơn hàng khỏi vị trí realtime của shipper khi đơn đã kết thúc */
+    void detachOrderFromShipperLocation(int orderId);
 }

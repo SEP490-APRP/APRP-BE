@@ -32,6 +32,7 @@ DROP TABLE IF EXISTS bot_knowledge;
 DROP TABLE IF EXISTS blogs;
 DROP TABLE IF EXISTS user_notifications;
 DROP TABLE IF EXISTS notifications;
+DROP TABLE IF EXISTS dispatch_offers;
 DROP TABLE IF EXISTS shipper_locations;
 DROP TABLE IF EXISTS images;
 DROP TABLE IF EXISTS review_reactions;
@@ -40,6 +41,7 @@ DROP TABLE IF EXISTS return_requests;
 DROP TABLE IF EXISTS voucher_usages;
 DROP TABLE IF EXISTS voucher_users;
 DROP TABLE IF EXISTS vouchers;
+DROP TABLE IF EXISTS wallet_topups;
 DROP TABLE IF EXISTS withdraw_requests;
 DROP TABLE IF EXISTS wallets;
 DROP TABLE IF EXISTS transactions;
@@ -388,6 +390,14 @@ CREATE TABLE orders (
     shipper_paid_at DATETIME,
     picked_up_at DATETIME,
     delivered_at DATETIME,
+    cod_reserved_amount DECIMAL(18,2) DEFAULT NULL,
+    delivery_proof_urls TEXT,
+    fail_reason VARCHAR(64),
+    fail_note VARCHAR(500),
+    fail_call_attempts INT,
+    fail_proof_urls TEXT,
+    failed_at DATETIME,
+    rescued_weight DECIMAL(18,2) DEFAULT 0.00,
     CONSTRAINT fk_orders_buyer FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_orders_shop FOREIGN KEY (shop_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_orders_shipper FOREIGN KEY (shipper_id) REFERENCES users(id) ON DELETE SET NULL,
@@ -453,9 +463,23 @@ CREATE TABLE wallets (
     total_revenue_all_time DECIMAL(18,2) DEFAULT 0.00,
     total_withdrawn DECIMAL(18,2) DEFAULT 0.00,
     commission_wallet DECIMAL(18,2) DEFAULT 0.00,
+    cod_reserved DECIMAL(18,2) DEFAULT 0.00,
     create_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     update_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_wallets_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2.19.1 WALLET TOPUPS
+CREATE TABLE wallet_topups (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    wallet_id INT NOT NULL,
+    amount DECIMAL(18,2) NOT NULL,
+    payos_order_code VARCHAR(32) UNIQUE,
+    checkout_url VARCHAR(500),
+    status VARCHAR(16) DEFAULT 'PENDING',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    paid_at DATETIME,
+    CONSTRAINT fk_wallet_topups_wallet FOREIGN KEY (wallet_id) REFERENCES wallets(wallet_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.20 WITHDRAW REQUESTS
@@ -613,8 +637,24 @@ CREATE TABLE shipper_locations (
     latitude DOUBLE,
     longitude DOUBLE,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    delivery_phase VARCHAR(32),
+    online TINYINT(1) DEFAULT 0,
+    last_seen_at DATETIME,
     CONSTRAINT fk_ship_loc_order FOREIGN KEY (order_id) REFERENCES orders(order_id) ON DELETE SET NULL,
     CONSTRAINT fk_ship_loc_shipper FOREIGN KEY (shipper_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2.25.1 DISPATCH OFFERS
+CREATE TABLE dispatch_offers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    shipper_id INT NOT NULL,
+    wave INT DEFAULT 1,
+    distance_km DOUBLE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uk_dispatch_offer_order_shipper UNIQUE (order_id, shipper_id),
+    CONSTRAINT fk_disp_off_order FOREIGN KEY (order_id) REFERENCES orders(order_id) ON DELETE CASCADE,
+    CONSTRAINT fk_disp_off_shipper FOREIGN KEY (shipper_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.26 NOTIFICATIONS
@@ -1100,9 +1140,9 @@ INSERT INTO voucher_usages (id, order_id, user_id, voucher_id, discount_amount, 
 ON DUPLICATE KEY UPDATE discount_amount=VALUES(discount_amount);
 
 -- 3.15 SHIPPER LOCATIONS (VỊ TRÍ GPS HIỆN TẠI PHỤC VỤ THEO DÕI LIVE GOOGLE MAPS)
-INSERT INTO shipper_locations (id, order_id, shipper_id, latitude, longitude, updated_at) VALUES
-(1, 105, 6, 10.7769, 106.7009, NOW())
-ON DUPLICATE KEY UPDATE latitude=VALUES(latitude), longitude=VALUES(longitude);
+INSERT INTO shipper_locations (id, order_id, shipper_id, latitude, longitude, updated_at, delivery_phase, online, last_seen_at) VALUES
+(1, 105, 6, 10.7769, 106.7009, NOW(), 'TO_BUYER', 1, NOW())
+ON DUPLICATE KEY UPDATE latitude=VALUES(latitude), longitude=VALUES(longitude), online=VALUES(online), last_seen_at=VALUES(last_seen_at);
 
 -- 3.9 WALLETS
 INSERT INTO wallets (user_id, status, type, total_balance, frozen_balance, total_revenue_all_time, total_withdrawn, commission_wallet) VALUES
