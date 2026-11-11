@@ -5,15 +5,22 @@ import com.sang.be_capnong.dto.request.CartAddRequest;
 import com.sang.be_capnong.dto.response.CartItemResponse;
 import com.sang.be_capnong.dto.response.CartResponse;
 import com.sang.be_capnong.dto.response.ChatbotMessageResponse;
+import com.sang.be_capnong.dto.response.ReturnRequestResponse;
 import com.sang.be_capnong.dto.response.ShopCartResponse;
 import com.sang.be_capnong.entity.*;
 import com.sang.be_capnong.enums.AiAccountActionType;
 import com.sang.be_capnong.enums.AiItemType;
 import com.sang.be_capnong.enums.AiResponseType;
 import com.sang.be_capnong.enums.OrderStatus;
+import com.sang.be_capnong.enums.ReturnStatus;
+import com.sang.be_capnong.enums.WalletStatus;
+import com.sang.be_capnong.exception.AppException;
+import com.sang.be_capnong.exception.ErrorCode;
+import com.sang.be_capnong.mapper.ReturnRequestMapper;
 import com.sang.be_capnong.repository.*;
 import com.sang.be_capnong.repository.specification.ProductSpecification;
 import com.sang.be_capnong.service.CartService;
+import com.sang.be_capnong.service.ChatbotAiClient;
 import com.sang.be_capnong.service.ChatbotActionService;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +34,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.text.Normalizer;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -55,6 +63,70 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
     PaymentRepository paymentRepository;
     SavedAddressRepository savedAddressRepository;
     BuildComboRepository buildComboRepository;
+    ChatbotAiClient chatbotAiClient;
+    ChatbotSupportProperties supportProperties;
+    WalletRepository walletRepository;
+    WalletTransactionRepository walletTransactionRepository;
+    ReturnRequestRepository returnRequestRepository;
+    ReturnRequestMapper returnRequestMapper;
+
+    /** Cùng điều kiện với OrderServiceImpl.resolveProductPrice: giảm giá chỉ có hiệu lực trong khoảng ngày khuyến mãi. */
+    private boolean isOnSale(Product p) {
+        LocalDateTime now = LocalDateTime.now();
+        return p.getSellingPrice() != null
+                && p.getDiscountPercent() != null && p.getDiscountPercent() > 0
+                && p.getDiscountStartDate() != null && p.getDiscountEndDate() != null
+                && now.isAfter(p.getDiscountStartDate()) && now.isBefore(p.getDiscountEndDate());
+    }
+
+    /** Giá khách thực trả khi tạo đơn. */
+    private BigDecimal salePriceOf(Product p) {
+        if (!isOnSale(p)) {
+            return p.getSellingPrice();
+        }
+        BigDecimal factor = BigDecimal.valueOf(100 - p.getDiscountPercent())
+                .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+        return p.getSellingPrice().multiply(factor);
+    }
+
+    private List<String> allergensOf(Integer userId) {
+        if (userId == null) return List.of();
+        try {
+            return userAllergyRepository.findByBuyer_Id(userId).stream()
+                    .filter(ua -> ua.getAllergen() != null && ua.getAllergen().getName() != null)
+                    .map(ua -> ua.getAllergen().getName())
+                    .toList();
+        } catch (Exception e) {
+            log.warn("Could not load allergies of user {}: {}", userId, e.getMessage());
+            return List.of();
+        }
+    }
+
+    private static String foldAccents(String text) {
+        return Normalizer.normalize(text == null ? "" : text, Normalizer.Form.NFD)
+                .replaceAll("\\p{InCombiningDiacriticalMarks}+", "")
+                .replace('đ', 'd').replace('Đ', 'D')
+                .toLowerCase(Locale.ROOT);
+    }
+
+    /** So theo tên nên chỉ loại được món có tên chứa chất gây dị ứng, không đảm bảo về thành phần. */
+    private static boolean mentionsAllergen(String text, List<String> allergens) {
+        String folded = foldAccents(text);
+        return allergens.stream().anyMatch(a -> !a.isBlank() && folded.contains(foldAccents(a)));
+    }
+
+    private ChatbotMessageResponse orderNotFound(Integer orderId) {
+        return ChatbotMessageResponse.builder()
+                .type(AiResponseType.NAVIGATION)
+                .message("Không tìm thấy đơn hàng #" + orderId + " trong tài khoản của bạn. Bạn kiểm tra lại mã đơn trong Lịch sử đơn hàng nhé!")
+                .navigation(ChatbotMessageResponse.NavigationDto.builder().url("/orders").label("Xem Lịch Sử Đơn Hàng").build())
+                .timestamp(LocalDateTime.now())
+                .build();
+    }
+
+    private Optional<Order> ownedOrder(Integer orderId, Integer userId) {
+        return orderRepository.findById(orderId).filter(o -> o.getBuyer().getId() == userId);
+    }
 
     @Override
     public List<ChatbotMessageResponse.ItemOptionDto> searchItems(String keyword, AiItemType preferredType) {
@@ -78,12 +150,7 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
                         ? p.getImages().get(0).getImageUrl()
                         : null;
 
-                BigDecimal salePrice = p.getSellingPrice();
-                if (p.getDiscountPercent() != null && p.getDiscountPercent() > 0) {
-                    BigDecimal discountFactor = BigDecimal.valueOf(100 - p.getDiscountPercent())
-                            .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
-                    salePrice = p.getSellingPrice().multiply(discountFactor);
-                }
+                BigDecimal salePrice = salePriceOf(p);
 
                 results.add(ChatbotMessageResponse.ItemOptionDto.builder()
                         .itemType(AiItemType.PRODUCT)
@@ -189,48 +256,112 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
                     .build();
         }
 
-        String keyword = intent.getKeyword();
-        if ((keyword == null || keyword.trim().isEmpty()) && intent.getBuyItems() != null && !intent.getBuyItems().isEmpty()) {
-            keyword = intent.getBuyItems().get(0).getName();
+        List<AiDetectedIntent.ItemBuyCommand> commands = new ArrayList<>();
+        if (intent.getBuyItems() != null) {
+            intent.getBuyItems().stream()
+                    .filter(c -> c.getName() != null && !c.getName().isBlank())
+                    .forEach(commands::add);
         }
-
-        if (keyword == null || keyword.trim().isEmpty()) {
+        if (commands.isEmpty() && intent.getKeyword() != null && !intent.getKeyword().isBlank()) {
+            commands.add(AiDetectedIntent.ItemBuyCommand.builder()
+                    .name(intent.getKeyword())
+                    .quantity(intent.getQuantity() != null ? intent.getQuantity().doubleValue() : null)
+                    .build());
+        }
+        if (commands.isEmpty()) {
             return ChatbotMessageResponse.text("Bạn muốn mua món nông sản nào ạ? Hãy nhập tên sản phẩm (ví dụ: 'Mua 2kg cà chua' hoặc 'Đặt hộp bí ẩn') để em hỗ trợ nhé!");
         }
 
-        List<ChatbotMessageResponse.ItemOptionDto> matches = searchItems(keyword, intent.getItemType());
+        List<String> notes = new ArrayList<>();
+        List<String> notFound = new ArrayList<>();
+        List<ChatbotMessageResponse.ItemOptionDto> added = new ArrayList<>();
+        List<ChatbotMessageResponse.ItemOptionDto> options = new ArrayList<>();
 
-        if (matches.isEmpty()) {
-            List<ChatbotMessageResponse.ItemOptionDto> suggestions = searchItems(null, AiItemType.PRODUCT);
-            if (!suggestions.isEmpty()) {
-                return ChatbotMessageResponse.builder()
-                        .type(AiResponseType.ITEM_OPTIONS)
-                        .message("Hiện tại sàn CapNong chưa có sẵn nông sản '" + keyword + "'. Bạn có thể tham khảo những nông sản tươi ngon khác đang có sẵn trên sàn hôm nay nhé:")
-                        .itemOptions(suggestions.stream().limit(4).collect(Collectors.toList()))
-                        .timestamp(LocalDateTime.now())
-                        .build();
+        for (AiDetectedIntent.ItemBuyCommand command : commands) {
+            List<ChatbotMessageResponse.ItemOptionDto> matches = searchItems(command.getName(), intent.getItemType());
+            if (matches.isEmpty()) {
+                notFound.add(command.getName());
+                continue;
             }
-            return ChatbotMessageResponse.text("Rất tiếc, CapNong hiện chưa tìm thấy món '" + keyword + "' hoặc sản phẩm đang tạm hết hàng. Bạn có thể tham khảo các loại nông sản giải cứu tươi ngon khác trên trang chủ nhé!");
-        }
+            // Giữ số lượng khách đã nói để nút Chọn trên thẻ thêm đúng số đó.
+            matches.forEach(m -> m.setOrderQuantity(ChatbotQuantityResolver.resolve(command.getQuantity(), command.getUnit(), m.getUnit())));
 
-        int requestedQty = 1;
-        if (intent.getQuantity() != null && intent.getQuantity() > 0) {
-            requestedQty = intent.getQuantity();
-        } else if (intent.getBuyItems() != null && !intent.getBuyItems().isEmpty() && intent.getBuyItems().get(0).getQuantity() != null) {
-            requestedQty = intent.getBuyItems().get(0).getQuantity().intValue();
-        }
+            if (matches.size() > 1) {
+                options.addAll(matches);
+                notes.add("Có " + matches.size() + " loại phù hợp với '" + command.getName() + "', bạn chọn loại nào bên dưới nhé.");
+                String unresolvedNote = unresolvedQuantityNote(command, matches);
+                if (unresolvedNote != null) notes.add(unresolvedNote);
+                continue;
+            }
 
-        if (matches.size() == 1) {
             ChatbotMessageResponse.ItemOptionDto target = matches.get(0);
-            return executeAddToCart(target, requestedQty);
+            if (target.getOrderQuantity() == null) {
+                options.add(target);
+                notes.add(target.getName() + " đang bán theo " + target.getUnit() + " và chỉ thêm được số nguyên, nên mình chưa thêm vào giỏ. Bạn bấm Chọn rồi chỉnh số lượng trong giỏ hàng nhé.");
+                continue;
+            }
+
+            String failure = tryAddToCart(target, target.getOrderQuantity());
+            if (failure != null) {
+                notes.add(failure);
+            } else {
+                added.add(target);
+                notes.add("Đã thêm " + target.getOrderQuantity() + " " + target.getUnit() + " " + target.getName() + " vào giỏ hàng.");
+            }
         }
 
-        return ChatbotMessageResponse.builder()
-                .type(AiResponseType.ITEM_OPTIONS)
-                .message("CapNong tìm thấy " + matches.size() + " loại phù hợp với yêu cầu của bạn. Bạn chọn loại nào bên dưới để thêm vào giỏ nhé?")
-                .itemOptions(matches)
-                .timestamp(LocalDateTime.now())
-                .build();
+        if (added.isEmpty() && options.isEmpty() && notes.isEmpty()) {
+            List<ChatbotMessageResponse.ItemOptionDto> suggestions = searchItems(null, AiItemType.PRODUCT);
+            String names = String.join(", ", notFound);
+            if (suggestions.isEmpty()) {
+                return ChatbotMessageResponse.text("Rất tiếc, CapNong hiện chưa tìm thấy món '" + names + "' hoặc sản phẩm đang tạm hết hàng.");
+            }
+            return ChatbotMessageResponse.builder()
+                    .type(AiResponseType.ITEM_OPTIONS)
+                    .message("Hiện tại sàn CapNong chưa có sẵn nông sản '" + names + "'. Bạn có thể tham khảo những nông sản khác đang có sẵn trên sàn hôm nay nhé:")
+                    .itemOptions(suggestions.stream().limit(4).collect(Collectors.toList()))
+                    .timestamp(LocalDateTime.now())
+                    .build();
+        }
+
+        if (!notFound.isEmpty()) {
+            notes.add("Chưa tìm thấy: " + String.join(", ", notFound) + ".");
+        }
+
+        ChatbotMessageResponse.ChatbotMessageResponseBuilder builder = ChatbotMessageResponse.builder()
+                .message(String.join("\n", notes))
+                .timestamp(LocalDateTime.now());
+        if (!added.isEmpty()) {
+            builder.cart(buildCartPreview());
+            if (added.size() == 1) builder.selectedProduct(added.get(0));
+        }
+        if (!options.isEmpty()) {
+            builder.itemOptions(options).type(AiResponseType.ITEM_OPTIONS);
+        } else {
+            builder.type(added.isEmpty() ? AiResponseType.ERROR : AiResponseType.CART_UPDATED);
+        }
+        return builder.build();
+    }
+
+    /**
+     * Khách có nói số lượng nhưng một số lựa chọn không quy đổi được (vd 1.5kg, hoặc combo bán theo phần).
+     * Nút Chọn khi đó chỉ thêm 1 đơn vị, nên phải báo trước để khách không tưởng đã mua đúng số mình nói.
+     */
+    private String unresolvedQuantityNote(AiDetectedIntent.ItemBuyCommand command,
+                                          List<ChatbotMessageResponse.ItemOptionDto> matches) {
+        if (command.getQuantity() == null && (command.getUnit() == null || command.getUnit().isBlank())) return null;
+        long unresolved = matches.stream().filter(m -> m.getOrderQuantity() == null).count();
+        if (unresolved == 0) return null;
+
+        String requested = formatAmount(command.getQuantity() != null ? command.getQuantity() : 1d)
+                + (command.getUnit() != null && !command.getUnit().isBlank() ? " " + command.getUnit().trim() : "");
+        String scope = unresolved == matches.size() ? "Các loại này" : "Một số loại bên dưới";
+        return scope + " không thêm được đúng " + requested + " vì giỏ hàng chỉ nhận số nguyên theo đơn vị bán. "
+                + "Bấm Chọn sẽ thêm 1 đơn vị, bạn chỉnh lại số lượng trong giỏ hàng nhé.";
+    }
+
+    private static String formatAmount(double amount) {
+        return amount == Math.rint(amount) ? String.valueOf((long) amount) : String.valueOf(amount);
     }
 
     @Override
@@ -266,7 +397,7 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
                     .name(p.getProductName())
                     .imageUrl(img)
                     .price(p.getSellingPrice())
-                    .salePrice(p.getSellingPrice())
+                    .salePrice(salePriceOf(p))
                     .unit(p.getUnit())
                     .availableQuantity(p.getStockQuantity())
                     .build();
@@ -314,38 +445,46 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
         return executeAddToCart(itemDto, qty);
     }
 
-    private ChatbotMessageResponse executeAddToCart(ChatbotMessageResponse.ItemOptionDto target, int qty) {
+    /** @return null khi thêm thành công, ngược lại là lý do để hiện cho khách. */
+    private String tryAddToCart(ChatbotMessageResponse.ItemOptionDto target, int qty) {
         try {
             String itemTypeStr = target.getItemType() != null ? target.getItemType().name() : "PRODUCT";
             if ("COMBO".equalsIgnoreCase(itemTypeStr)) {
                 itemTypeStr = "BUILD_COMBO";
             }
-
-            CartAddRequest request = CartAddRequest.builder()
+            cartService.addToCart(CartAddRequest.builder()
                     .itemType(itemTypeStr)
                     .itemId(target.getItemId())
                     .quantity(qty)
-                    .build();
-
-            cartService.addToCart(request);
-
-            ChatbotMessageResponse.CartPreviewDto preview = buildCartPreview();
-
-            String unitStr = target.getUnit() != null ? target.getUnit() : "phần";
-            String reply = String.format("Đã thêm thành công %d %s %s vào giỏ hàng của bạn! 🎉 Bạn có thể xem giỏ hàng hoặc tiến hành thanh toán nhé.",
-                    qty, unitStr, target.getName());
-
-            return ChatbotMessageResponse.builder()
-                    .type(AiResponseType.CART_UPDATED)
-                    .message(reply)
-                    .selectedProduct(target)
-                    .cart(preview)
-                    .timestamp(LocalDateTime.now())
-                    .build();
+                    .build());
+            return null;
+        } catch (AppException e) {
+            if (e.getErrorCode() == ErrorCode.OUT_OF_STOCK) {
+                Integer available = target.getAvailableQuantity();
+                return target.getName() + " không đủ hàng" + (available != null ? " (chỉ còn " + available + " " + target.getUnit() + ")" : "") + ", mình chưa thêm vào giỏ.";
+            }
+            log.warn("Chatbot could not add item {} to cart: {}", target.getItemId(), e.getErrorCode());
+            return target.getName() + " hiện không thể thêm vào giỏ hàng.";
         } catch (Exception e) {
             log.error("Failed to add item to cart via Chatbot: {}", e.getMessage(), e);
-            return ChatbotMessageResponse.error("Không thể thêm vào giỏ hàng: " + e.getMessage());
+            return target.getName() + " hiện không thể thêm vào giỏ hàng. Bạn thử lại sau nhé!";
         }
+    }
+
+    private ChatbotMessageResponse executeAddToCart(ChatbotMessageResponse.ItemOptionDto target, int qty) {
+        String failure = tryAddToCart(target, qty);
+        if (failure != null) {
+            return ChatbotMessageResponse.error(failure);
+        }
+        String unitStr = target.getUnit() != null ? target.getUnit() : "phần";
+        return ChatbotMessageResponse.builder()
+                .type(AiResponseType.CART_UPDATED)
+                .message(String.format("Đã thêm thành công %d %s %s vào giỏ hàng của bạn! 🎉 Bạn có thể xem giỏ hàng hoặc tiến hành thanh toán nhé.",
+                        qty, unitStr, target.getName()))
+                .selectedProduct(target)
+                .cart(buildCartPreview())
+                .timestamp(LocalDateTime.now())
+                .build();
     }
 
     private ChatbotMessageResponse.CartPreviewDto buildCartPreview() {
@@ -459,10 +598,10 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
             case VIEW_WALLET:
                 return ChatbotMessageResponse.builder()
                         .type(AiResponseType.NAVIGATION)
-                        .message("Bạn có thể kiểm tra số dư ví CapNong, nạp tiền hoặc xem biến động số dư tại đây.")
+                        .message("Bạn xem số dư, tiền tạm giữ và lịch sử giao dịch trong Ví của tôi nhé.")
                         .navigation(ChatbotMessageResponse.NavigationDto.builder()
-                                .url("/profile?tab=wallet")
-                                .label("Xem ví CapNong")
+                                .url("/my-wallet")
+                                .label("Mở Ví của tôi")
                                 .build())
                         .timestamp(LocalDateTime.now())
                         .build();
@@ -473,7 +612,7 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
                         .type(AiResponseType.NAVIGATION)
                         .message("Đây là trang thông tin tài khoản cá nhân của bạn.")
                         .navigation(ChatbotMessageResponse.NavigationDto.builder()
-                                .url("/profile")
+                                .url("/tai-khoan")
                                 .label("Hồ sơ cá nhân")
                                 .build())
                         .timestamp(LocalDateTime.now())
@@ -495,14 +634,14 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
                         .type(AiResponseType.NAVIGATION)
                         .message("Quản lý danh sách địa chỉ giao nhận hàng của bạn tại đây.")
                         .navigation(ChatbotMessageResponse.NavigationDto.builder()
-                                .url("/profile?tab=addresses")
+                                .url("/tai-khoan?tab=address")
                                 .label("Sổ địa chỉ")
                                 .build())
                         .timestamp(LocalDateTime.now())
                         .build();
 
             case LOGOUT:
-                return ChatbotMessageResponse.text("Để đăng xuất tài khoản, bạn hãy bấm vào hình đại diện ở góc phải trên cùng và chọn 'Đăng xuất' nhé!");
+                return ChatbotMessageResponse.text("Để đăng xuất, bạn mở mục Tài khoản và chọn 'Đăng xuất' nhé!");
 
             default:
                 return ChatbotMessageResponse.text("CapNong Copilot luôn sẵn sàng hỗ trợ bạn bất kỳ thông tin nào về sản phẩm hoặc tài khoản!");
@@ -526,12 +665,11 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
 
         Order targetOrder = null;
         if (orderId != null) {
-            targetOrder = orderRepository.findById(orderId)
-                    .filter(o -> o.getBuyer().getId() == userId)
-                    .orElse(null);
-        }
-
-        if (targetOrder == null) {
+            targetOrder = ownedOrder(orderId, userId).orElse(null);
+            if (targetOrder == null) {
+                return orderNotFound(orderId);
+            }
+        } else {
             Page<Order> orders = orderRepository.findByBuyer_Id(userId, PageRequest.of(0, 1, Sort.by(Sort.Direction.DESC, "createdAt")));
             if (orders.hasContent()) {
                 targetOrder = orders.getContent().get(0);
@@ -568,7 +706,7 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
                 .shippingAddress(targetOrder.getShippingAddress())
                 .shipperName(targetOrder.getShipper() != null ? targetOrder.getShipper().getFullName() : "Đang điều phối tài xế")
                 .shipperPhone(targetOrder.getShipper() != null ? targetOrder.getShipper().getPhoneNumber() : null)
-                .trackingUrl("/profile?tab=orders&orderId=" + targetOrder.getOrderId())
+                .trackingUrl("/orders?orderId=" + targetOrder.getOrderId())
                 .createdAt(targetOrder.getCreatedAt())
                 .build();
 
@@ -582,28 +720,100 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
 
     @Override
     public ChatbotMessageResponse handleReturnGuidance(Integer userId) {
-        Integer latestOrderId = null;
-        if (userId != null) {
-            Page<Order> orders = orderRepository.findByBuyer_Id(userId, PageRequest.of(0, 1, Sort.by(Sort.Direction.DESC, "createdAt")));
-            if (orders.hasContent()) {
-                latestOrderId = orders.getContent().get(0).getOrderId();
-            }
+        ChatbotMessageResponse.ReturnGuidanceDto.ReturnGuidanceDtoBuilder dto = ChatbotMessageResponse.ReturnGuidanceDto.builder()
+                .policyTitle("Chính sách trả hàng / hoàn tiền")
+                .policyContent(RETURN_POLICY);
+
+        if (userId == null) {
+            return returnGuidanceResponse("Bạn đăng nhập để gửi yêu cầu trả hàng cho đơn đã nhận nhé. Chính sách của CapNong như sau:",
+                    dto.actionUrl("/login").actionLabel("Đăng nhập").build());
         }
 
-        ChatbotMessageResponse.ReturnGuidanceDto dto = ChatbotMessageResponse.ReturnGuidanceDto.builder()
-                .orderId(latestOrderId)
-                .policyTitle("Chính sách Đổi trả & Hoàn tiền 100% trong 24h")
-                .policyContent("CapNong cam kết đổi trả hoặc hoàn tiền 100% đối với nông sản bị dập úng, héo úa hoặc không đạt chất lượng cam kết khi nhận hàng. Bạn chỉ cần chụp ảnh hoặc quay video ngắn sản phẩm lỗi.")
-                .actionUrl("/profile?tab=orders" + (latestOrderId != null ? "&orderId=" + latestOrderId : ""))
-                .actionLabel("Gửi yêu cầu hoàn tiền ngay")
-                .build();
+        ChatbotMessageResponse.LatestReturnDto latest = returnRequestRepository
+                .findByBuyer_Id(userId, PageRequest.of(0, 1, Sort.by(Sort.Direction.DESC, "createdAt")))
+                .stream().findFirst().map(this::toLatestReturn).orElse(null);
+        dto.latestReturn(latest);
 
+        Order eligible = orderRepository
+                .findByBuyer_Id(userId, PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt")))
+                .stream().filter(o -> returnDeadline(o) != null).findFirst().orElse(null);
+
+        String message;
+        if (eligible != null) {
+            dto.orderId(eligible.getOrderId())
+                    .returnDeadline(returnDeadline(eligible))
+                    .actionUrl("/orders?orderId=" + eligible.getOrderId())
+                    .actionLabel("Yêu cầu trả hàng cho đơn #" + eligible.getOrderId());
+            message = "Đơn #" + eligible.getOrderId() + " của bạn vẫn còn trong hạn trả hàng. Bạn mở đơn, chọn sản phẩm lỗi rồi bấm \"Trả hàng / Hoàn tiền\" nhé:";
+        } else if (latest != null && latest.isActive()) {
+            dto.actionUrl("/orders?tab=REFUND").actionLabel("Xem yêu cầu trả hàng");
+            message = "Yêu cầu trả hàng #" + latest.getReturnId() + " của bạn đang được xử lý:";
+        } else {
+            dto.actionUrl("/orders").actionLabel("Xem đơn hàng");
+            message = "Hiện bạn không có đơn nào còn trong hạn trả hàng (24 giờ sau khi nhận). Chính sách của CapNong như sau:";
+        }
+        return returnGuidanceResponse(message, dto.build());
+    }
+
+    private static final String RETURN_POLICY =
+            "Bạn gửi yêu cầu trong vòng 24 giờ sau khi nhận hàng, cho từng sản phẩm trong đơn đã giao. "
+                    + "Kèm lý do và ảnh sản phẩm lỗi để nhà vườn xem xét. Nếu nhà vườn từ chối, CapNong sẽ xem xét lại. "
+                    + "Khi yêu cầu hoàn tất, tiền hoàn được cộng vào Ví CapNong của bạn.";
+
+    private ChatbotMessageResponse returnGuidanceResponse(String message, ChatbotMessageResponse.ReturnGuidanceDto dto) {
         return ChatbotMessageResponse.builder()
                 .type(AiResponseType.RETURN_GUIDANCE)
-                .message("CapNong rất tiếc nếu đơn hàng của bạn gặp sự cố rau củ dập úng! Bạn hoàn toàn yên tâm với chính sách bảo vệ người mua 24h:")
+                .message(message)
                 .returnGuidance(dto)
                 .timestamp(LocalDateTime.now())
                 .build();
+    }
+
+    /**
+     * Hạn chót gửi yêu cầu trả hàng, cùng điều kiện với ReturnRequestServiceImpl.createReturnRequest.
+     * Trả null nếu đơn chưa giao hoặc đã quá hạn.
+     */
+    static LocalDateTime returnDeadline(Order order) {
+        if (order.getStatus() != OrderStatus.DELIVERED && order.getStatus() != OrderStatus.COMPLETED) return null;
+        LocalDateTime deadline;
+        if (order.getDeliveredAt() != null) {
+            deadline = order.getDeliveredAt().plusHours(24);
+        } else if (order.getEstimatedDeliveryDate() != null) {
+            deadline = order.getEstimatedDeliveryDate().plusDays(3);
+        } else {
+            return null;
+        }
+        return LocalDateTime.now().isAfter(deadline) ? null : deadline;
+    }
+
+    private ChatbotMessageResponse.LatestReturnDto toLatestReturn(ReturnRequest request) {
+        ReturnRequestResponse r = returnRequestMapper.toResponse(request);
+        return ChatbotMessageResponse.LatestReturnDto.builder()
+                .returnId(r.getReturnId())
+                .orderId(r.getOrderId())
+                .productName(r.getProductName())
+                .status(r.getStatus() != null ? r.getStatus().name() : null)
+                .statusLabel(returnStatusLabel(r.getStatus()))
+                .refundAmount(r.getRefundAmount())
+                .active(ReturnRequestServiceImpl.isReturnActive(r.getStatus()))
+                .createdAt(r.getCreatedAt())
+                .build();
+    }
+
+    static String returnStatusLabel(ReturnStatus status) {
+        if (status == null) return "Đang xử lý";
+        return switch (status) {
+            case PENDING -> "Chờ nhà vườn phản hồi";
+            case SHOP_APPROVED, ADMIN_APPROVED, APPROVED -> "Đã được duyệt";
+            case DISPUTED -> "CapNong đang xem xét";
+            case RETURN_SHIPPING -> "Chờ shipper lấy hàng hoàn";
+            case RETURN_PICKED_UP -> "Shipper đã lấy hàng hoàn";
+            case RETURN_DELIVERED -> "Hàng hoàn đã về nhà vườn";
+            case RETURN_FAILED -> "Lấy hàng hoàn không thành công";
+            case COMPLETED -> "Đã hoàn tiền";
+            case REJECTED -> "Bị từ chối";
+            case CANCELLED -> "Bạn đã hủy yêu cầu";
+        };
     }
 
     @Override
@@ -619,9 +829,9 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
 
         Order targetOrder = null;
         if (orderId != null) {
-            targetOrder = orderRepository.findById(orderId).filter(o -> o.getBuyer().getId() == userId).orElse(null);
+            targetOrder = ownedOrder(orderId, userId).orElse(null);
             if (targetOrder == null) {
-                targetOrder = orderRepository.findById(orderId).orElse(null);
+                return orderNotFound(orderId);
             }
         } else {
             Page<Order> orders = orderRepository.findByBuyer_Id(userId, PageRequest.of(0, 1, Sort.by(Sort.Direction.DESC, "createdAt")));
@@ -631,24 +841,7 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
         }
 
         if (targetOrder == null) {
-            // Trường hợp test case đơn #15 hoặc người dùng chưa có đơn hàng thực tế trong DB
-            int demoId = (orderId != null && orderId > 0) ? orderId : 15;
-            boolean canCancel = true;
-            String msg = "Đơn hàng #" + demoId + " hiện ở trạng thái PENDING, shop chưa bàn giao cho shipper nên bạn có thể hủy ngay.";
-            ChatbotMessageResponse.OrderCancelDto dto = ChatbotMessageResponse.OrderCancelDto.builder()
-                    .orderId(demoId)
-                    .orderStatus("PENDING")
-                    .canCancel(canCancel)
-                    .message(msg)
-                    .refundAmount(BigDecimal.valueOf(85000))
-                    .build();
-
-            return ChatbotMessageResponse.builder()
-                    .type(AiResponseType.ORDER_CANCEL)
-                    .message(msg)
-                    .orderCancel(dto)
-                    .timestamp(LocalDateTime.now())
-                    .build();
+            return ChatbotMessageResponse.text("Bạn chưa có đơn hàng nào để hủy trên CapNong.");
         }
 
         boolean canCancel = targetOrder.getStatus() == OrderStatus.PENDING
@@ -672,7 +865,7 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
                 .orderStatus(targetOrder.getStatus().name())
                 .canCancel(canCancel)
                 .message(msg)
-                .refundAmount(targetOrder.getTotalAmount())
+                .refundAmount(targetOrder.getStatus() == OrderStatus.PAID ? targetOrder.getTotalAmount() : null)
                 .build();
 
         return ChatbotMessageResponse.builder()
@@ -681,6 +874,15 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
                 .orderCancel(dto)
                 .timestamp(LocalDateTime.now())
                 .build();
+    }
+
+    private int remainingOf(BuildCombo c) {
+        return (c.getTotalQuantity() != null ? c.getTotalQuantity() : 0)
+                - (c.getSoldQuantity() != null ? c.getSoldQuantity() : 0);
+    }
+
+    private boolean hasStock(BuildCombo c) {
+        return remainingOf(c) > 0;
     }
 
     @Override
@@ -700,6 +902,7 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
             List<BuildCombo> allCombos = buildComboRepository.findAll();
             List<BuildCombo> matched = allCombos.stream()
                     .filter(c -> ("ACTIVE".equalsIgnoreCase(c.getStatus()) || c.getStatus() == null))
+                    .filter(this::hasStock)
                     .filter(c -> c.getPrice() != null && c.getPrice().compareTo(target) <= 0)
                     .sorted(Comparator.comparing(BuildCombo::getPrice).reversed())
                     .limit(6)
@@ -709,6 +912,8 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
             if (matched.isEmpty()) {
                 matched = allCombos.stream()
                         .filter(c -> ("ACTIVE".equalsIgnoreCase(c.getStatus()) || c.getStatus() == null))
+                        .filter(this::hasStock)
+                        .filter(c -> c.getPrice() != null)
                         .sorted(Comparator.comparing(BuildCombo::getPrice))
                         .limit(4)
                         .toList();
@@ -716,8 +921,7 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
 
             List<ChatbotMessageResponse.ItemOptionDto> comboItems = new ArrayList<>();
             for (BuildCombo c : matched) {
-                int remaining = (c.getTotalQuantity() != null ? c.getTotalQuantity() : 50)
-                        - (c.getSoldQuantity() != null ? c.getSoldQuantity() : 0);
+                int remaining = remainingOf(c);
                 comboItems.add(ChatbotMessageResponse.ItemOptionDto.builder()
                         .itemType(AiItemType.COMBO)
                         .itemId(c.getComboId())
@@ -726,7 +930,7 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
                         .salePrice(c.getPrice())
                         .unit("combo")
                         .imageUrl(c.getImageUrl())
-                        .availableQuantity(Math.max(1, remaining))
+                        .availableQuantity(remaining)
                         .description(c.getDescription())
                         .build());
             }
@@ -758,20 +962,21 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
 
         for (Product p : activeProducts.getContent()) {
             if (p.getStockQuantity() != null && p.getStockQuantity() > 0 && p.getSellingPrice() != null) {
-                if (currentSum.add(p.getSellingPrice()).compareTo(target) <= 0) {
+                BigDecimal salePrice = salePriceOf(p);
+                if (currentSum.add(salePrice).compareTo(target) <= 0) {
                     String img = (p.getImages() != null && !p.getImages().isEmpty()) ? p.getImages().get(0).getImageUrl() : null;
                     selectedItems.add(ChatbotMessageResponse.ItemOptionDto.builder()
                             .itemType(AiItemType.PRODUCT)
                             .itemId(p.getProductId())
                             .name(p.getProductName())
                             .price(p.getSellingPrice())
-                            .salePrice(p.getSellingPrice())
+                            .salePrice(salePrice)
                             .unit(p.getUnit() != null ? p.getUnit() : "kg")
                             .imageUrl(img)
                             .availableQuantity(p.getStockQuantity())
                             .description(p.getDescription())
                             .build());
-                    currentSum = currentSum.add(p.getSellingPrice());
+                    currentSum = currentSum.add(salePrice);
                     if (selectedItems.size() >= 4) break;
                 }
             }
@@ -796,18 +1001,33 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
     @Override
     public ChatbotMessageResponse suggestRecipe(String userIngredients, Integer userId) {
         String cleanIng = (userIngredients != null && !userIngredients.isBlank()) ? userIngredients.trim() : "rau củ tươi";
+        List<String> allergens = allergensOf(userId);
 
-        List<ChatbotMessageResponse.ItemOptionDto> extras = searchItems("nấm", AiItemType.PRODUCT);
-        if (extras.isEmpty()) {
-            extras = searchItems("cà chua", AiItemType.PRODUCT);
+        ChatbotAiClient.RecipeIdea idea = chatbotAiClient.suggestRecipe(cleanIng, allergens);
+        if (idea == null) {
+            idea = new ChatbotAiClient.RecipeIdea(
+                    "Canh nông sản & món xào đơn giản",
+                    "20 phút",
+                    "Từ " + cleanIng + ", bạn có thể nấu canh thanh mát hoặc xào tỏi. Bí quyết: phi thơm hành tỏi, xào nhanh trên lửa lớn để giữ màu sắc và độ giòn.",
+                    List.of("cà chua", "hành", "nấm"));
+        }
+
+        Map<String, ChatbotMessageResponse.ItemOptionDto> extras = new LinkedHashMap<>();
+        for (String name : idea.extraIngredients()) {
+            if (mentionsAllergen(name, allergens)) continue;
+            for (ChatbotMessageResponse.ItemOptionDto item : searchItems(name, AiItemType.PRODUCT)) {
+                if (extras.size() < 3 && !mentionsAllergen(item.getName(), allergens)) {
+                    extras.putIfAbsent(item.getItemType() + "-" + item.getItemId(), item);
+                }
+            }
         }
 
         ChatbotMessageResponse.RecipeSuggestionDto dto = ChatbotMessageResponse.RecipeSuggestionDto.builder()
-                .dishName("Canh nông sản ngọt lành & Món xào thanh nhiệt")
-                .cookTime("20 phút")
-                .description("Từ " + cleanIng + ", bạn có thể chế biến món Canh thanh mát hoặc Nông sản xào tỏi giòn ngọt. Bí quyết: phi thơm hành tỏi, xào nhanh trên lửa lớn để giữ trọn màu sắc và độ giòn ngọt tự nhiên.")
+                .dishName(idea.dishName())
+                .cookTime(idea.cookTime())
+                .description(idea.description())
                 .userIngredients(List.of(cleanIng))
-                .missingIngredients(extras)
+                .missingIngredients(new ArrayList<>(extras.values()))
                 .build();
 
         return ChatbotMessageResponse.builder()
@@ -826,7 +1046,11 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
     @Override
     public ChatbotMessageResponse getMysteryBoxQa(String userMessage, Integer userId) {
         List<MysteryBox> boxes = mysteryBoxRepository.findAll();
-        MysteryBox activeBox = boxes.stream().filter(b -> Boolean.TRUE.equals(b.getIsActive())).findFirst().orElse(null);
+        MysteryBox activeBox = boxes.stream()
+                .filter(b -> Boolean.TRUE.equals(b.getIsActive()))
+                .filter(b -> (b.getTotalQuantity() != null ? b.getTotalQuantity() : 0) > (b.getSoldQuantity() != null ? b.getSoldQuantity() : 0))
+                .findFirst()
+                .orElse(null);
 
         ChatbotMessageResponse.ItemOptionDto boxDto = null;
         if (activeBox != null) {
@@ -841,26 +1065,18 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
                     .build();
         }
 
-        List<String> userAllergies = new ArrayList<>();
-        if (userId != null) {
-            List<UserAllergy> allergies = userAllergyRepository.findByBuyer_Id(userId);
-            for (UserAllergy ua : allergies) {
-                if (ua.getAllergen() != null && ua.getAllergen().getName() != null) {
-                    userAllergies.add(ua.getAllergen().getName());
-                }
-            }
-        }
+        List<String> userAllergies = allergensOf(userId);
 
         String lowerMsg = (userMessage != null) ? userMessage.toLowerCase() : "";
         boolean asksAboutAllergy = lowerMsg.contains("dị ứng") || lowerMsg.contains("nấm")
-                || lowerMsg.contains("ngứa") || lowerMsg.contains("hạt") || lowerMsg.contains("đậu phộng")
-                || lowerMsg.contains("lạc") || lowerMsg.contains("đậu nành");
+                || lowerMsg.contains("ngứa") || lowerMsg.contains("đậu phộng")
+                || lowerMsg.contains("đậu nành");
 
         List<String> riskAllergens = new ArrayList<>();
         if (lowerMsg.contains("nấm")) {
             riskAllergens.add("Nấm");
         }
-        if (lowerMsg.contains("đậu phộng") || lowerMsg.contains("lạc")) {
+        if (lowerMsg.contains("đậu phộng") || lowerMsg.contains("dị ứng lạc")) {
             riskAllergens.add("Đậu phộng / Lạc");
         }
         if (lowerMsg.contains("đậu nành") || lowerMsg.contains("đậu tương")) {
@@ -887,12 +1103,14 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
         } else {
             botReply = "Thông tin chi tiết về Hộp bí ẩn (Mystery Box) hôm nay:";
             note = userAllergies.isEmpty()
-                    ? "Mỗi Hộp Bí Ẩn chứa 4-6 loại nông sản bất kỳ thu hoạch trong ngày với giá giảm tới 50%!"
+                    ? "Thành phần mỗi hộp do nhà vườn đóng gói nên có thể thay đổi theo từng đợt."
                     : "Hồ sơ của bạn có lưu dị ứng với: " + String.join(", ", userAllergies) + ". Bạn nhớ ghi chú cho nhà vườn khi đặt mua nhé!";
         }
 
         ChatbotMessageResponse.MysteryBoxQaDto dto = ChatbotMessageResponse.MysteryBoxQaDto.builder()
-                .seasonalDescription("Hộp bí ẩn hôm nay được gom trực tiếp từ các vườn nông nghiệp hữu cơ tại Đà Lạt và Miền Tây, gồm rau ăn lá và củ quả tươi ngọt.")
+                .seasonalDescription(activeBox != null && activeBox.getDescription() != null && !activeBox.getDescription().isBlank()
+                        ? activeBox.getDescription()
+                        : "Hộp bí ẩn gồm các loại nông sản do nhà vườn chọn và đóng gói sẵn.")
                 .userAllergies(userAllergies)
                 .boxItem(boxDto)
                 .note(note)
@@ -1029,7 +1247,7 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
 
     @Override
     public ChatbotMessageResponse getShippingTips(Integer userId) {
-        CartResponse cart = cartService.getMyCart();
+        CartResponse cart = (userId != null) ? cartService.getMyCart() : null;
         int shopCount = (cart != null && cart.getShopCarts() != null) ? cart.getShopCarts().size() : 0;
         List<String> names = (cart != null && cart.getShopCarts() != null)
                 ? cart.getShopCarts().stream().map(ShopCartResponse::getShopName).collect(Collectors.toList())
@@ -1097,16 +1315,16 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
     @Override
     public ChatbotMessageResponse handleHumanHandover() {
         ChatbotMessageResponse.HumanHandoverDto dto = ChatbotMessageResponse.HumanHandoverDto.builder()
-                .hotline("1900-CAPNONG (1900-2276)")
-                .zaloUrl("https://zalo.me/capnong")
-                .email("hotro@capnong.vn")
+                .hotline(supportProperties.getHotline())
+                .zaloUrl(supportProperties.getZaloUrl())
+                .email(supportProperties.getEmail())
                 .triggerP2pChat(true)
-                .note("Đội ngũ CSKH CapNong sẵn sàng trực tuyến từ 8:00 - 21:00 hàng ngày. Bạn cũng có thể mở khung chat bên dưới để nhắn tin trực tiếp với chủ nhà vườn!")
+                .note("Bạn có thể nhắn tin trực tiếp với chủ nhà vườn trong mục Tin nhắn.")
                 .build();
 
         return ChatbotMessageResponse.builder()
                 .type(AiResponseType.HUMAN_HANDOVER)
-                .message("Đang kết nối bạn với chuyên viên hỗ trợ và chủ nhà vườn:")
+                .message("Bạn có thể liên hệ qua các kênh sau:")
                 .humanHandover(dto)
                 .timestamp(LocalDateTime.now())
                 .build();
@@ -1370,7 +1588,7 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
             title = "Đăng Ký Trở Thành Tài Xế Giao Hàng CapNong";
             desc = "1. Đăng ký tài khoản: Chọn vai trò Tài xế (Shipper) tại trang đăng ký.\n"
                     + "2. Cập nhật hồ sơ: Cung cấp bằng lái xe, biển số phương tiện và thông tin liên hệ.\n"
-                    + "3. Bật ứng dụng nhận chuyến: Giao nông sản tươi ngắn chặng 2-4h và nhận hoa hồng hấp dẫn.";
+                    + "3. Bật ứng dụng nhận chuyến và giao nông sản tươi cho khách.";
             links.add(ChatbotMessageResponse.NavigationDto.builder().url("/dang-ky?role=shipper").label("Đăng Ký Làm Tài Xế Giao Hàng").build());
             links.add(ChatbotMessageResponse.NavigationDto.builder().url("/shipper").label("Cổng Tài Xế (Nếu đã có tài khoản)").build());
         }
@@ -1402,8 +1620,8 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
             targetRole = "GUEST";
             title = "Hợp Tác Đồng Hành Cùng CapNong";
             desc = "1. Nhà vườn đối tác: Đăng ký mở shop để phân phối nông sản tươi và nông sản giải cứu.\n"
-                    + "2. Tài xế giao vận: Đăng ký gia nhập đội ngũ shipper hỏa tốc 2-4h nông sản tươi.\n"
-                    + "3. Hỗ trợ tận tâm: Đội ngũ CapNong luôn đồng hành hỗ trợ đối tác 24/7.";
+                    + "2. Tài xế giao vận: Đăng ký gia nhập đội ngũ giao nông sản tươi.\n"
+                    + "3. Hỗ trợ: Đội ngũ CapNong đồng hành cùng đối tác trong quá trình bán hàng và giao nhận.";
             links.add(ChatbotMessageResponse.NavigationDto.builder().url("/dang-ky?role=shop").label("Đăng Ký Mở Gian Hàng Nông Dân").build());
             links.add(ChatbotMessageResponse.NavigationDto.builder().url("/dang-ky?role=shipper").label("Đăng Ký Trở Thành Tài Xế").build());
             links.add(ChatbotMessageResponse.NavigationDto.builder().url("/shop").label("Kênh Nhà Vườn (Shop)").build());
@@ -1486,7 +1704,7 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
                         .itemId(p.getProductId())
                         .name(p.getProductName())
                         .price(d.getUnitPrice() != null ? d.getUnitPrice() : p.getSellingPrice())
-                        .salePrice(p.getSellingPrice())
+                        .salePrice(salePriceOf(p))
                         .unit(p.getUnit() != null ? p.getUnit() : "kg")
                         .imageUrl(img)
                         .availableQuantity(stock)
@@ -1592,46 +1810,52 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
     // Case 6.2: Nông sản xả gấp / Flash rescue
     @Override
     public ChatbotMessageResponse getFlashRescueItems() {
+        // Chỉ lấy sản phẩm đang giảm giá thật; trang lớn hơn số cần lấy vì không lọc được theo giảm giá trong truy vấn.
         Page<Product> products = productRepository.findAll(
                 ProductSpecification.filterProducts("ACTIVE", null, null, null),
-                PageRequest.of(0, 10)
+                PageRequest.of(0, 50)
         );
         List<ChatbotMessageResponse.ItemOptionDto> flashItems = new ArrayList<>();
+        int maxDiscount = 0;
 
         for (Product p : products.getContent()) {
-            if (p.getStockQuantity() != null && p.getStockQuantity() > 0) {
+            if (isOnSale(p) && p.getStockQuantity() != null && p.getStockQuantity() > 0) {
                 String img = (p.getImages() != null && !p.getImages().isEmpty()) ? p.getImages().get(0).getImageUrl() : null;
-                BigDecimal salePrice = p.getSellingPrice();
-                if (p.getDiscountPercent() != null && p.getDiscountPercent() > 0) {
-                    BigDecimal factor = BigDecimal.valueOf(100 - p.getDiscountPercent())
-                            .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
-                    salePrice = p.getSellingPrice().multiply(factor);
-                }
-
                 flashItems.add(ChatbotMessageResponse.ItemOptionDto.builder()
                         .itemType(AiItemType.PRODUCT)
                         .itemId(p.getProductId())
                         .name(p.getProductName())
                         .price(p.getSellingPrice())
-                        .salePrice(salePrice)
-                        .discountPercent(p.getDiscountPercent() != null ? p.getDiscountPercent() : 20)
+                        .salePrice(salePriceOf(p))
+                        .discountPercent(p.getDiscountPercent())
                         .unit(p.getUnit() != null ? p.getUnit() : "kg")
                         .availableQuantity(p.getStockQuantity())
                         .imageUrl(img)
                         .build());
+                maxDiscount = Math.max(maxDiscount, p.getDiscountPercent());
                 if (flashItems.size() >= 5) break;
             }
         }
 
+        if (flashItems.isEmpty()) {
+            return ChatbotMessageResponse.builder()
+                    .type(AiResponseType.NAVIGATION)
+                    .message("Hiện chưa có nông sản nào đang giảm giá. Bạn xem các nông sản khác đang có trên sàn nhé!")
+                    .navigation(ChatbotMessageResponse.NavigationDto.builder().url("/san-pham").label("Xem nông sản").build())
+                    .timestamp(LocalDateTime.now())
+                    .build();
+        }
+
         ChatbotMessageResponse.FlashRescueDto dto = ChatbotMessageResponse.FlashRescueDto.builder()
-                .flashTitle("Nông Sản Giải Cứu Gấp Trong Ngày ⚡")
-                .bannerNote("Các lô nông sản tươi vừa được thu hoạch từ vườn đối tác cần tiêu thụ trong 24h với mức giá ưu đãi đến 40%!")
+                .title("Nông sản đang giảm giá")
+                .description("Các nông sản đang được nhà vườn giảm giá trên CapNong:")
+                .discountRate(maxDiscount)
                 .items(flashItems)
                 .build();
 
         return ChatbotMessageResponse.builder()
                 .type(AiResponseType.FLASH_RESCUE)
-                .message("Danh sách nông sản giải cứu gấp hôm nay:")
+                .message("Danh sách nông sản đang giảm giá hôm nay:")
                 .flashRescue(dto)
                 .timestamp(LocalDateTime.now())
                 .build();
@@ -1704,23 +1928,13 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
             searchKeyword = "xà lách";
         }
 
-        // Tích hợp cá nhân hóa nếu User đã đăng nhập và có thông tin dị ứng trong DB
-        if (userId != null) {
-            try {
-                List<UserAllergy> userAllergies = userAllergyRepository.findByBuyer_Id(userId);
-                if (userAllergies != null && !userAllergies.isEmpty()) {
-                    List<String> allergenNames = userAllergies.stream()
-                            .filter(ua -> ua.getAllergen() != null)
-                            .map(ua -> ua.getAllergen().getName())
-                            .filter(Objects::nonNull)
-                            .toList();
-                    if (!allergenNames.isEmpty()) {
-                        advice += " Đặc biệt, căn cứ vào hồ sơ cá nhân của bạn (dị ứng: " + String.join(", ", allergenNames) + "), CapNong Copilot đã tự động lưu ý loại trừ các nhóm nông sản này khỏi gợi ý để đảm bảo an toàn tuyệt đối cho bạn.";
-                    }
-                }
-            } catch (Exception e) {
-                log.warn("[MealPlanBridge] Failed to fetch allergies for user {}: {}", userId, e.getMessage());
-            }
+        // Bỏ các gợi ý có tên trùng chất gây dị ứng trong hồ sơ. Chỉ so được theo tên nên phải nói rõ với khách.
+        List<String> allergens = allergensOf(userId);
+        if (!allergens.isEmpty()) {
+            sampleMeals.removeIf(meal -> mentionsAllergen(meal, allergens));
+            good.removeIf(name -> mentionsAllergen(name, allergens));
+            advice += " Hồ sơ của bạn ghi nhận dị ứng: " + String.join(", ", allergens)
+                    + ". CapNong đã bỏ các gợi ý có tên trùng với những chất này, nhưng bạn vẫn nên kiểm tra kỹ thành phần trước khi dùng.";
         }
 
         // Lấy 2-3 sản phẩm thật đang có bán trên sàn phù hợp với bệnh lý/chế độ ăn này
@@ -1728,28 +1942,24 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
         try {
             Page<Product> pPage = productRepository.findAll(
                     ProductSpecification.filterProducts("ACTIVE", null, searchKeyword, null),
-                    PageRequest.of(0, 3)
+                    PageRequest.of(0, 6)
             );
             if (!pPage.hasContent()) {
                 pPage = productRepository.findAll(
                         ProductSpecification.filterProducts("ACTIVE", null, null, null),
-                        PageRequest.of(0, 3)
+                        PageRequest.of(0, 6)
                 );
             }
             for (Product p : pPage.getContent()) {
+                boolean available = p.getStockQuantity() != null && p.getStockQuantity() > 0;
+                if (!available || mentionsAllergen(p.getProductName(), allergens) || recommendedProducts.size() >= 3) continue;
                 String img = (p.getImages() != null && !p.getImages().isEmpty()) ? p.getImages().get(0).getImageUrl() : null;
-                BigDecimal salePrice = p.getSellingPrice();
-                if (p.getDiscountPercent() != null && p.getDiscountPercent() > 0) {
-                    BigDecimal discountFactor = BigDecimal.valueOf(100 - p.getDiscountPercent())
-                            .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
-                    salePrice = p.getSellingPrice().multiply(discountFactor);
-                }
                 recommendedProducts.add(ChatbotMessageResponse.ItemOptionDto.builder()
                         .itemType(AiItemType.PRODUCT)
                         .itemId(p.getProductId())
                         .name(p.getProductName())
                         .price(p.getSellingPrice())
-                        .salePrice(salePrice)
+                        .salePrice(salePriceOf(p))
                         .unit(p.getUnit() != null ? p.getUnit() : "kg")
                         .availableQuantity(p.getStockQuantity())
                         .imageUrl(img)
@@ -1759,7 +1969,7 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
             log.warn("[MealPlanBridge] Failed to fetch products for bridge: {}", e.getMessage());
         }
 
-        String ctaMessage = "💡 Gợi ý từ CapNong: Để tự động lập thực đơn chi tiết cho cả tuần, phân tích bệnh lý chuyên sâu và cập nhật hồ sơ cá nhân của bạn, bạn có thể truy cập trang Kế Hoạch Bữa Ăn & Hồ Sơ Sức Khỏe AI nhé!";
+        String ctaMessage = "💡 Gợi ý từ CapNong: Để lập thực đơn cho cả tuần và cập nhật hồ sơ sức khỏe của bạn, bạn có thể truy cập trang Kế Hoạch Bữa Ăn nhé!";
 
         ChatbotMessageResponse.MealPlanBridgeDto dto = ChatbotMessageResponse.MealPlanBridgeDto.builder()
                 .conditionName(conditionName)
@@ -1776,7 +1986,7 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
 
         return ChatbotMessageResponse.builder()
                 .type(AiResponseType.MEAL_PLAN_BRIDGE)
-                .message("Tư vấn dinh dưỡng y khoa chuyên sâu từ CapNong Health Copilot:")
+                .message("Gợi ý dinh dưỡng tham khảo từ Trợ lý CapNong:")
                 .mealPlanBridge(dto)
                 .timestamp(LocalDateTime.now())
                 .build();
@@ -2018,14 +2228,25 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
     // Case 9.1: Hỗ trợ thanh toán PayOS / chuyển khoản
     @Override
     public ChatbotMessageResponse assistPayment(Integer orderId, Integer userId) {
-        String guidance = "Cổng thanh toán PayOS xác nhận giao dịch tự động qua Webhook trong 1-3 phút. Nếu ứng dụng ngân hàng đã trừ tiền mà đơn hàng chưa cập nhật trạng thái 'Đã thanh toán', bạn hoàn toàn yên tâm vì tiền được bảo lưu an toàn!";
-        String hotline = "1900-CAPNONG (Nhánh 2 - Bộ phận Kế toán)";
+        Order order = null;
+        if (userId != null) {
+            if (orderId != null) {
+                order = ownedOrder(orderId, userId).orElse(null);
+                if (order == null) {
+                    return orderNotFound(orderId);
+                }
+            } else {
+                Page<Order> orders = orderRepository.findByBuyer_Id(userId, PageRequest.of(0, 1, Sort.by(Sort.Direction.DESC, "createdAt")));
+                order = orders.hasContent() ? orders.getContent().get(0) : null;
+            }
+        }
 
         ChatbotMessageResponse.PaymentAssistanceDto dto = ChatbotMessageResponse.PaymentAssistanceDto.builder()
-                .orderId(orderId)
-                .paymentStatus("Hệ thống Webhook tự động 24/7")
-                .guidance(guidance)
-                .hotline(hotline)
+                .orderId(order != null ? order.getOrderId() : null)
+                .paymentMethod(order != null ? order.getPaymentMethod() : null)
+                .paymentStatus(order != null && order.getStatus() != null ? order.getStatus().name() : null)
+                .guidance("Đơn thanh toán qua PayOS sẽ tự cập nhật khi hệ thống nhận được xác nhận giao dịch. Nếu ngân hàng đã trừ tiền mà đơn vẫn chưa cập nhật sau một lúc, bạn hãy liên hệ bộ phận hỗ trợ và cung cấp mã đơn cùng ảnh giao dịch.")
+                .supportHotline(supportProperties.getHotline())
                 .build();
 
         return ChatbotMessageResponse.builder()
@@ -2049,27 +2270,87 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
         }
 
         User user = userRepository.findById(userId).orElse(null);
-        String bank = (user != null && user.getBankName() != null) ? user.getBankName() : "Chưa liên kết";
-        String acc = (user != null && user.getBankAccount() != null && user.getBankAccount().length() >= 4)
-                ? "**** " + user.getBankAccount().substring(user.getBankAccount().length() - 4)
-                : "Chưa cấu hình";
+        String type = user != null ? walletTypeOf(user) : null;
+        if (type == null) {
+            return ChatbotMessageResponse.builder()
+                    .type(AiResponseType.NAVIGATION)
+                    .message("Ví của Quản trị viên là ví Sàn, bạn xem trong trang quản trị nhé.")
+                    .navigation(ChatbotMessageResponse.NavigationDto.builder().url("/admin/wallet").label("Mở ví Sàn").build())
+                    .timestamp(LocalDateTime.now())
+                    .build();
+        }
 
-        BigDecimal pts = (user != null && user.getLoyaltyPoints() != null) ? user.getLoyaltyPoints() : BigDecimal.ZERO;
+        String bank = user.getBankName() != null && !user.getBankName().isBlank() ? user.getBankName() : null;
+        String acc = user.getBankAccount() != null && user.getBankAccount().length() >= 4
+                ? "**** " + user.getBankAccount().substring(user.getBankAccount().length() - 4)
+                : null;
+
+        // Chỉ đọc: chưa có ví thì coi như số dư 0, không tạo ví từ chatbot.
+        Wallet wallet = walletRepository.findFirstByUser_IdAndType(userId, type).orElse(null);
+        BigDecimal balance = wallet != null && wallet.getTotalBalance() != null ? wallet.getTotalBalance() : BigDecimal.ZERO;
+        BigDecimal frozen = wallet != null && wallet.getFrozenBalance() != null ? wallet.getFrozenBalance() : BigDecimal.ZERO;
+        List<ChatbotMessageResponse.WalletTransactionDto> recent = wallet == null ? List.of()
+                : walletTransactionRepository
+                        .findByWallet_WalletIdOrderByCreatedAtDescIdDesc(wallet.getWalletId(), PageRequest.of(0, 3))
+                        .stream()
+                        .map(t -> ChatbotMessageResponse.WalletTransactionDto.builder()
+                                .description(t.getDescription())
+                                .amount(t.getAmount())
+                                .hold(t.getType() != null && t.getType().name().contains("HOLD"))
+                                .createdAt(t.getCreatedAt())
+                                .build())
+                        .toList();
+
+        String message;
+        if (wallet != null && wallet.getStatus() == WalletStatus.FROZEN) {
+            message = "Ví đang bị tạm khóa nên chưa rút được tiền. Bạn liên hệ CapNong để được hỗ trợ nhé.";
+        } else if ("SHIPPER".equals(type) && balance.signum() < 0) {
+            message = "Số dư âm vì bạn đang giữ tiền mặt COD chưa nộp về sàn. Số dư trở lại bình thường khi CapNong xác nhận đã nhận tiền.";
+        } else if ("BUYER".equals(type)) {
+            message = "Ví nhận tiền hoàn từ các yêu cầu trả hàng. Bạn có thể rút số dư về tài khoản ngân hàng trong Ví của tôi.";
+        } else {
+            message = "Tiền tạm giữ được cộng vào số dư khi đơn hoàn tất. Bạn có thể rút số dư về tài khoản ngân hàng trong Ví của tôi.";
+        }
 
         ChatbotMessageResponse.WalletInfoDto dto = ChatbotMessageResponse.WalletInfoDto.builder()
-                .loyaltyPoints(pts)
-                .bankName(bank)
-                .bankAccountMasked(acc)
-                .note("Tiền hoàn từ các đơn hàng đổi trả rau dập úng sẽ được cộng trực tiếp vào ví CapNong của bạn để mua sắm hoặc rút về tài khoản ngân hàng.")
-                .actionUrl("/profile?tab=wallet")
+                .walletStatus(walletStatusLabel(wallet))
+                .walletType(type)
+                .balance(balance)
+                .frozenBalance(frozen)
+                .totalWithdrawn(wallet != null && wallet.getTotalWithdrawn() != null ? wallet.getTotalWithdrawn() : BigDecimal.ZERO)
+                .recentTransactions(recent)
+                .loyaltyPoints("BUYER".equals(type) && user.getLoyaltyPoints() != null ? user.getLoyaltyPoints() : null)
+                .linkedBankName(bank)
+                .linkedBankAccount(acc)
+                .message(message)
+                .navigationUrl("/my-wallet")
+                .navigationLabel("Mở Ví của tôi")
                 .build();
 
         return ChatbotMessageResponse.builder()
                 .type(AiResponseType.WALLET_INFO)
-                .message("Thông tin Ví điện tử & Tài khoản CapNong của bạn:")
+                .message("Thông tin Ví CapNong của bạn:")
                 .walletInfo(dto)
                 .timestamp(LocalDateTime.now())
                 .build();
+    }
+
+    /** Cùng cách chọn loại ví với WalletServiceImpl.getMyWallet; null với Admin (ví Sàn). */
+    private static String walletTypeOf(User user) {
+        String role = user.getRole() != null && user.getRole().getName() != null ? user.getRole().getName().toUpperCase() : "";
+        return switch (role) {
+            case "SHIPPER" -> "SHIPPER";
+            case "SHOP" -> "SHOP";
+            case "BUYER", "USER" -> "BUYER";
+            default -> null;
+        };
+    }
+
+    private static String walletStatusLabel(Wallet wallet) {
+        if (wallet == null) return "Chưa có giao dịch";
+        if (wallet.getStatus() == WalletStatus.FROZEN) return "Tạm khóa";
+        if (wallet.getStatus() == WalletStatus.INACTIVE) return "Ngừng hoạt động";
+        return "Đang hoạt động";
     }
 
     // Case 10.1: Đổi thông tin nhận hàng khẩn cấp (Địa chỉ / Số điện thoại)
@@ -2091,7 +2372,10 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
 
         Order targetOrder = null;
         if (orderId != null) {
-            targetOrder = orderRepository.findById(orderId).filter(o -> o.getBuyer().getId() == userId).orElse(null);
+            targetOrder = ownedOrder(orderId, userId).orElse(null);
+            if (targetOrder == null) {
+                return orderNotFound(orderId);
+            }
         } else {
             Page<Order> orders = orderRepository.findByBuyer_Id(userId, PageRequest.of(0, 1, Sort.by(Sort.Direction.DESC, "createdAt")));
             if (orders.hasContent()) {
@@ -2120,14 +2404,14 @@ public class ChatbotActionServiceImpl implements ChatbotActionService {
             if (targetOrder.getShipper() != null || targetOrder.getStatus() == OrderStatus.SHIPPING) {
                 note = "Hệ thống không thể sửa trực tiếp số điện thoại trên app khi đơn đã xuất vận đơn. Do đơn hàng #" + targetOrder.getOrderId() + " đang được Shipper" + (shipperName != null ? " " + shipperName : "") + " vận chuyển, bạn hãy liên hệ trực tiếp với tài xế qua SĐT " + (shipperPhone != null ? shipperPhone : "của tài xế") + " để thoả thuận số điện thoại mới khi nhận hàng nhé!";
             } else {
-                note = "Hệ thống không hỗ trợ tự sửa số điện thoại trên đơn hàng đã chốt để tránh xung đột dữ liệu vận chuyển. Bạn vui lòng liên hệ ngay Hotline 1900-CAPNONG để tổng đài viên ghi chú số điện thoại mới cho tài xế khi nhận đơn, hoặc Hủy đơn trong mục 'Đơn hàng của tôi' để đặt lại nhé!";
+                note = "Hệ thống không hỗ trợ tự sửa số điện thoại trên đơn hàng đã chốt để tránh xung đột dữ liệu vận chuyển. Bạn vui lòng liên hệ bộ phận hỗ trợ để được ghi chú số điện thoại mới cho tài xế khi nhận đơn, hoặc Hủy đơn trong mục 'Đơn hàng của tôi' để đặt lại nhé!";
             }
         } else {
             messageTitle = "Thông tin giao nhận Đơn hàng #" + targetOrder.getOrderId() + ":";
             if (targetOrder.getStatus() == OrderStatus.PENDING || targetOrder.getStatus() == OrderStatus.CONFIRMED) {
-                note = "Đơn hàng #" + targetOrder.getOrderId() + " đã được tính phí vận chuyển theo khoảng cách giữa nhà vườn và địa chỉ nhận. Nếu cần đổi địa chỉ, bạn có thể Hủy đơn trong mục 'Đơn hàng của tôi' để đặt lại với địa chỉ mới, hoặc liên hệ Hotline 1900-CAPNONG nhé!";
+                note = "Đơn hàng #" + targetOrder.getOrderId() + " đã được tính phí vận chuyển theo khoảng cách giữa nhà vườn và địa chỉ nhận. Nếu cần đổi địa chỉ, bạn có thể Hủy đơn trong mục 'Đơn hàng của tôi' để đặt lại với địa chỉ mới, hoặc liên hệ bộ phận hỗ trợ nhé!";
             } else {
-                note = "Đơn hàng #" + targetOrder.getOrderId() + " đang được chuẩn bị hoặc vận chuyển. Bạn vui lòng liên hệ Hotline 1900-CAPNONG" + (shipperPhone != null ? " hoặc gọi trực tiếp tài xế qua SĐT " + shipperPhone : "") + " để thoả thuận nhận hàng linh hoạt nhé!";
+                note = "Đơn hàng #" + targetOrder.getOrderId() + " đang được chuẩn bị hoặc vận chuyển. Bạn vui lòng liên hệ bộ phận hỗ trợ" + (shipperPhone != null ? " hoặc gọi trực tiếp tài xế qua SĐT " + shipperPhone : "") + " để thoả thuận nhận hàng linh hoạt nhé!";
             }
         }
 
