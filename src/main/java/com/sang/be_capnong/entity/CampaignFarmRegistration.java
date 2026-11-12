@@ -17,8 +17,9 @@ import java.time.LocalDateTime;
  * Việc cân, kiểm, chụp ảnh do Admin làm tại điểm tập kết (receivedWeightKg, qualityPassed, intakePhotoUrls).
  */
 @Entity
+// Một nhà vườn được đăng ký nhiều lô cho cùng chiến dịch (bỏ uk_campaign_farm, xem CampaignSchemaFixer)
 @Table(name = "campaign_farm_registrations",
-        uniqueConstraints = @UniqueConstraint(name = "uk_campaign_farm", columnNames = {"campaign_id", "shop_id"}))
+        indexes = @Index(name = "idx_cfr_campaign_shop", columnList = "campaign_id, shop_id"))
 @Getter
 @Setter
 @NoArgsConstructor

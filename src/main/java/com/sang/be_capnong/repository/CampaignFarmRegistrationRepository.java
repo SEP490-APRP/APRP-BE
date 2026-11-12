@@ -32,4 +32,8 @@ public interface CampaignFarmRegistrationRepository extends JpaRepository<Campai
     BigDecimal sumApprovedSurplusForUpdate(@Param("campaignId") int campaignId);
 
     long countByCampaign_CampaignIdAndStatus(int campaignId, FarmRegistrationStatus status);
+
+    /** Số nhà vườn (shop khác nhau) theo trạng thái: một shop góp nhiều lô vẫn chỉ tính 1 */
+    @Query("select count(distinct r.shop.id) from CampaignFarmRegistration r where r.campaign.campaignId = :campaignId and r.status = :status")
+    long countDistinctShopsByCampaignAndStatus(@Param("campaignId") int campaignId, @Param("status") FarmRegistrationStatus status);
 }

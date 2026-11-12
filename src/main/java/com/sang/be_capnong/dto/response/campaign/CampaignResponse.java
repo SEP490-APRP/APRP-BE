@@ -41,6 +41,8 @@ public class CampaignResponse {
     /** Tổng kg dư của các nhà vườn đã được duyệt */
     BigDecimal approvedSurplusKg;
     long approvedFarmCount;
+    /** Số lô (đơn đăng ký) đã duyệt: một nhà vườn có thể góp nhiều lô */
+    long approvedLotCount;
     long pendingFarmCount;
 
     // ── Cung - cầu khi gom hàng (THRESHOLD_MET trở đi) ──

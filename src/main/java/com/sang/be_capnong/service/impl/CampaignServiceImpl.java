@@ -666,9 +666,7 @@ public class CampaignServiceImpl implements CampaignService {
         if (!c.getCutoffAt().isAfter(LocalDateTime.now())) {
             throw new AppException(ErrorCode.CAMPAIGN_CUTOFF_PASSED);
         }
-        if (registrationRepository.findByCampaign_CampaignIdAndShop_Id(campaignId, shop.getId()).isPresent()) {
-            throw new AppException(ErrorCode.CAMPAIGN_ALREADY_REGISTERED);
-        }
+        // Nhà vườn được góp thêm lô mới cho cùng chiến dịch; mỗi lô là một đơn đăng ký riêng để duyệt / cân / chi trả
         // Thông tin sản phẩm: tên, ảnh minh hoạ, giá đề xuất, cam kết, thời gian bảo quản
         Product product = null;
         if (request.getProductId() != null) {
@@ -1197,7 +1195,8 @@ public class CampaignServiceImpl implements CampaignService {
                 .remainingVolumeKg(c.getStatus() == CampaignStatus.ACTIVE ? remainingVolume(c) : BigDecimal.ZERO)
                 .progressPercent(progress)
                 .approvedSurplusKg(approved)
-                .approvedFarmCount(registrationRepository.countByCampaign_CampaignIdAndStatus(c.getCampaignId(), FarmRegistrationStatus.APPROVED))
+                .approvedFarmCount(registrationRepository.countDistinctShopsByCampaignAndStatus(c.getCampaignId(), FarmRegistrationStatus.APPROVED))
+                .approvedLotCount(registrationRepository.countByCampaign_CampaignIdAndStatus(c.getCampaignId(), FarmRegistrationStatus.APPROVED))
                 .pendingFarmCount(registrationRepository.countByCampaign_CampaignIdAndStatus(c.getCampaignId(), FarmRegistrationStatus.PENDING))
                 .soldVolumeKg(supply ? sold : null)
                 .acceptedVolumeKg(supply ? accepted : null)

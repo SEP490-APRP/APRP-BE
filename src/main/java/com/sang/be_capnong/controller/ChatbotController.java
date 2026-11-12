@@ -5,6 +5,8 @@ import com.sang.be_capnong.dto.response.ApiResponse;
 import com.sang.be_capnong.dto.response.ChatHistoryResponse;
 import com.sang.be_capnong.dto.response.ChatbotMessageResponse;
 import com.sang.be_capnong.service.ChatbotService;
+import com.sang.be_capnong.service.impl.ChatbotRateLimiter;
+import jakarta.servlet.http.HttpServletRequest;
 import com.sang.be_capnong.util.SecurityUtils;
 import jakarta.validation.Valid;
 import lombok.AccessLevel;
@@ -23,11 +25,15 @@ import java.util.List;
 public class ChatbotController {
 
     ChatbotService chatbotService;
+    ChatbotRateLimiter chatbotRateLimiter;
 
     @PostMapping("/message")
-    public ApiResponse<ChatbotMessageResponse> sendMessage(@RequestBody @Valid ChatbotMessageRequest request) {
+    public ApiResponse<ChatbotMessageResponse> sendMessage(@RequestBody @Valid ChatbotMessageRequest request,
+                                                           HttpServletRequest httpRequest) {
         Integer userId = SecurityUtils.getCurrentUserIdOrNull();
-        log.info("Chatbot message received from userId={}: {}", userId, request.getMessage());
+        chatbotRateLimiter.check(userId, httpRequest.getRemoteAddr());
+        // Không ghi nội dung tin nhắn vào log: khách có thể gửi địa chỉ, số điện thoại, tình trạng sức khỏe.
+        log.info("Chatbot message received from userId={}", userId);
         ChatbotMessageResponse response = chatbotService.handleMessage(request, userId);
         return ApiResponse.<ChatbotMessageResponse>builder()
                 .result(response)

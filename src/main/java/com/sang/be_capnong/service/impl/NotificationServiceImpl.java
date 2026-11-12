@@ -188,6 +188,20 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     @Override
+    @Transactional
+    public void sendNotificationToUser(User user, String title, String message, String type, Integer referenceId) {
+        Notification notification = Notification.builder()
+                .title(title)
+                .message(message)
+                .type(type)
+                .referenceId(referenceId)
+                .receiverType(user.getRole() != null ? user.getRole().getName() : "BUYER")
+                .createAt(LocalDateTime.now())
+                .build();
+        sendNotificationWebsocket(user, notificationRepository.save(notification));
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public List<NotificationResponse> getMyNotifications() {
         Integer currentUserId = SecurityUtils.getCurrentUserId();

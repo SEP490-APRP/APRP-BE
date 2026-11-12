@@ -27,6 +27,7 @@ public class WalletSchemaFixer implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         fixWalletTransactions();
         fixReturnRequests();
+        fixEnumColumns();
     }
 
     private void fixWalletTransactions() {
@@ -75,6 +76,32 @@ public class WalletSchemaFixer implements ApplicationRunner {
             jdbcTemplate.execute("ALTER TABLE wallet_transactions DROP INDEX `uk_wallet_tx_wallet_order_type`");
             log.info("[WalletSchema] Dropped index uk_wallet_tx_wallet_order_type for partial refund support");
         } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * db/sep.sql tạo một số cột trạng thái bằng ENUM của MySQL với giá trị cũ, lệch enum Java
+     * (vd. orders.cod_payment_status chỉ nhận UNPAID/PARTIALLY_PAID/PAID/REFUNDED, code ghi PENDING/CONFIRMED/SETTLED).
+     * Ghi giá trị ngoài danh sách sẽ lỗi "Data truncated". Đổi sang VARCHAR để khớp @Enumerated(STRING).
+     */
+    private void fixEnumColumns() {
+        String[][] columns = {
+                {"orders", "cod_payment_status", "VARCHAR(32) NULL"},
+                {"orders", "cod_payment_option", "VARCHAR(32) NULL"},
+                {"wallets", "status", "VARCHAR(16) NULL"},
+        };
+        for (String[] c : columns) {
+            try {
+                String type = jdbcTemplate.queryForObject(
+                        "SELECT DATA_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() "
+                                + "AND TABLE_NAME = ? AND COLUMN_NAME = ?", String.class, c[0], c[1]);
+                if ("enum".equalsIgnoreCase(type)) {
+                    jdbcTemplate.execute("ALTER TABLE " + c[0] + " MODIFY COLUMN " + c[1] + " " + c[2]);
+                    log.info("[WalletSchema] {}.{} changed from ENUM to {}", c[0], c[1], c[2]);
+                }
+            } catch (Exception e) {
+                log.warn("[WalletSchema] Cannot fix {}.{}: {}", c[0], c[1], e.getMessage());
+            }
         }
     }
 

@@ -63,6 +63,7 @@ public class PaymentServiceImpl implements PaymentService {
     final UserRepository userRepository;
     final WalletService walletService;
     final com.sang.be_capnong.service.CampaignService campaignService;
+    final com.sang.be_capnong.repository.WalletTopupRepository walletTopupRepository;
 
     /** Số phút giữ đơn chờ thanh toán PayOS. 0 = không tự huỷ */
     @Value("${capnong.payment.expire-minutes:30}")
@@ -239,7 +240,8 @@ public class PaymentServiceImpl implements PaymentService {
         for (int i = 0; i < 5; i++) {
             long code = System.currentTimeMillis() * 1000L + java.util.concurrent.ThreadLocalRandom.current().nextInt(1000);
             String c = String.valueOf(code);
-            if (paymentRepository.findByPayosOrderCode(c).isEmpty() && checkoutBatchRepository.findByPayosOrderCode(c).isEmpty()) {
+            if (paymentRepository.findByPayosOrderCode(c).isEmpty() && checkoutBatchRepository.findByPayosOrderCode(c).isEmpty()
+                    && !walletTopupRepository.existsByPayosOrderCode(c)) {
                 return code;
             }
         }
@@ -442,8 +444,10 @@ public class PaymentServiceImpl implements PaymentService {
                 String orderCode = String.valueOf(webhookData.getOrderCode());
                 log.info("[PayOS Webhook] Verified webhook for orderCode: {}, code: {}", orderCode, webhookData.getCode());
                 if ("00".equals(webhookData.getCode())) {
-                    // Tiền cọc chiến dịch giải cứu (WF-01) dùng chung webhook PayOS
-                    if (!campaignService.handlePaidOrderCode(orderCode)) {
+                    // Mã PayOS dùng chung webhook: tiền cọc chiến dịch giải cứu (WF-01),
+                    // lệnh nạp ví (WalletTopup), hoặc thanh toán đơn hàng
+                    if (!campaignService.handlePaidOrderCode(orderCode)
+                            && !walletService.settleTopupIfExists(orderCode)) {
                         settlePaidOrderCode(orderCode);
                     }
                 }
