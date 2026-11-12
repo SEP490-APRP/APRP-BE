@@ -149,10 +149,11 @@ public class WalletServiceImpl implements WalletService {
                         + " - voucher shop " + vnd(s.shopVoucher)
                         + " - phí dịch vụ " + pct(farmerFeeRate) + " " + vnd(s.farmerFee));
 
-        if (order.getShipper() != null && s.shipperReceive.signum() != 0) {
+        if (order.getShipper() != null && s.shipperReceive.signum() != 0 && order.getShipperPaidAt() == null) {
             Wallet shipperWallet = getOrCreateWallet(order.getShipper(), TYPE_SHIPPER);
             credit(shipperWallet, order, WalletTransactionType.SHIPPER_INCOME, s.shipperReceive,
                     ref + ": cước giao " + vnd(s.shippingFee) + " - phí dịch vụ " + pct(shipperFeeRate) + " " + vnd(s.shipperFee));
+            order.setShipperPaidAt(LocalDateTime.now());
         }
 
         Wallet platform = getPlatformWalletEntity();
@@ -169,7 +170,7 @@ public class WalletServiceImpl implements WalletService {
         if ("COD".equalsIgnoreCase(order.getPaymentMethod()) && order.getCodPaymentStatus() == null) {
             order.setCodPaymentStatus(CodPaymentStatus.CONFIRMED);
         }
-        if (order.getShipper() != null) {
+        if (order.getShipper() != null && order.getShipperPaidAt() == null) {
             order.setShipperPaidAt(order.getSettledAt());
         }
         orderRepository.save(order);
@@ -500,6 +501,39 @@ public class WalletServiceImpl implements WalletService {
         orderRepository.save(order);
         credit(shipperWallet, order, WalletTransactionType.COD_CASH_COLLECTED, cash.negate(),
                 "Đơn #" + orderId + ": giữ tiền mặt COD " + vnd(cash) + " của khách, cần nộp về sàn");
+    }
+
+    @Override
+    @Transactional
+    public void releaseShipperFeeOnDelivered(int orderId) {
+        Order order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
+
+        if (order.getShipper() == null || order.getShipperPaidAt() != null) {
+            return;
+        }
+
+        Split s = computeSplit(order);
+        if (s.shipperReceive.signum() <= 0) {
+            return;
+        }
+
+        Wallet shipperWallet = getOrCreateWallet(order.getShipper(), TYPE_SHIPPER);
+        String ref = "Đơn #" + orderId;
+
+        // 1. Gỡ tạm giữ cước giao của Shipper (SHIPPER_INCOME_HOLD -> HOLD_RELEASED)
+        hold(shipperWallet, order, WalletTransactionType.HOLD_RELEASED, s.shipperReceive.negate(),
+                ref + ": giao thành công, chuyển cước giao tạm giữ sang số dư");
+
+        // 2. Cộng cước giao vào số dư khả dụng của Shipper
+        credit(shipperWallet, order, WalletTransactionType.SHIPPER_INCOME, s.shipperReceive,
+                ref + ": cước giao " + vnd(s.shippingFee) + " - phí dịch vụ " + pct(shipperFeeRate) + " " + vnd(s.shipperFee));
+
+        order.setShipperPaidAt(LocalDateTime.now());
+        orderRepository.save(order);
+
+        log.info("[Wallet] Released shipper fee {} to shipper #{} upon delivery for order #{}",
+                s.shipperReceive, order.getShipper().getId(), orderId);
     }
 
     // ───────────────────────────── Ký quỹ COD ─────────────────────────────

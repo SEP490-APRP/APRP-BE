@@ -381,6 +381,19 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             throw new AppException(ErrorCode.INVALID_RETURN_STATUS);
         }
 
+        // Bắt buộc 1 đơn tại 1 thời điểm: Shipper không được nhận đơn hoàn nếu đang có đơn giao xuôi hoặc đơn hoàn khác đang chạy
+        boolean hasActiveForward = orderRepository.existsByShipper_IdAndStatusIn(
+                currentUserId, List.of(OrderStatus.SHIPPING, OrderStatus.PICKED_UP)
+        );
+        boolean hasActiveReturn = returnRequestRepository.existsByShipper_IdAndStatusIn(
+                currentUserId, List.of(ReturnStatus.RETURN_SHIPPING, ReturnStatus.RETURN_PICKED_UP)
+        );
+        if (hasActiveForward || hasActiveReturn) {
+            log.warn("[ReturnRequest] Shipper #{} already has an active order (forward: {}, return: {})",
+                    currentUserId, hasActiveForward, hasActiveReturn);
+            throw new AppException(ErrorCode.SHIPPER_HAS_ACTIVE_ORDER);
+        }
+
         // Kiểm tra số dư ví khả dụng của Shipper nếu đơn hoàn trả bằng hình thức COD
         if ("COD".equalsIgnoreCase(returnRequest.getShippingPaymentMethod())) {
             BigDecimal returnShipFee = returnRequest.getReturnShippingFee() != null
