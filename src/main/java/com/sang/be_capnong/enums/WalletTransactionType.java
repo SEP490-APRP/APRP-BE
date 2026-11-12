@@ -60,5 +60,19 @@ public enum WalletTransactionType {
     /** Tạo lệnh rút: trừ số dư ngay (âm) để không rút trùng */
     WITHDRAW_REQUESTED,
     /** Admin từ chối lệnh rút: trả lại số dư (dương) */
-    WITHDRAW_REFUNDED
+    WITHDRAW_REFUNDED,
+
+    // ── Chiến dịch giải cứu (WF-01) ──
+    /** Ví Sàn: tiền cọc PayOS của người mua đang tạm giữ (escrow, cộng frozenBalance) */
+    CAMPAIGN_DEPOSIT_HOLD,
+    /** Ví Sàn: gỡ tạm giữ khi giải ngân cho nhà vườn (frozen âm, số dư sàn cộng) */
+    CAMPAIGN_DEPOSIT_RELEASED,
+    /** Chiến dịch huỷ: Sàn gỡ tạm giữ (âm) / Người mua nhận lại tiền cọc vào ví (dương) */
+    CAMPAIGN_DEPOSIT_REFUNDED,
+    /** Ví Sàn: shipper thu phần còn lại (tiền mặt) của đơn đặt trước khi giao */
+    CAMPAIGN_REMAINING_COLLECTED,
+    /** Ví Nhà vườn: tiền hàng chiến dịch sau khi trừ phí dịch vụ nông dân */
+    CAMPAIGN_FARM_INCOME,
+    /** Ví Sàn: chi trả tiền hàng cho nhà vườn (âm) */
+    CAMPAIGN_FARM_PAYOUT
 }
