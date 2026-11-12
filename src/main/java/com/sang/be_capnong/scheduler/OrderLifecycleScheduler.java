@@ -89,7 +89,7 @@ public class OrderLifecycleScheduler {
         LocalDateTime twentyFourHoursAgo = LocalDateTime.now().minusHours(autoCompleteHours > 0 ? autoCompleteHours : 24);
         for (Order o : orderRepository.findTop200ByStatusInAndSettledAtIsNull(java.util.List.of(OrderStatus.COMPLETED, OrderStatus.REFUNDED))) {
             try {
-                if (o.getStatus() == OrderStatus.COMPLETED && o.getDeliveredAt() != null && o.getDeliveredAt().isAfter(twentyFourHoursAgo)) {
+                if (o.getCompletedAt() == null && o.getStatus() == OrderStatus.COMPLETED && o.getDeliveredAt() != null && o.getDeliveredAt().isAfter(twentyFourHoursAgo)) {
                     log.debug("[Scheduler] Order #{} within 24h return window, defer settlement", o.getOrderId());
                     continue;
                 }

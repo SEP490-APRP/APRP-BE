@@ -254,7 +254,15 @@ public enum ErrorCode {
     INVALID_RETURN_STATUS(17006, "Current return request status does not allow this operation", HttpStatus.BAD_REQUEST),
     RETURN_REFUND_AMOUNT_INVALID(17007, "Refund amount cannot exceed item purchase amount", HttpStatus.BAD_REQUEST),
     SHIPPER_NOT_ASSIGNED_TO_RETURN(17008, "You are not assigned as the shipper for this return order", HttpStatus.FORBIDDEN),
-    RETURN_WALLET_INSUFFICIENT_BALANCE(17009, "Shop wallet balance is not enough to pay return shipping fee. Please top up or choose COD.", HttpStatus.BAD_REQUEST);
+    RETURN_WALLET_INSUFFICIENT_BALANCE(17009, "Shop wallet balance is not enough to pay return shipping fee. Please top up or choose COD.", HttpStatus.BAD_REQUEST),
+
+    // Referral / Affiliate Errors (Series 18000)
+    REFERRAL_LINK_NOT_FOUND(18001, "Referral link not found", HttpStatus.NOT_FOUND),
+    REFERRAL_LINK_INACTIVE(18002, "Referral link is inactive", HttpStatus.BAD_REQUEST),
+    SELF_REFERRAL_NOT_ALLOWED(18003, "Cannot refer yourself or your own shop/product", HttpStatus.BAD_REQUEST),
+    REFERRAL_RATE_LIMIT_EXCEEDED(18004, "Too many clicks from this IP, please try again later", HttpStatus.TOO_MANY_REQUESTS),
+    REFERRAL_INVALID_TARGET(18005, "Target product or shop does not exist or is inactive", HttpStatus.BAD_REQUEST),
+    REFERRAL_COMMISSION_NOT_FOUND(18006, "Referral commission not found", HttpStatus.NOT_FOUND);
 
     private final int code;
     private final String message;

@@ -92,4 +92,10 @@ public interface WalletService {
 
     /** Số liệu tổng hợp màn Ví Sàn. period: TODAY | 7D | 30D | ALL */
     PlatformOverviewResponse getPlatformOverview(String period);
+
+    /**
+     * Quyết toán cộng hoa hồng tiếp thị liên kết vào ví TYPE_BUYER của người giới thiệu.
+     * Idempotent dựa trên referral_commission_id (1-1 không thể ghi trùng).
+     */
+    void creditReferralCommission(com.sang.be_capnong.entity.User referrer, com.sang.be_capnong.entity.Order order, Long referralCommissionId, java.math.BigDecimal amount, String description);
 }

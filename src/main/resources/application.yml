@@ -31,3 +31,14 @@ capnong:
   payment:
     # Đơn PayOS chờ thanh toán quá số phút này sẽ tự huỷ, trả kho (0 = tắt). Link PayOS cũng hết hạn cùng lúc.
     expire-minutes: ${CAPNONG_PAYMENT_EXPIRE_MINUTES:30}
+  referral:
+    # URL cơ sở cho link tiếp thị (Local: http://localhost:5173/ref/ - Prod: https://capnong.com/ref/)
+    base-url: ${CAPNONG_REFERRAL_BASE_URL:http://localhost:5173/ref/}
+    # Tỷ lệ hoa hồng mặc định (%) cho nông sản đơn lẻ (PRODUCT)
+    default-commission-rate: ${CAPNONG_REFERRAL_COMMISSION_RATE:2.0}
+    # Số đơn hàng tối đa được tính hoa hồng cho mỗi attribution trong cửa sổ ghi nhận
+    max-conversions-per-attribution: ${CAPNONG_REFERRAL_MAX_CONVERSIONS:3}
+    # Cửa sổ ghi nhận referral attribution (ngày)
+    window-days: ${CAPNONG_REFERRAL_WINDOW_DAYS:7}
+    # Giới hạn số lượt nhấp được ghi nhận từ 1 IP trong 1 phút
+    click-rate-limit-per-ip: ${CAPNONG_REFERRAL_CLICK_RATE_LIMIT:10}

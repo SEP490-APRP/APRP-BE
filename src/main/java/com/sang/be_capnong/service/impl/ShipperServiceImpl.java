@@ -226,7 +226,7 @@ public class ShipperServiceImpl implements ShipperService {
             if (location == null) {
                 // Kiểm tra xem vị trí mới nhất của shipper có đang không gắn với đơn nào khác không
                 ShipperLocation latest = shipperLocationRepository.findFirstByShipperOrderByUpdatedAtDesc(shipper).orElse(null);
-                if (latest != null && (latest.getOrder() == null || latest.getOrder().getOrderId().equals(orderId))) {
+                if (latest != null && (latest.getOrder() == null || latest.getOrder().getOrderId() == orderId)) {
                     location = latest;
                 }
             }
@@ -259,7 +259,7 @@ public class ShipperServiceImpl implements ShipperService {
 
         LocalDateTime updatedAt = order.getDeliveredAt() != null
                 ? order.getDeliveredAt()
-                : (order.getUpdatedAt() != null ? order.getUpdatedAt() : LocalDateTime.now());
+                : (order.getCompletedAt() != null ? order.getCompletedAt() : (order.getCreatedAt() != null ? order.getCreatedAt() : LocalDateTime.now()));
 
         String phase = order.getStatus() == OrderStatus.FAILED || order.getStatus() == OrderStatus.CANCELLED
                 ? "FAILED"

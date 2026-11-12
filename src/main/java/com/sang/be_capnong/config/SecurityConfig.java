@@ -69,7 +69,10 @@ public class SecurityConfig {
 
             // AI Chatbot message (hỗ trợ cả khách vãng lai và người dùng đã đăng nhập)
             "/chatbot/message",
-            "/api/v1/chatbot/message"
+            "/api/v1/chatbot/message",
+
+            // Ghi nhận lượt nhấp tiếp thị liên kết (Referral Click Tracking)
+            "/referrals/clicks"
     };
 
     /**
@@ -101,7 +104,10 @@ public class SecurityConfig {
             "/reviews/product/**",
             "/reviews/shop/{id:[0-9]+}",
             "/reviews/shop/{id:[0-9]+}/**",
-            "/reviews/mystery-box/**"
+            "/reviews/mystery-box/**",
+
+            // Phân giải link tiếp thị liên kết (Referral Link Resolve)
+            "/referrals/resolve/**"
     };
 
     @Autowired

@@ -68,6 +68,7 @@ public class WalletServiceImpl implements WalletService {
     private final PaymentRepository paymentRepository;
     private final CheckoutBatchRepository checkoutBatchRepository;
     private final PayOS payOS;
+    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     @Value("${capnong.wallet.min-topup:10000}")
     private BigDecimal minTopup;
@@ -108,8 +109,19 @@ public class WalletServiceImpl implements WalletService {
         }
 
         // 1. Quy tắc giữ tiền shop 24h: Người mua có 24h sau khi nhận hàng để hoàn hàng
-        // Tiền của shop phải tiếp tục giữ ở frozenBalance cho đến khi hết 24h kể từ deliveredAt
-        if (order.getStatus() == OrderStatus.COMPLETED && order.getDeliveredAt() != null && LocalDateTime.now().isBefore(order.getDeliveredAt().plusHours(24))) {
+        // Tiền của shop phải tiếp tục giữ ở frozenBalance cho đến khi hết 24h kể từ deliveredAt.
+        // Cho phép giải phóng quyết toán ngay nếu:
+        // - Admin chủ động gọi quyết toán
+        // - Người mua đã chủ động bấm "Đã nhận hàng" xác nhận hài lòng (completedAt != null) và không có khiếu nại
+        boolean isExplicitAdmin = false;
+        try {
+            User me = currentUser();
+            isExplicitAdmin = hasRole(me, "ADMIN");
+        } catch (Exception ignored) {}
+
+        boolean buyerConfirmed = order.getCompletedAt() != null;
+        if (!isExplicitAdmin && !buyerConfirmed && order.getStatus() == OrderStatus.COMPLETED
+                && order.getDeliveredAt() != null && LocalDateTime.now().isBefore(order.getDeliveredAt().plusHours(24))) {
             log.info("[Wallet] Order #{} delivered at {}. 24h return hold active until {}. Settle deferred.",
                     orderId, order.getDeliveredAt(), order.getDeliveredAt().plusHours(24));
             return buildSettlement(order);
@@ -161,6 +173,9 @@ public class WalletServiceImpl implements WalletService {
             order.setShipperPaidAt(order.getSettledAt());
         }
         orderRepository.save(order);
+
+        // Bắn sự kiện quyết toán đơn hàng để lắng nghe AFTER_COMMIT chia hoa hồng tiếp thị liên kết
+        eventPublisher.publishEvent(new com.sang.be_capnong.event.OrderSettledEvent(order.getOrderId()));
 
         log.info("[Wallet] Settled order #{}: buyerPaid={}, shop={}, shipper={}, platform={}, refundAmount={}",
                 orderId, s.buyerPaid, s.shopReceive, s.shipperReceive, s.platformReceive, order.getRefundAmount());
@@ -806,7 +821,7 @@ public class WalletServiceImpl implements WalletService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public List<com.sang.be_capnong.dto.response.wallet.WithdrawResponse> getMyWithdrawals() {
         WalletResponse mine = getMyWallet();
         return withdrawRequestRepository.findByWallet_WalletIdOrderByCreatedAtDesc(mine.getWalletId())
@@ -1240,6 +1255,38 @@ public class WalletServiceImpl implements WalletService {
                 .description(description)
                 .createdAt(LocalDateTime.now())
                 .build());
+    }
+
+    @Override
+    @Transactional
+    public void creditReferralCommission(User referrer, Order order, Long referralCommissionId, BigDecimal amount, String description) {
+        if (amount == null || amount.signum() <= 0) {
+            return;
+        }
+        Wallet buyerWallet = getOrCreateWallet(referrer, TYPE_BUYER);
+        Wallet locked = walletRepository.findByIdForUpdate(buyerWallet.getWalletId())
+                .orElseThrow(() -> new AppException(ErrorCode.WALLET_NOT_FOUND));
+
+        BigDecimal newBalance = money(nz(locked.getTotalBalance()).add(amount));
+        locked.setTotalBalance(newBalance);
+        locked.setTotalRevenueAllTime(money(nz(locked.getTotalRevenueAllTime()).add(amount)));
+        locked.setUpdateAt(LocalDateTime.now());
+        walletRepository.save(locked);
+
+        walletTransactionRepository.save(WalletTransaction.builder()
+                .wallet(locked)
+                .order(order)
+                .referralCommissionId(referralCommissionId)
+                .type(WalletTransactionType.REFERRAL_COMMISSION)
+                .amount(amount)
+                .balanceAfter(newBalance)
+                .frozenAfter(nz(locked.getFrozenBalance()))
+                .description(description)
+                .createdAt(LocalDateTime.now())
+                .build());
+
+        log.info("[Wallet] Credited referral commission {} to referrer #{} (buyer wallet #{}). New balance={}",
+                amount, referrer.getId(), locked.getWalletId(), newBalance);
     }
 
     private WalletResponse toResponse(Wallet w) {

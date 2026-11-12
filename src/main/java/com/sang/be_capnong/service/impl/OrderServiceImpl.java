@@ -76,6 +76,7 @@ public class OrderServiceImpl implements OrderService {
     com.sang.be_capnong.service.PaymentService paymentService;
     com.sang.be_capnong.service.DispatchService dispatchService;
     com.sang.be_capnong.service.ShipperService shipperService;
+    com.sang.be_capnong.service.ReferralService referralService;
 
     /** Bán kính tối đa (km) để shipper thấy đơn READY trong danh sách */
     static final double READY_LIST_MAX_KM = 15.0;
@@ -153,6 +154,9 @@ public class OrderServiceImpl implements OrderService {
                 d.setOrder(savedOrder);
             }
             orderDetailRepository.saveAll(details);
+
+            // Ghi nhận hoa hồng tiếp thị liên kết (nếu có attribution hợp lệ)
+            referralService.processOrderReferral(savedOrder, details, sp.getVoucherDiscount());
             
             OrderResponse res = buildOrderResponse(savedOrder, details);
             res.setVoucherDiscountAmount(sp.getVoucherDiscount());
@@ -1219,6 +1223,7 @@ public class OrderServiceImpl implements OrderService {
         }
 
         walletService.cancelHolds(order.getOrderId(), "đơn bị huỷ");
+        referralService.handleOrderCancelled(order.getOrderId());
         order.setStatus(OrderStatus.CANCELLED);
         Order saved = orderRepository.save(order);
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
@@ -1274,6 +1279,7 @@ public class OrderServiceImpl implements OrderService {
         walletService.cancelHolds(order.getOrderId(), "giao hàng thất bại");
         // Đơn COD: trả lại tiền ký quỹ cho Shipper
         walletService.releaseCodReserve(order.getOrderId(), "giao hàng thất bại");
+        referralService.handleOrderCancelled(order.getOrderId());
         order.setStatus(OrderStatus.FAILED);
         Order saved = orderRepository.save(order);
         shipperService.detachOrderFromShipperLocation(saved.getOrderId());
