@@ -46,6 +46,16 @@ public enum WalletTransactionType {
     /** Hoàn lại cước vận chuyển hoàn trả hàng cho shop do yêu cầu bị huỷ/từ chối (dương) */
     SHOP_RETURN_SHIPPING_REFUND,
 
+    // ── Ký quỹ COD (cộng/trừ wallets.cod_reserved, không đổi số dư) ──
+    /** Shipper nhận đơn COD: giữ chỗ số tiền COD trong ví (âm = số dư khả dụng giảm) */
+    COD_RESERVED,
+    /** Đơn COD giao xong / thất bại / huỷ: gỡ giữ chỗ (dương = số dư khả dụng tăng lại) */
+    COD_RESERVE_RELEASED,
+
+    // ── Nạp ví ──
+    /** Nạp tiền vào ví qua PayOS (dương) */
+    TOP_UP,
+
     // ── Rút tiền ──
     /** Tạo lệnh rút: trừ số dư ngay (âm) để không rút trùng */
     WITHDRAW_REQUESTED,

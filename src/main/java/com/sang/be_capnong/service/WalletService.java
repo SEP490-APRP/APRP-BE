@@ -36,6 +36,29 @@ public interface WalletService {
     /** Ghi nợ Shipper số tiền mặt COD vừa thu của khách (gọi khi DELIVERED) */
     void recordCodCashCollected(int orderId);
 
+    /**
+     * Shipper vừa được gán vào đơn: chặn nếu ví âm (nợ COD cũ); đơn COD thì giữ chỗ đủ totalAmount
+     * trong ví (ném SHIPPER_COD_BALANCE_INSUFFICIENT nếu thiếu, kèm required/available/missing).
+     */
+    void reserveForShipperAccept(int orderId);
+
+    /** Đơn COD thất bại / huỷ: gỡ tiền ký quỹ. Gọi nhiều lần vẫn chỉ gỡ 1 lần */
+    void releaseCodReserve(int orderId, String reason);
+
+    /** Số dư khả dụng của Shipper (balance - codReserved), 0 nếu chưa có ví */
+    java.math.BigDecimal getShipperAvailableBalance(int shipperId);
+
+    /** Tạo link PayOS nạp tiền vào ví của tôi (Shipper / Shop) */
+    com.sang.be_capnong.dto.response.wallet.WalletTopupResponse createTopup(com.sang.be_capnong.dto.request.wallet.WalletTopupCreateRequest request);
+
+    List<com.sang.be_capnong.dto.response.wallet.WalletTopupResponse> getMyTopups();
+
+    /** Client quay lại từ PayOS: hỏi PayOS rồi cộng ví nếu đã trả */
+    com.sang.be_capnong.dto.response.wallet.WalletTopupResponse confirmTopup(String orderCode);
+
+    /** Webhook PayOS: nếu orderCode là lệnh nạp ví thì cộng ví (idempotent) và trả true */
+    boolean settleTopupIfExists(String orderCode);
+
     /** Admin xác nhận Shipper đã nộp tiền mặt COD về sàn */
     OrderSettlementResponse settleCodCash(int orderId);
 

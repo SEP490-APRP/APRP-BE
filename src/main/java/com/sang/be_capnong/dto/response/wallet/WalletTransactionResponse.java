@@ -23,5 +23,7 @@ public class WalletTransactionResponse {
     /** true = bút toán tiền tạm giữ (không đổi số dư rút được) */
     boolean hold;
     String description;
+    /** Bút toán giữ chỗ / gỡ giữ chỗ ký quỹ COD (không đổi số dư) */
+    Boolean reserve;
     LocalDateTime createdAt;
 }

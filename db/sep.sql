@@ -32,6 +32,7 @@ DROP TABLE IF EXISTS bot_knowledge;
 DROP TABLE IF EXISTS blogs;
 DROP TABLE IF EXISTS user_notifications;
 DROP TABLE IF EXISTS notifications;
+DROP TABLE IF EXISTS dispatch_offers;
 DROP TABLE IF EXISTS shipper_locations;
 DROP TABLE IF EXISTS images;
 DROP TABLE IF EXISTS review_reactions;
@@ -40,6 +41,7 @@ DROP TABLE IF EXISTS return_requests;
 DROP TABLE IF EXISTS voucher_usages;
 DROP TABLE IF EXISTS voucher_users;
 DROP TABLE IF EXISTS vouchers;
+DROP TABLE IF EXISTS wallet_topups;
 DROP TABLE IF EXISTS withdraw_requests;
 DROP TABLE IF EXISTS wallets;
 DROP TABLE IF EXISTS transactions;
@@ -381,13 +383,21 @@ CREATE TABLE orders (
     cod_settled TINYINT(1) DEFAULT 0,
     cod_settled_at DATETIME,
     cod_cash_confirmed_at DATETIME,
-    cod_payment_option ENUM('FULL_COD', 'DEPOSIT'),
-    cod_payment_status ENUM('UNPAID', 'PARTIALLY_PAID', 'PAID', 'REFUNDED'),
+    cod_payment_option VARCHAR(32),
+    cod_payment_status VARCHAR(32),
     cod_prepaid_amount DECIMAL(18,2) DEFAULT 0.00,
     cod_refunded_at DATETIME,
     shipper_paid_at DATETIME,
     picked_up_at DATETIME,
     delivered_at DATETIME,
+    cod_reserved_amount DECIMAL(18,2) DEFAULT NULL,
+    delivery_proof_urls TEXT,
+    fail_reason VARCHAR(64),
+    fail_note VARCHAR(500),
+    fail_call_attempts INT,
+    fail_proof_urls TEXT,
+    failed_at DATETIME,
+    rescued_weight DECIMAL(18,2) DEFAULT 0.00,
     CONSTRAINT fk_orders_buyer FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_orders_shop FOREIGN KEY (shop_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_orders_shipper FOREIGN KEY (shipper_id) REFERENCES users(id) ON DELETE SET NULL,
@@ -446,16 +456,30 @@ CREATE TABLE transactions (
 CREATE TABLE wallets (
     wallet_id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
-    status ENUM('ACTIVE', 'LOCKED', 'CLOSED') DEFAULT 'ACTIVE',
+    status VARCHAR(16) DEFAULT 'ACTIVE',
     type VARCHAR(50),
     total_balance DECIMAL(18,2) DEFAULT 0.00,
     frozen_balance DECIMAL(18,2) DEFAULT 0.00,
     total_revenue_all_time DECIMAL(18,2) DEFAULT 0.00,
     total_withdrawn DECIMAL(18,2) DEFAULT 0.00,
     commission_wallet DECIMAL(18,2) DEFAULT 0.00,
+    cod_reserved DECIMAL(18,2) DEFAULT 0.00,
     create_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     update_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_wallets_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2.19.1 WALLET TOPUPS
+CREATE TABLE wallet_topups (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    wallet_id INT NOT NULL,
+    amount DECIMAL(18,2) NOT NULL,
+    payos_order_code VARCHAR(32) UNIQUE,
+    checkout_url VARCHAR(500),
+    status VARCHAR(16) DEFAULT 'PENDING',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    paid_at DATETIME,
+    CONSTRAINT fk_wallet_topups_wallet FOREIGN KEY (wallet_id) REFERENCES wallets(wallet_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.20 WITHDRAW REQUESTS
@@ -613,8 +637,24 @@ CREATE TABLE shipper_locations (
     latitude DOUBLE,
     longitude DOUBLE,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    delivery_phase VARCHAR(32),
+    online TINYINT(1) DEFAULT 0,
+    last_seen_at DATETIME,
     CONSTRAINT fk_ship_loc_order FOREIGN KEY (order_id) REFERENCES orders(order_id) ON DELETE SET NULL,
     CONSTRAINT fk_ship_loc_shipper FOREIGN KEY (shipper_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2.25.1 DISPATCH OFFERS
+CREATE TABLE dispatch_offers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    shipper_id INT NOT NULL,
+    wave INT DEFAULT 1,
+    distance_km DOUBLE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uk_dispatch_offer_order_shipper UNIQUE (order_id, shipper_id),
+    CONSTRAINT fk_disp_off_order FOREIGN KEY (order_id) REFERENCES orders(order_id) ON DELETE CASCADE,
+    CONSTRAINT fk_disp_off_shipper FOREIGN KEY (shipper_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.26 NOTIFICATIONS
@@ -778,7 +818,10 @@ INSERT INTO users (id, email, password, role_id, status, full_name, phone_number
 
 (5, 'shop2@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 2, 'ACTIVE', 'Lê Thị Ngọc (Nhà Vườn 2)', '0944444444', 'Đường Nguyễn Du, Khu Đô thị Đại học Quốc gia, Dĩ An, Bình Dương', 'Vườn Xanh Bình Dương & Miền Tây', 1, 'Techcombank', '19034567890123', 'LE THI NGOC', 4.8, 'Chuyên rau củ quả tươi miền Nam, trái cây đặc sản miền Tây chất lượng cao, thu hái trong ngày.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252337/brands/t9muel0yqmqfzfu3ndij.jpg', 'Nông Dân Tinh Hoa', NULL, NULL, NULL, NOW()),
 
-(6, 'shipper1@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 3, 'ACTIVE', 'Nguyễn Văn Hoàng (Shipper)', '0922222222', 'Số 1 Võ Văn Ngân, Phường Linh Chiểu, Thành phố Thủ Đức, TP. Hồ Chí Minh', NULL, 0, 'VietinBank', '101899999999', 'NGUYEN VAN HOANG', 4.9, 'Shipper nhiệt tình chuyên nghiệp thùng cách nhiệt bảo quản rau tươi', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252921/brands/xu1pv9ty2njacb3bhozh.jpg', NULL, 'A1-99999999', '59-X1 123.45', NULL, NOW())
+(6, 'shipper1@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 3, 'ACTIVE', 'Nguyễn Văn Hoàng (Shipper)', '0922222222', 'Số 1 Võ Văn Ngân, Phường Linh Chiểu, Thành phố Thủ Đức, TP. Hồ Chí Minh', NULL, 0, 'VietinBank', '101899999999', 'NGUYEN VAN HOANG', 4.9, 'Shipper nhiệt tình chuyên nghiệp thùng cách nhiệt bảo quản rau tươi', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252921/brands/xu1pv9ty2njacb3bhozh.jpg', NULL, 'A1-99999999', '59-X1 123.45', NULL, NOW()),
+
+-- Shipper thứ 2 để test điều phối / 2 tài xế cùng nhận 1 đơn (đăng nhập trên mobile, shipper1 dùng web)
+(7, 'shipper2@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 3, 'ACTIVE', 'Phạm Minh Tuấn (Shipper 2)', '0955555555', '200 Lê Văn Việt, Phường Tăng Nhơn Phú A, Thành phố Thủ Đức, TP. Hồ Chí Minh', NULL, 0, 'MBBank', '970422777777', 'PHAM MINH TUAN', 4.8, 'Shipper khu vực Thủ Đức, xe máy có thùng giữ lạnh', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252921/brands/xu1pv9ty2njacb3bhozh.jpg', NULL, 'A1-88888888', '59-X2 678.90', NULL, NOW())
 ON DUPLICATE KEY UPDATE email=VALUES(email), diet_preference=VALUES(diet_preference);
 
 -- 3.3 CATEGORIES
@@ -1028,40 +1071,40 @@ ON DUPLICATE KEY UPDATE payos_order_code=VALUES(payos_order_code);
 -- 3.11 ORDERS (ĐA DẠNG TRẠNG THÁI ĐỂ TEST CẢ 3 ROLES: BUYER, SHOP, SHIPPER)
 INSERT INTO orders (order_id, buyer_id, shop_id, shipper_id, checkout_batch_id, shipping_fee, recipient_name, recipient_phone, shipping_address, note, status, total_amount, payment_method, shipping_discount_amount, batch_discount_amount, shipping_latitude, shipping_longitude, shop_latitude, shop_longitude, created_at) VALUES
 -- Đơn 101: Trong Batch 1, trạng thái AWAITING_PAYMENT (Shop Đà Lạt) -> Test Resume Payment / Split Payment
-(101, 2, 4, NULL, 1, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao rau củ tươi trong giờ hành chính', 'AWAITING_PAYMENT', 100000, 'PAYOS', 0, 10000, 10.7725, 106.6579, 10.7801, 106.6990, DATE_SUB(NOW(), INTERVAL 2 HOUR)),
+(101, 2, 4, NULL, 1, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao rau củ tươi trong giờ hành chính', 'AWAITING_PAYMENT', 100000, 'PAYOS', 0, 10000, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 2 HOUR)),
 
 -- Đơn 102: Trong Batch 1, trạng thái AWAITING_PAYMENT (Shop Miền Tây)
-(102, 2, 5, NULL, 1, 22000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao nhẹ tay giúp mình', 'AWAITING_PAYMENT', 97000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.7850, 106.7100, DATE_SUB(NOW(), INTERVAL 2 HOUR)),
+(102, 2, 5, NULL, 1, 22000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao nhẹ tay giúp mình', 'AWAITING_PAYMENT', 97000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.8700, 106.8030, DATE_SUB(NOW(), INTERVAL 2 HOUR)),
 
 -- Đơn 103: Đơn COD mới tạo (PENDING) -> Test Shop xác nhận đơn
-(103, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao buổi sáng', 'PENDING', 85000, 'COD', 0, 0, 10.7725, 106.6579, 10.7801, 106.6990, DATE_SUB(NOW(), INTERVAL 1 HOUR)),
+(103, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao buổi sáng', 'PENDING', 85000, 'COD', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 1 HOUR)),
 
 -- Đơn 104: Đơn đã xác nhận (CONFIRMED) -> Test Shop chuẩn bị hàng
-(104, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Đóng gói kỹ', 'CONFIRMED', 120000, 'COD', 0, 0, 10.7725, 106.6579, 10.7801, 106.6990, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
+(104, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Đóng gói kỹ', 'CONFIRMED', 120000, 'COD', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
 
 -- Đơn 105: Đang giao hàng (SHIPPING) đã gán Shipper Hoàng (id: 6) -> TEST GOOGLE MAPS REALTIME TRACKING
-(105, 2, 4, 6, 2, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Gọi trước khi đến 10 phút', 'SHIPPING', 95000, 'PAYOS', 15000, 10000, 10.7725, 106.6579, 10.7801, 106.6990, DATE_SUB(NOW(), INTERVAL 30 MINUTE)),
+(105, 2, 4, 6, 2, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Gọi trước khi đến 10 phút', 'SHIPPING', 95000, 'PAYOS', 15000, 10000, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 30 MINUTE)),
 
 -- Đơn 106: Đã giao thành công (DELIVERED) - Shop 2 -> Đã đánh giá (Bưởi da xanh)
-(106, 2, 5, 6, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao hàng thành công', 'DELIVERED', 135000, 'COD', 0, 15000, 10.7725, 106.6579, 10.7850, 106.7100, DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(106, 2, 5, 6, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao hàng thành công', 'DELIVERED', 135000, 'COD', 0, 15000, 10.7725, 106.6579, 10.8700, 106.8030, DATE_SUB(NOW(), INTERVAL 1 DAY)),
 
 -- Đơn 107: Đã hủy (CANCELLED)
-(107, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Khách đổi ý', 'CANCELLED', 50000, 'COD', 0, 0, 10.7725, 106.6579, 10.7801, 106.6990, DATE_SUB(NOW(), INTERVAL 2 DAY)),
+(107, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Khách đổi ý', 'CANCELLED', 50000, 'COD', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 2 DAY)),
 
 -- Đơn 108: Đã giao thành công (DELIVERED) - Shop 1 -> 1 món ĐÃ đánh giá & 1 món CHƯA đánh giá để test nút Đánh giá
-(108, 2, 4, 6, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao trước 11h', 'DELIVERED', 62000, 'COD', 0, 0, 10.7725, 106.6579, 10.7801, 106.6990, DATE_SUB(NOW(), INTERVAL 2 DAY)),
+(108, 2, 4, 6, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao trước 11h', 'DELIVERED', 62000, 'COD', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 2 DAY)),
 
 -- Đơn 109: Hoàn tất (COMPLETED) - Shop 1 -> Đã đánh giá, CHƯA có phản hồi từ shop (để Farmer test form reply)
-(109, 2, 4, 6, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Để ở bàn lễ tân', 'COMPLETED', 50000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.7801, 106.6990, DATE_SUB(NOW(), INTERVAL 4 DAY)),
+(109, 2, 4, 6, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Để ở bàn lễ tân', 'COMPLETED', 50000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 4 DAY)),
 
 -- Đơn 110: Đã giao (DELIVERED) - Shop 2 của Buyer 2 (Trần Thị Mai) -> Đã đánh giá 5 sao (Cam sành)
-(110, 3, 5, 6, NULL, 15000, 'Trần Thị Mai', '0911111112', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', 'Giao giờ hành chính', 'DELIVERED', 120000, 'PAYOS', 0, 0, 10.7721, 106.6983, 10.7850, 106.7100, DATE_SUB(NOW(), INTERVAL 3 DAY)),
+(110, 3, 5, 6, NULL, 15000, 'Trần Thị Mai', '0911111112', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', 'Giao giờ hành chính', 'DELIVERED', 120000, 'PAYOS', 0, 0, 10.7721, 106.6983, 10.8700, 106.8030, DATE_SUB(NOW(), INTERVAL 3 DAY)),
 
 -- Đơn 111: Đã giao (DELIVERED) - Shop 1 của Buyer 2 (Trần Thị Mai) -> Đã đánh giá 3 sao (Khoai tây vàng)
-(111, 3, 4, 6, NULL, 15000, 'Trần Thị Mai', '0911111112', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', 'Giao cẩn thận', 'DELIVERED', 75000, 'COD', 0, 0, 10.7721, 106.6983, 10.7801, 106.6990, DATE_SUB(NOW(), INTERVAL 5 DAY)),
+(111, 3, 4, 6, NULL, 15000, 'Trần Thị Mai', '0911111112', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', 'Giao cẩn thận', 'DELIVERED', 75000, 'COD', 0, 0, 10.7721, 106.6983, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 5 DAY)),
 
 -- Đơn 112: Đã giao (DELIVERED) - Shop 2 của Buyer 1 -> CHƯA đánh giá (Xoài cát Hòa Lộc để test đánh giá Shop 2)
-(112, 2, 5, 6, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao buổi chiều', 'DELIVERED', 185000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.7850, 106.7100, DATE_SUB(NOW(), INTERVAL 1 DAY))
+(112, 2, 5, 6, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao buổi chiều', 'DELIVERED', 185000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.8700, 106.8030, DATE_SUB(NOW(), INTERVAL 1 DAY))
 ON DUPLICATE KEY UPDATE status=VALUES(status);
 
 -- 3.12 ORDER DETAILS (CHI TIẾT MẶT HÀNG TỪNG ĐƠN: SẢN PHẨM, TÚI MÙ, COMBO)
@@ -1097,16 +1140,17 @@ INSERT INTO voucher_usages (id, order_id, user_id, voucher_id, discount_amount, 
 ON DUPLICATE KEY UPDATE discount_amount=VALUES(discount_amount);
 
 -- 3.15 SHIPPER LOCATIONS (VỊ TRÍ GPS HIỆN TẠI PHỤC VỤ THEO DÕI LIVE GOOGLE MAPS)
-INSERT INTO shipper_locations (id, order_id, shipper_id, latitude, longitude, updated_at) VALUES
-(1, 105, 6, 10.7769, 106.7009, NOW())
-ON DUPLICATE KEY UPDATE latitude=VALUES(latitude), longitude=VALUES(longitude);
+INSERT INTO shipper_locations (id, order_id, shipper_id, latitude, longitude, updated_at, delivery_phase, online, last_seen_at) VALUES
+(1, 105, 6, 10.7769, 106.7009, NOW(), 'TO_BUYER', 1, NOW())
+ON DUPLICATE KEY UPDATE latitude=VALUES(latitude), longitude=VALUES(longitude), online=VALUES(online), last_seen_at=VALUES(last_seen_at);
 
 -- 3.9 WALLETS
 INSERT INTO wallets (user_id, status, type, total_balance, frozen_balance, total_revenue_all_time, total_withdrawn, commission_wallet) VALUES
 (1, 'ACTIVE', 'PLATFORM', 100000000, 0, 0, 0, 50000),
 (4, 'ACTIVE', 'SHOP', 1500000, 0, 1500000, 0, 45000),
 (5, 'ACTIVE', 'SHOP', 1200000, 0, 1200000, 0, 36000),
-(6, 'ACTIVE', 'SHIPPER', 250000, 0, 250000, 0, 0)
+(6, 'ACTIVE', 'SHIPPER', 250000, 0, 250000, 0, 0),
+(7, 'ACTIVE', 'SHIPPER', 500000, 0, 0, 0, 0)
 ON DUPLICATE KEY UPDATE user_id=VALUES(user_id);
 
 -- 3.10 ALLERGENS & HEALTH CONDITIONS

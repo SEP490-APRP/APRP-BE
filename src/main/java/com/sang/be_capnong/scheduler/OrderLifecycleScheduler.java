@@ -31,6 +31,31 @@ public class OrderLifecycleScheduler {
     private final WalletService walletService;
     private final ReturnRequestRepository returnRequestRepository;
     private final com.sang.be_capnong.service.ReturnRequestService returnRequestService;
+    private final com.sang.be_capnong.service.DispatchService dispatchService;
+    private final com.sang.be_capnong.service.ShipperService shipperService;
+
+    /** Điều phối đơn READY: mở rộng bán kính quét shipper, quét lại, cảnh báo chưa có tài xế */
+    @Scheduled(fixedDelayString = "${capnong.scheduler.dispatch-delay-ms:20000}", initialDelay = 30000)
+    public void dispatchReadyOrders() {
+        try {
+            dispatchService.runDispatchCycle();
+        } catch (Exception e) {
+            log.error("[Scheduler] Dispatch cycle failed: {}", e.getMessage(), e);
+        }
+    }
+
+    /** Shipper mất heartbeat quá hạn -> chuyển offline để không được mời nhận đơn */
+    @Scheduled(fixedDelayString = "${capnong.scheduler.stale-shipper-delay-ms:60000}", initialDelay = 60000)
+    public void markStaleShippersOffline() {
+        try {
+            int n = shipperService.markStaleShippersOffline();
+            if (n > 0) {
+                log.info("[Scheduler] Marked {} stale shipper(s) offline", n);
+            }
+        } catch (Exception e) {
+            log.error("[Scheduler] Stale shipper check failed: {}", e.getMessage(), e);
+        }
+    }
 
     /** Thời gian giữ tiền và chờ hoàn hàng sau khi DELIVERED (mặc định 24 giờ) */
     @Value("${capnong.order.auto-complete-hours:24}")

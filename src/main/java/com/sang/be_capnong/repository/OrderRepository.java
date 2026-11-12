@@ -31,6 +31,13 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
     boolean existsByShipper_IdAndStatus(int shipperId, OrderStatus status);
     boolean existsByShipper_IdAndStatusIn(int shipperId, List<OrderStatus> statuses);
 
+    /** Đơn READY chưa có shipper, dùng cho điều phối theo đợt */
+    List<Order> findByStatusAndShipperIsNull(OrderStatus status);
+
+    /** Shipper đang có đơn chưa giao xong (để loại khỏi danh sách mời) */
+    @Query("select distinct o.shipper.id from Order o where o.shipper is not null and o.status in :statuses")
+    List<Integer> findShipperIdsWithStatusIn(@Param("statuses") List<OrderStatus> statuses);
+
     /** Khoá dòng đơn khi quyết toán ví để chống chia tiền 2 lần */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from Order o where o.orderId = :id")

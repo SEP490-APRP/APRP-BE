@@ -15,6 +15,13 @@ public interface OrderMapper {
     @Mapping(source = "checkoutBatch.id", target = "batchId")
     @Mapping(target = "voucherDiscountAmount", ignore = true)
     @Mapping(target = "items", ignore = true)
+    @Mapping(target = "distanceToShopKm", ignore = true)
     OrderResponse toOrderResponse(Order order);
+
+    /** Cột lưu nhiều URL ảnh, ngăn cách bằng xuống dòng */
+    default java.util.List<String> splitLines(String value) {
+        if (value == null || value.isBlank()) return java.util.List.of();
+        return java.util.Arrays.stream(value.split("\n")).map(String::trim).filter(s -> !s.isEmpty()).toList();
+    }
 }
 

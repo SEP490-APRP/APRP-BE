@@ -7,6 +7,8 @@ Tài liệu này đặc tả chi tiết toàn bộ quy trình đơn hàng và h�
 
 ---
 
+> **Cập nhật 2026-11-06:** điều phối shipper theo bán kính, ký quỹ COD bằng ví, bằng chứng giao hàng và ETA: xem [`shipper-dispatch-flow.md`](shipper-dispatch-flow.md). Phần nào dưới đây mâu thuẫn thì theo tài liệu đó.
+
 ## 1. Tổng Quan Kiến Trúc Vận Hành (Architecture Overview)
 
 ```
