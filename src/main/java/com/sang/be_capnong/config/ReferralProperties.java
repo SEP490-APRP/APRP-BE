@@ -22,8 +22,8 @@ public class ReferralProperties {
     /** Tỷ lệ hoa hồng mặc định (%) - Mặc định 2.0% cho MVP */
     BigDecimal defaultCommissionRate = new BigDecimal("2.0");
 
-    /** Số đơn hàng chuyển đổi tối đa cho mỗi attribution trong cửa sổ ghi nhận */
-    int maxConversionsPerAttribution = 3;
+    /** Số đơn hàng chuyển đổi tối đa cho mỗi attribution trong cửa sổ ghi nhận (0 = không giới hạn) */
+    int maxConversionsPerAttribution = 0;
 
     /** Cửa sổ ghi nhận attribution (ngày) - Mặc định 7 ngày */
     int windowDays = 7;

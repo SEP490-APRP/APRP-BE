@@ -10,10 +10,14 @@ Tài liệu kỹ thuật đặc tả hệ thống Tiếp thị Liên kết (Refe
    Mọi logic định tuyến, phân giải mã referral, ghi nhận attribution, tính toán tỷ lệ, khấu trừ voucher và cộng tiền ví được thực hiện 100% tại `APRP-BE`. Client Web và Mobile chỉ hiển thị và kích hoạt chia sẻ.
 2. **Ví nhận hoa hồng thống nhất:**
    Toàn bộ tiền hoa hồng được cộng trực tiếp vào ví **`TYPE_BUYER`** của người giới thiệu với bút toán `WalletTransactionType.REFERRAL_COMMISSION`. Người giới thiệu có thể sử dụng số dư này để mua hàng tiếp hoặc thực hiện rút tiền về tài khoản ngân hàng thông qua luồng rút tiền hiện có (`/wallets/withdraw`).
-3. **Cơ chế Ghi nhận Multi-Conversion có giới hạn trong 7 ngày (Capped Multi-Conversion):**
+3. **Cơ chế Ghi nhận Multi-Conversion Không giới hạn trong 7 ngày (Uncapped Multi-Conversion):**
    - Áp dụng cửa sổ ghi nhận kéo dài **7 ngày (168 giờ)** kể từ lần click hợp lệ cuối cùng (Last-Touch).
-   - Tối đa **3 đơn hàng chuyển đổi thành công** cho mỗi attribution (`max_conversions = 3`).
-   - Chỉ áp dụng hoa hồng cho các dòng nông sản đơn lẻ (`itemType == "PRODUCT"`).
+   - **Không giới hạn số lần nhận hoa hồng** trong 7 ngày hiệu lực (`max_conversions = 0` / unlimited). Mọi đơn hàng thành công của người mua qua link đều được ghi nhận hoa hồng.
+   - **Đối tượng áp dụng:** Tính theo từng sản phẩm hợp lệ, bao gồm:
+     - Nông sản đơn lẻ (`PRODUCT`)
+     - Combo nông sản / rau củ (`BUILD_COMBO`) - tính là 1 sản phẩm
+     - Hộp / Túi mù nông sản (`MYSTERY_BOX`) - tính là 1 sản phẩm
+   - **Loại trừ tuyệt đối:** Kế hoạch thực đơn / Gói gợi ý AI (`BUILD_PLAN` / `PLAN`) không tính hoa hồng tiếp thị.
 4. **Phân tách Sự kiện Quyết toán (Decoupled Settlement):**
    Quyết toán hoa hồng tiếp thị được tách khỏi transaction chia tiền cho Shop/Shipper bằng Spring Events (`@TransactionalEventListener(phase = AFTER_COMMIT)` với `Propagation.REQUIRES_NEW`), kèm `ReferralCommissionRetryScheduler` quét bù mỗi 15 phút. Lỗi ở module hoa hồng tuyệt đối không làm ảnh hưởng tiền của Shop.
 

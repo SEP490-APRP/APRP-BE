@@ -290,11 +290,22 @@ public class ReferralServiceImpl implements ReferralService {
         List<ReferralCommissionResponse> content = page.getContent().stream()
                 .map(comm -> {
                     ReferralCommissionResponse resp = referralMapper.toReferralCommissionResponse(comm);
-                    if (comm.getOrderDetail() != null && comm.getOrderDetail().getProduct() != null) {
-                        Product p = comm.getOrderDetail().getProduct();
-                        resp.setProductName(p.getProductName());
-                        if (p.getImages() != null && !p.getImages().isEmpty()) {
-                            resp.setProductImageUrl(p.getImages().get(0).getImageUrl());
+                    if (comm.getOrderDetail() != null) {
+                        OrderDetail od = comm.getOrderDetail();
+                        if (od.getProduct() != null) {
+                            Product p = od.getProduct();
+                            resp.setProductName(p.getProductName());
+                            if (p.getImages() != null && !p.getImages().isEmpty()) {
+                                resp.setProductImageUrl(p.getImages().get(0).getImageUrl());
+                            }
+                        } else if (od.getBuildCombo() != null) {
+                            BuildCombo c = od.getBuildCombo();
+                            resp.setProductName(c.getComboName());
+                            resp.setProductImageUrl(c.getImageUrl());
+                        } else if (od.getMysteryBox() != null) {
+                            MysteryBox m = od.getMysteryBox();
+                            resp.setProductName(m.getBoxType() != null ? m.getBoxType() : "Túi mù");
+                            resp.setProductImageUrl(m.getImageUrl());
                         }
                     }
                     return resp;
@@ -302,6 +313,36 @@ public class ReferralServiceImpl implements ReferralService {
                 .toList();
 
         return PageResponse.from(page, content);
+    }
+
+    /**
+     * Kiểm tra dòng hàng có hợp lệ để tính hoa hồng tiếp thị liên kết:
+     * - Nông sản đơn lẻ (PRODUCT)
+     * - Combo rau củ (BUILD_COMBO)
+     * - Túi mù nông sản (MYSTERY_BOX)
+     * Loại trừ tuyệt đối: Thực đơn bữa ăn / kế hoạch AI (BUILD_PLAN / PLAN).
+     */
+    private boolean isEligibleAffiliateItem(OrderDetail detail) {
+        if (detail == null || detail.getUnitPrice() == null) {
+            return false;
+        }
+        String type = detail.getItemType();
+        if ("BUILD_PLAN".equalsIgnoreCase(type) || "PLAN".equalsIgnoreCase(type) || "MEAL_PLAN".equalsIgnoreCase(type)) {
+            return false;
+        }
+        if ("PRODUCT".equalsIgnoreCase(type) && detail.getProduct() != null) {
+            return true;
+        }
+        if ("BUILD_COMBO".equalsIgnoreCase(type) && detail.getBuildCombo() != null) {
+            return true;
+        }
+        if ("MYSTERY_BOX".equalsIgnoreCase(type) && detail.getMysteryBox() != null) {
+            return true;
+        }
+        if (type == null || type.isBlank()) {
+            return detail.getProduct() != null || detail.getBuildCombo() != null || detail.getMysteryBox() != null;
+        }
+        return false;
     }
 
     @Override
@@ -322,10 +363,10 @@ public class ReferralServiceImpl implements ReferralService {
             return;
         }
 
-        // Tính tổng tiền hàng nông sản của các OrderDetail trong đơn này (để phân bổ voucher shop)
+        // Tính tổng tiền hàng của các OrderDetail hợp lệ trong đơn này (để phân bổ voucher shop)
         BigDecimal sumItemGross = BigDecimal.ZERO;
         for (OrderDetail d : details) {
-            if ("PRODUCT".equalsIgnoreCase(d.getItemType()) && d.getUnitPrice() != null) {
+            if (isEligibleAffiliateItem(d)) {
                 sumItemGross = sumItemGross.add(d.getUnitPrice().multiply(BigDecimal.valueOf(d.getQuantity())));
             }
         }
@@ -334,38 +375,67 @@ public class ReferralServiceImpl implements ReferralService {
         BigDecimal farmerFeeRate = new BigDecimal("0.10"); // Phí sàn mặc định 10%
 
         for (OrderDetail detail : details) {
-            // MVP chỉ áp dụng cho nông sản đơn lẻ (PRODUCT)
-            if (!"PRODUCT".equalsIgnoreCase(detail.getItemType()) || detail.getProduct() == null) {
+            // Chỉ áp dụng cho PRODUCT, BUILD_COMBO, MYSTERY_BOX (loại trừ BUILD_PLAN)
+            if (!isEligibleAffiliateItem(detail)) {
                 continue;
             }
 
-            Integer productId = detail.getProduct().getProductId();
-            Integer shopId = order.getShop() != null ? order.getShop().getId() : null;
+            Integer productId = detail.getProduct() != null ? detail.getProduct().getProductId() : null;
+            Integer itemShopId = null;
+            if (detail.getProduct() != null && detail.getProduct().getShop() != null) {
+                itemShopId = detail.getProduct().getShop().getId();
+            } else if (detail.getBuildCombo() != null && detail.getBuildCombo().getShop() != null) {
+                itemShopId = detail.getBuildCombo().getShop().getId();
+            } else if (detail.getMysteryBox() != null && detail.getMysteryBox().getShop() != null) {
+                itemShopId = detail.getMysteryBox().getShop().getId();
+            }
+            if (itemShopId == null && order.getShop() != null) {
+                itemShopId = order.getShop().getId();
+            }
 
             // 2. Tìm attribution khớp theo Strict Last-Touch với Specificity Tie-Breaker
             // activeAttrs đã được sắp xếp ORDER BY attributedAt DESC
             ReferralAttribution winningAttr = null;
 
             for (ReferralAttribution attr : activeAttrs) {
-                boolean matchProduct = attr.getTargetType() == ReferralTargetType.PRODUCT
-                        && Objects.equals(attr.getTargetId(), productId);
-                boolean matchShop = attr.getTargetType() == ReferralTargetType.SHOP
-                        && shopId != null && Objects.equals(attr.getTargetId(), shopId);
+                // Khớp chính xác sản phẩm nếu link chia sẻ là PRODUCT
+                boolean matchDirectProduct = attr.getTargetType() == ReferralTargetType.PRODUCT
+                        && productId != null && Objects.equals(attr.getTargetId(), productId);
 
-                if (matchProduct || matchShop) {
+                // Khớp theo gian hàng (SHOP): link là SHOP của cùng gian hàng
+                boolean matchShopLink = attr.getTargetType() == ReferralTargetType.SHOP
+                        && itemShopId != null && Objects.equals(attr.getTargetId(), itemShopId);
+
+                // Fallback: nếu link là PRODUCT của cùng gian hàng (khách click link sản phẩm nhưng mua combo/túi mù/món khác của shop)
+                boolean matchSameShopProductLink = false;
+                if (!matchDirectProduct && !matchShopLink && attr.getTargetType() == ReferralTargetType.PRODUCT && itemShopId != null) {
+                    Product refProduct = productRepository.findById(attr.getTargetId()).orElse(null);
+                    if (refProduct != null && refProduct.getShop() != null
+                            && Objects.equals(refProduct.getShop().getId(), itemShopId)) {
+                        matchSameShopProductLink = true;
+                    }
+                }
+
+                if (matchDirectProduct || matchShopLink || matchSameShopProductLink) {
                     // Chặn tự mua qua link của chính mình hoặc shop của chính mình
                     if (Objects.equals(attr.getReferrer().getId(), buyerId)) {
                         continue;
                     }
-                    if (shopId != null && Objects.equals(attr.getReferrer().getId(), shopId)) {
+                    if (itemShopId != null && Objects.equals(attr.getReferrer().getId(), itemShopId)) {
                         continue;
                     }
 
                     if (winningAttr == null) {
                         winningAttr = attr;
                     } else {
-                        // Tie-breaker: Nếu cùng thời điểm thì link PRODUCT ưu tiên hơn link SHOP
-                        if (attr.getAttributedAt().isEqual(winningAttr.getAttributedAt())) {
+                        // Tie-breaker:
+                        // 1. Ưu tiên khớp chính xác sản phẩm (direct product)
+                        // 2. Nếu cùng mức độ ưu tiên và cùng thời điểm: PRODUCT > SHOP
+                        boolean currentIsDirect = (winningAttr.getTargetType() == ReferralTargetType.PRODUCT
+                                && productId != null && Objects.equals(winningAttr.getTargetId(), productId));
+                        if (!currentIsDirect && matchDirectProduct) {
+                            winningAttr = attr;
+                        } else if (matchDirectProduct == currentIsDirect && attr.getAttributedAt().isEqual(winningAttr.getAttributedAt())) {
                             if (attr.getTargetType() == ReferralTargetType.PRODUCT
                                     && winningAttr.getTargetType() == ReferralTargetType.SHOP) {
                                 winningAttr = attr;
@@ -419,9 +489,10 @@ public class ReferralServiceImpl implements ReferralService {
 
             referralCommissionRepository.save(commission);
 
-            // 5. Tăng bộ đếm đơn chuyển đổi của attribution
+            // 5. Tăng bộ đếm đơn chuyển đổi của attribution (nếu maxConversions > 0 thì mới xét trần)
             winningAttr.setConvertedOrderCount(winningAttr.getConvertedOrderCount() + 1);
-            if (winningAttr.getConvertedOrderCount() >= winningAttr.getMaxConversions()) {
+            if (winningAttr.getMaxConversions() != null && winningAttr.getMaxConversions() > 0
+                    && winningAttr.getConvertedOrderCount() >= winningAttr.getMaxConversions()) {
                 winningAttr.setStatus(AttributionStatus.EXHAUSTED);
             }
             referralAttributionRepository.save(winningAttr);
