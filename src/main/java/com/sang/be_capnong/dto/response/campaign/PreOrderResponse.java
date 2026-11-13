@@ -27,6 +27,10 @@ public class PreOrderResponse {
     BigDecimal totalAmount;
     BigDecimal depositAmount;
     BigDecimal remainingAmount;
+    /** Phần cọc đã trả bằng ví */
+    BigDecimal depositWalletAmount;
+    /** Phần cọc trả qua PayOS */
+    BigDecimal depositPayosAmount;
     String recipientName;
     String recipientPhone;
     String shippingAddress;

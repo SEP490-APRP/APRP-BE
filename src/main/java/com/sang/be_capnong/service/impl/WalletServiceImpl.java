@@ -91,6 +91,54 @@ public class WalletServiceImpl implements WalletService {
     @Value("${capnong.wallet.shipper-fee-rate:0.03}")
     private BigDecimal shipperFeeRate;
 
+    // ───────────────────────────── Người mua trả bằng ví ─────────────────────────────
+
+    @Override
+    @Transactional(readOnly = true)
+    public BigDecimal getBuyerWalletBalance(User buyer) {
+        if (buyer == null) return BigDecimal.ZERO;
+        return walletRepository.findFirstByUser_IdAndType(buyer.getId(), TYPE_BUYER)
+                .or(() -> walletRepository.findFirstByUser_IdAndType(buyer.getId(), TYPE_REFERRAL))
+                .map(w -> nz(w.getTotalBalance()).subtract(nz(w.getFrozenBalance())).max(BigDecimal.ZERO))
+                .orElse(BigDecimal.ZERO);
+    }
+
+    @Override
+    @Transactional
+    public void payOrderFromWallet(Order order, BigDecimal amount) {
+        BigDecimal amt = money(nz(amount));
+        if (amt.signum() <= 0 || order.getBuyer() == null) return;
+        Wallet wallet = getOrCreateWallet(order.getBuyer(), TYPE_BUYER);
+        Wallet locked = walletRepository.findByIdForUpdate(wallet.getWalletId())
+                .orElseThrow(() -> new AppException(ErrorCode.WALLET_NOT_FOUND));
+        BigDecimal available = nz(locked.getTotalBalance()).subtract(nz(locked.getFrozenBalance()));
+        if (available.compareTo(amt) < 0) {
+            throw new AppException(ErrorCode.WALLET_INSUFFICIENT_BALANCE);
+        }
+        credit(locked, order, WalletTransactionType.ORDER_WALLET_PAYMENT, amt.negate(),
+                "Đơn #" + order.getOrderId() + ": thanh toán bằng ví " + vnd(amt));
+        order.setWalletPaidAmount(amt);
+        orderRepository.save(order);
+    }
+
+    @Override
+    @Transactional
+    public void refundOrderWalletPayment(int orderId, String reason) {
+        Order order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
+        BigDecimal paid = nz(order.getWalletPaidAmount());
+        if (paid.signum() <= 0 || order.getWalletRefundedAt() != null || order.getBuyer() == null) return;
+        credit(getOrCreateWallet(order.getBuyer(), TYPE_BUYER), order, WalletTransactionType.ORDER_WALLET_REFUND, paid,
+                "Đơn #" + orderId + ": " + reason + ", hoàn " + vnd(paid) + " đã trả bằng ví");
+        order.setWalletRefundedAt(LocalDateTime.now());
+        orderRepository.save(order);
+    }
+
+    /** Số còn phải thu qua COD / PayOS sau khi trừ phần đã trả bằng ví */
+    private static BigDecimal amountDue(Order order) {
+        return nz(order.getTotalAmount()).subtract(nz(order.getWalletPaidAmount())).max(BigDecimal.ZERO);
+    }
+
     // ───────────────────────────── Quyết toán ─────────────────────────────
 
     @Override
@@ -462,7 +510,7 @@ public class WalletServiceImpl implements WalletService {
         if (order.getCodCashConfirmedAt() != null) {
             return; // đã ghi nhận
         }
-        BigDecimal cash = nz(order.getTotalAmount());
+        BigDecimal cash = amountDue(order);
         Wallet shipperWallet = getOrCreateWallet(order.getShipper(), TYPE_SHIPPER);
         order.setCodAmount(cash);
         order.setCodCashConfirmedAt(LocalDateTime.now());
@@ -509,7 +557,10 @@ public class WalletServiceImpl implements WalletService {
         if (!"COD".equalsIgnoreCase(order.getPaymentMethod())) {
             return;
         }
-        BigDecimal required = money(order.getTotalAmount());
+        BigDecimal required = money(amountDue(order));
+        if (required.signum() <= 0) {
+            return;
+        }
         BigDecimal available = nz(locked.getTotalBalance()).subtract(nz(locked.getCodReserved())).max(BigDecimal.ZERO);
         if (available.compareTo(required) < 0) {
             throw new AppException(ErrorCode.SHIPPER_COD_BALANCE_INSUFFICIENT, null, Map.of(

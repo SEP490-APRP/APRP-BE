@@ -153,11 +153,20 @@ public class OrderServiceImpl implements OrderService {
                 d.setOrder(savedOrder);
             }
             orderDetailRepository.saveAll(details);
-            
-            OrderResponse res = buildOrderResponse(savedOrder, details);
+        }
+
+        // 3b. Trả bằng ví: trừ ví lần lượt từng đơn, phần còn lại trả bằng COD / PayOS
+        if (Boolean.TRUE.equals(request.getUseWallet())) {
+            applyWalletPayment(buyer, savedOrders, batch);
+        }
+
+        for (int i = 0; i < savedOrders.size(); i++) {
+            Order savedOrder = savedOrders.get(i);
+            ShopOrderPreview sp = previewRes.getShopOrders().get(i);
+            OrderResponse res = buildOrderResponse(savedOrder, mapShopToDetails.get(savedOrder.getShop()));
             res.setVoucherDiscountAmount(sp.getVoucherDiscount());
             res.setBatchId(batch != null ? batch.getId() : null);
-            res.setShopId(shop.getId());
+            res.setShopId(savedOrder.getShop().getId());
             responses.add(res);
         }
 
@@ -292,6 +301,48 @@ public class OrderServiceImpl implements OrderService {
         }
 
         return responses;
+    }
+
+    /**
+     * Trừ ví người mua cho các đơn vừa tạo (đơn trước trừ trước). Đơn được ví trả đủ chuyển sang
+     * paymentMethod = WALLET, trạng thái PAID và tạm giữ tiền cho Shop/Sàn như đơn PayOS đã trả.
+     */
+    private void applyWalletPayment(User buyer, List<Order> orders, CheckoutBatch batch) {
+        BigDecimal available = walletService.getBuyerWalletBalance(buyer);
+        if (available.signum() <= 0) return;
+        BigDecimal batchDue = BigDecimal.ZERO;
+        boolean allPaid = true;
+        for (Order o : orders) {
+            BigDecimal total = o.getTotalAmount() != null ? o.getTotalAmount() : BigDecimal.ZERO;
+            BigDecimal pay = available.min(total).setScale(0, java.math.RoundingMode.DOWN);
+            if (pay.signum() > 0) {
+                walletService.payOrderFromWallet(o, pay);
+                available = available.subtract(pay);
+            }
+            BigDecimal due = total.subtract(pay);
+            if (due.signum() <= 0) {
+                o.setPaymentMethod("WALLET");
+                o.setStatus(OrderStatus.PAID);
+                orderRepository.save(o);
+                walletService.holdShopAndPlatformIncome(o.getOrderId());
+            } else {
+                allPaid = false;
+                batchDue = batchDue.add(due);
+            }
+        }
+        if (batch != null) {
+            batch.setTotalAmount(batchDue);
+            if (allPaid) batch.setStatus(BatchStatus.COMPLETED);
+            batch.setUpdatedAt(LocalDateTime.now());
+            checkoutBatchRepository.save(batch);
+        }
+    }
+
+    /** Số còn phải thu qua COD / PayOS sau khi trừ phần đã trả bằng ví */
+    private static BigDecimal amountDue(Order order) {
+        BigDecimal total = order.getTotalAmount() != null ? order.getTotalAmount() : BigDecimal.ZERO;
+        BigDecimal wallet = order.getWalletPaidAmount() != null ? order.getWalletPaidAmount() : BigDecimal.ZERO;
+        return total.subtract(wallet).max(BigDecimal.ZERO);
     }
 
     @lombok.Data
@@ -1212,13 +1263,15 @@ public class OrderServiceImpl implements OrderService {
             paymentService.cancelOpenPayosLinksForOrder(order);
         }
 
-        // Đơn đã thanh toán online mà bị huỷ -> ghi nhận số tiền sàn phải hoàn cho Buyer
+        // Đơn đã thanh toán online mà bị huỷ -> ghi nhận số tiền sàn phải hoàn cho Buyer (phần PayOS)
         if (isPrepaidOnline(order)) {
-            order.setRefundAmount(order.getTotalAmount());
+            order.setRefundAmount(amountDue(order));
             order.setRefundReason(isBuyer ? "Buyer huỷ đơn đã thanh toán online" : "Shop huỷ đơn đã thanh toán online");
         }
 
         walletService.cancelHolds(order.getOrderId(), "đơn bị huỷ");
+        // Phần đã trả bằng ví hoàn ngay về ví người mua
+        walletService.refundOrderWalletPayment(order.getOrderId(), "đơn bị huỷ");
         order.setStatus(OrderStatus.CANCELLED);
         Order saved = orderRepository.save(order);
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
@@ -1267,11 +1320,12 @@ public class OrderServiceImpl implements OrderService {
 
         // Đơn đã thanh toán online mà giao thất bại -> ghi nhận số tiền sàn phải hoàn cho Buyer
         if (isPrepaidOnline(order)) {
-            order.setRefundAmount(order.getTotalAmount());
+            order.setRefundAmount(amountDue(order));
             order.setRefundReason("Giao hàng thất bại, đơn đã thanh toán online");
         }
 
         walletService.cancelHolds(order.getOrderId(), "giao hàng thất bại");
+        walletService.refundOrderWalletPayment(order.getOrderId(), "giao hàng thất bại");
         // Đơn COD: trả lại tiền ký quỹ cho Shipper
         walletService.releaseCodReserve(order.getOrderId(), "giao hàng thất bại");
         order.setStatus(OrderStatus.FAILED);
@@ -1561,7 +1615,7 @@ public class OrderServiceImpl implements OrderService {
         BigDecimal codAmount = BigDecimal.ZERO;
         if ("COD".equalsIgnoreCase(order.getPaymentMethod())) {
             // cod_amount chỉ có giá trị thật sau khi giao (tiền mặt đã thu); trước đó (NULL hoặc 0 trong dữ liệu mẫu) = tổng tiền đơn
-            codAmount = order.getCodAmount() != null && order.getCodAmount().signum() > 0 ? order.getCodAmount() : order.getTotalAmount();
+            codAmount = order.getCodAmount() != null && order.getCodAmount().signum() > 0 ? order.getCodAmount() : amountDue(order);
         }
 
         Double shopLat = order.getShopLatitude();
@@ -1643,6 +1697,8 @@ public class OrderServiceImpl implements OrderService {
                 .status(order.getStatus())
                 .shippingFee(order.getShippingFee())
                 .totalAmount(order.getTotalAmount())
+                .walletPaidAmount(order.getWalletPaidAmount())
+                .amountDue(amountDue(order))
                 .codAmount(codAmount)
                 .voucherDiscountAmount(voucherDiscountAmount)
                 .shipperId(order.getShipper() != null ? order.getShipper().getId() : null)

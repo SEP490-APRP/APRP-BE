@@ -53,6 +53,10 @@ public class CampaignDeposit {
     LocalDateTime heldAt;
     LocalDateTime releasedAt;
     LocalDateTime refundedAt;
+    /** Phần cọc trả bằng ví người mua; phần còn lại (amount - walletAmount) qua PayOS */
+    BigDecimal walletAmount;
+    /** Đã hoàn phần ví khi đơn huỷ lúc cọc chưa xong */
+    LocalDateTime walletRefundedAt;
     LocalDateTime createdAt;
     LocalDateTime updatedAt;
 }

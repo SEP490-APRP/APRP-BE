@@ -39,6 +39,34 @@ public class CampaignEscrowService {
     private final WalletTransactionRepository walletTransactionRepository;
     private final UserRepository userRepository;
 
+    /** Số dư ví người mua dùng được để trả cọc */
+    @Transactional(readOnly = true)
+    public BigDecimal buyerBalance(User buyer) {
+        Wallet w = userWallet(buyer, TYPE_BUYER);
+        return nz(w.getTotalBalance()).subtract(nz(w.getFrozenBalance())).max(BigDecimal.ZERO);
+    }
+
+    /** Người mua trả (một phần) cọc bằng ví: trừ số dư ví người mua */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void payDepositFromWallet(PreOrder p, BigDecimal amount) {
+        if (amount == null || amount.signum() <= 0) return;
+        Wallet w = walletRepository.findByIdForUpdate(userWallet(p.getBuyer(), TYPE_BUYER).getWalletId())
+                .orElseThrow(() -> new AppException(ErrorCode.WALLET_NOT_FOUND));
+        if (nz(w.getTotalBalance()).subtract(nz(w.getFrozenBalance())).compareTo(amount) < 0) {
+            throw new AppException(ErrorCode.WALLET_INSUFFICIENT_BALANCE);
+        }
+        adjust(w, BigDecimal.ZERO, amount.negate(), WalletTransactionType.CAMPAIGN_DEPOSIT_WALLET_PAID,
+                "Trả cọc đơn đặt trước " + p.getCode() + " bằng ví (chiến dịch " + p.getCampaign().getCode() + ")");
+    }
+
+    /** Đơn đặt trước huỷ khi chưa cọc xong: trả lại phần đã trừ ví */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void refundDepositWalletPart(PreOrder p, BigDecimal amount) {
+        if (amount == null || amount.signum() <= 0) return;
+        adjust(userWallet(p.getBuyer(), TYPE_BUYER), BigDecimal.ZERO, amount, WalletTransactionType.CAMPAIGN_DEPOSIT_WALLET_REFUND,
+                "Hoàn phần cọc đã trả bằng ví, đơn đặt trước " + p.getCode() + " chưa cọc xong đã huỷ");
+    }
+
     /** Cọc PayOS đã vào sàn: ví Sàn tạm giữ (frozen +) */
     @Transactional(propagation = Propagation.MANDATORY)
     public void holdDeposit(CampaignDeposit deposit) {

@@ -79,6 +79,10 @@ public class Order {
     BigDecimal refundAmount;
     String refundReason;
 
+    // ── Trả bằng ví người mua: phần còn lại (totalAmount - walletPaidAmount) trả qua COD / PayOS ──
+    BigDecimal walletPaidAmount;
+    LocalDateTime walletRefundedAt;
+
     BigDecimal rewardPoints;
     BigDecimal codAmount;
     Boolean codSettled;

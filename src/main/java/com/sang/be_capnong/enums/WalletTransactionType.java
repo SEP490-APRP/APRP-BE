@@ -74,5 +74,15 @@ public enum WalletTransactionType {
     /** Ví Nhà vườn: tiền hàng chiến dịch sau khi trừ phí dịch vụ nông dân */
     CAMPAIGN_FARM_INCOME,
     /** Ví Sàn: chi trả tiền hàng cho nhà vườn (âm) */
-    CAMPAIGN_FARM_PAYOUT
+    CAMPAIGN_FARM_PAYOUT,
+
+    // ── Người mua trả bằng ví ──
+    /** Ví người mua: trừ tiền ví để trả một phần / toàn bộ đơn hàng (âm) */
+    ORDER_WALLET_PAYMENT,
+    /** Ví người mua: hoàn lại phần đã trả bằng ví khi đơn huỷ / giao thất bại / hết hạn thanh toán (dương) */
+    ORDER_WALLET_REFUND,
+    /** Ví người mua: trừ tiền ví để trả một phần / toàn bộ tiền cọc chiến dịch (âm) */
+    CAMPAIGN_DEPOSIT_WALLET_PAID,
+    /** Ví người mua: hoàn phần cọc đã trả bằng ví khi đơn đặt trước huỷ trước lúc cọc xong (dương) */
+    CAMPAIGN_DEPOSIT_WALLET_REFUND
 }

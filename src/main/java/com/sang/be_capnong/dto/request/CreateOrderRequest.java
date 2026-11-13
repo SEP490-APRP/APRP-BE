@@ -42,5 +42,8 @@ public class CreateOrderRequest {
     List<OrderItemRequest> items;
 
     List<String> voucherCodes;
+
+    /** true = trừ ví người mua trước, phần còn lại trả bằng phương thức paymentMethod */
+    Boolean useWallet;
     List<Integer> cartItemIds;
 }

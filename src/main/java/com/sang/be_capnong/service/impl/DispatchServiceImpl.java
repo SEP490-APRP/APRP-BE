@@ -96,7 +96,9 @@ public class DispatchServiceImpl implements DispatchService {
         Set<Integer> excluded = new HashSet<>(dispatchOfferRepository.findShipperIdsByOrderId(orderId));
         excluded.addAll(orderRepository.findShipperIdsWithStatusIn(BUSY_STATUSES));
         boolean cod = "COD".equalsIgnoreCase(order.getPaymentMethod());
-        BigDecimal codAmount = cod && order.getTotalAmount() != null ? order.getTotalAmount() : BigDecimal.ZERO;
+        BigDecimal codAmount = cod && order.getTotalAmount() != null
+                ? order.getTotalAmount().subtract(order.getWalletPaidAmount() != null ? order.getWalletPaidAmount() : BigDecimal.ZERO).max(BigDecimal.ZERO)
+                : BigDecimal.ZERO;
 
         List<DispatchOffer> offers = new ArrayList<>();
         for (ShipperLocation loc : shipperLocationRepository.findOnlineSince(now.minusSeconds(heartbeatTimeoutSeconds))) {

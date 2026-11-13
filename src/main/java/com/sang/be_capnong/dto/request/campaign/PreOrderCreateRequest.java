@@ -18,5 +18,7 @@ public class PreOrderCreateRequest {
     String shippingAddress;
     Double shippingLatitude;
     Double shippingLongitude;
+    /** true = trừ ví người mua trước cho tiền cọc, phần còn lại qua PayOS */
+    Boolean useWallet;
     String note;
 }

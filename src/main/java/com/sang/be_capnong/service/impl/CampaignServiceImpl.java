@@ -548,18 +548,34 @@ public class CampaignServiceImpl implements CampaignService {
                 .build());
 
         long orderCode = nextPayosOrderCode();
+        // Trả cọc bằng ví trước (nếu chọn), phần còn lại qua PayOS
+        BigDecimal walletPart = Boolean.TRUE.equals(request.getUseWallet())
+                ? escrowService.buyerBalance(buyer).min(deposit).setScale(0, RoundingMode.DOWN)
+                : BigDecimal.ZERO;
+        BigDecimal payosPart = deposit.subtract(walletPart);
         CampaignDeposit d = CampaignDeposit.builder()
                 .preOrder(p)
                 .amount(deposit)
+                .walletAmount(walletPart)
                 .payosOrderCode(String.valueOf(orderCode))
                 .status(CampaignDepositStatus.PENDING)
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
+        if (walletPart.signum() > 0) {
+            escrowService.payDepositFromWallet(p, walletPart);
+        }
+        if (payosPart.signum() <= 0) {
+            // Ví trả đủ cọc: ghi nhận cọc ngay, không cần link PayOS
+            depositRepository.save(d);
+            p.setDeposit(d);
+            settleDeposit(d.getPayosOrderCode());
+            return toPreOrderResponse(preOrderRepository.findById(p.getPreOrderId()).orElseThrow());
+        }
         try {
             CreatePaymentLinkRequest.CreatePaymentLinkRequestBuilder b = CreatePaymentLinkRequest.builder()
                     .orderCode(orderCode)
-                    .amount(deposit.longValueExact())
+                    .amount(payosPart.longValueExact())
                     .description(truncate("COC " + p.getCode(), 25))
                     .returnUrl(withQuery(defaultReturnUrl, p.getPreOrderId()))
                     .cancelUrl(withQuery(defaultCancelUrl, p.getPreOrderId()));
@@ -809,6 +825,10 @@ public class CampaignServiceImpl implements CampaignService {
             return;
         }
         LocalDateTime now = LocalDateTime.now();
+        if (d.getWalletRefundedAt() != null) {
+            d.setAmount(d.getAmount().subtract(nz(d.getWalletAmount())));
+            d.setWalletAmount(BigDecimal.ZERO);
+        }
         escrowService.holdDeposit(d);
         d.setHeldAt(now);
         d.setUpdatedAt(now);
@@ -949,6 +969,10 @@ public class CampaignServiceImpl implements CampaignService {
         if (d != null && d.getStatus() == CampaignDepositStatus.PENDING) {
             d.setStatus(CampaignDepositStatus.CANCELLED);
             d.setUpdatedAt(now);
+            if (nz(d.getWalletAmount()).signum() > 0 && d.getWalletRefundedAt() == null) {
+                escrowService.refundDepositWalletPart(p, d.getWalletAmount());
+                d.setWalletRefundedAt(now);
+            }
             depositRepository.save(d);
             try {
                 payOS.paymentRequests().cancel(Long.parseLong(d.getPayosOrderCode()), truncate(reason, 100));
@@ -1274,6 +1298,7 @@ public class CampaignServiceImpl implements CampaignService {
         CampaignDeposit d = p.getDeposit() != null ? p.getDeposit()
                 : depositRepository.findByPreOrder_PreOrderId(p.getPreOrderId()).orElse(null);
         boolean showLink = d != null && d.getStatus() == CampaignDepositStatus.PENDING;
+        BigDecimal depositWallet = d != null ? nz(d.getWalletAmount()) : BigDecimal.ZERO;
         return PreOrderResponse.builder()
                 .preOrderId(p.getPreOrderId())
                 .code(p.getCode())
@@ -1290,6 +1315,8 @@ public class CampaignServiceImpl implements CampaignService {
                 .totalAmount(p.getTotalAmount())
                 .depositAmount(p.getDepositAmount())
                 .remainingAmount(p.getRemainingAmount())
+                .depositWalletAmount(depositWallet)
+                .depositPayosAmount(nz(p.getDepositAmount()).subtract(depositWallet).max(BigDecimal.ZERO))
                 .recipientName(p.getRecipientName())
                 .recipientPhone(p.getRecipientPhone())
                 .shippingAddress(p.getShippingAddress())

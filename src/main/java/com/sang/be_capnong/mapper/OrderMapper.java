@@ -16,6 +16,7 @@ public interface OrderMapper {
     @Mapping(target = "voucherDiscountAmount", ignore = true)
     @Mapping(target = "items", ignore = true)
     @Mapping(target = "distanceToShopKm", ignore = true)
+    @Mapping(target = "amountDue", expression = "java(order.getTotalAmount() == null ? null : order.getTotalAmount().subtract(order.getWalletPaidAmount() == null ? java.math.BigDecimal.ZERO : order.getWalletPaidAmount()))")
     OrderResponse toOrderResponse(Order order);
 
     /** Cột lưu nhiều URL ảnh, ngăn cách bằng xuống dòng */
