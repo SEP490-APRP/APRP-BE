@@ -102,7 +102,7 @@ Tất cả endpoint đều chạy dưới context path `/api`:
 
 | Phương thức | Endpoint | Phân quyền | Mô tả chức năng |
 |---|---|---|---|
-| `POST` | `/referrals/links` | `BUYER` | Tạo mới hoặc lấy link tiếp thị cho sản phẩm/shop |
+| `POST` | `/referrals/links` | `BUYER` | Tạo mới hoặc lấy link tiếp thị cho sản phẩm / shop / combo / túi mù |
 | `GET` | `/referrals/links/my` | `BUYER` | Danh sách link đã tạo của Buyer (0-based page) |
 | `GET` | `/referrals/resolve/{code}` | Public | Phân giải mã link: Trả metadata sản phẩm, ẩn danh người giới thiệu |
 | `POST` | `/referrals/clicks` | Public | Ghi nhận click thật từ client JS kèm IP và User-Agent |
