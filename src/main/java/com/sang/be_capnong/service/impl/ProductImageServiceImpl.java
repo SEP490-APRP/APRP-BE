@@ -97,18 +97,17 @@ public class ProductImageServiceImpl implements ProductImageService {
 
         ProductImage savedImage = productImageRepository.save(productImage);
 
-        // TH2: Nếu đổi hoặc thêm ảnh đại diện trên sản phẩm ACTIVE -> bắt buộc duyệt lại -> tự động chuyển PENDING
-        if (isPrimary && isActiveProduct) {
+        // TH2: Nếu đổi hoặc thêm ảnh đại diện trên sản phẩm ACTIVE hoặc REJECTED -> bắt buộc duyệt lại -> tự động chuyển PENDING
+        boolean isRejected = "REJECTED".equalsIgnoreCase(product.getStatus());
+        if ((isPrimary && isActiveProduct) || isRejected) {
             product.setStatus("PENDING");
             product.setRejectReason(null);
             productRepository.save(product);
-            log.info("Product id: {} transitioned from ACTIVE to PENDING after new primary image added", productId);
+            log.info("Product id: {} transitioned to PENDING after new image added", productId);
         }
 
         // 2. Lưu / cập nhật kết quả kiểm duyệt AI vào CSDL để Admin theo dõi
-        if (isFlagged) {
-            saveOrUpdateModerationResult(product, checkResult);
-        }
+        saveOrUpdateModerationResult(product, checkResult);
 
         return productImageMapper.toProductImageResponse(savedImage);
     }
@@ -194,9 +193,7 @@ public class ProductImageServiceImpl implements ProductImageService {
                 image.setFlagReason(isFlagged ? checkResult.getFlagReason() : null);
                 image.setIsApproved(!isFlagged);
 
-                if (isFlagged) {
-                    saveOrUpdateModerationResult(product, checkResult);
-                }
+                saveOrUpdateModerationResult(product, checkResult);
             }
             image.setImageUrl(newUrl);
         }
@@ -207,12 +204,13 @@ public class ProductImageServiceImpl implements ProductImageService {
 
         ProductImage updatedImage = productImageRepository.save(image);
 
-        // TH2: Nếu sản phẩm đang ACTIVE và ảnh đại diện bị đổi nội dung hoặc một ảnh khác được chỉ định làm đại diện
-        if ("ACTIVE".equalsIgnoreCase(product.getStatus()) && ((oldPrimary && imageContentChanged) || (!oldPrimary && newPrimary))) {
+        // TH2: Nếu sản phẩm đang ACTIVE hoặc REJECTED và ảnh đại diện bị đổi nội dung hoặc ảnh khác làm đại diện
+        boolean isRejected = "REJECTED".equalsIgnoreCase(product.getStatus());
+        if (("ACTIVE".equalsIgnoreCase(product.getStatus()) && ((oldPrimary && imageContentChanged) || (!oldPrimary && newPrimary))) || isRejected) {
             product.setStatus("PENDING");
             product.setRejectReason(null);
             productRepository.save(product);
-            log.info("Product id: {} transitioned to PENDING because primary image was updated", productId);
+            log.info("Product id: {} transitioned to PENDING because image was updated", productId);
         }
 
         return productImageMapper.toProductImageResponse(updatedImage);
@@ -242,12 +240,13 @@ public class ProductImageServiceImpl implements ProductImageService {
 
         ProductImage savedImage = productImageRepository.save(image);
 
-        // TH2: Nếu đổi ảnh đại diện trên sản phẩm ACTIVE -> bắt buộc duyệt lại -> tự động chuyển PENDING
-        if ("ACTIVE".equalsIgnoreCase(product.getStatus())) {
+        // TH2: Nếu đổi ảnh đại diện trên sản phẩm ACTIVE hoặc REJECTED -> bắt buộc duyệt lại -> tự động chuyển PENDING
+        boolean isRejected = "REJECTED".equalsIgnoreCase(product.getStatus());
+        if ("ACTIVE".equalsIgnoreCase(product.getStatus()) || isRejected) {
             product.setStatus("PENDING");
             product.setRejectReason(null);
             productRepository.save(product);
-            log.info("Product id: {} transitioned from ACTIVE to PENDING after primary image changed", productId);
+            log.info("Product id: {} transitioned to PENDING after primary image changed", productId);
         }
 
         return productImageMapper.toProductImageResponse(savedImage);
@@ -274,7 +273,14 @@ public class ProductImageServiceImpl implements ProductImageService {
 
         String imageUrlToDelete = image.getImageUrl();
         boolean wasPrimary = Boolean.TRUE.equals(image.getIsPrimary());
+
+        // Gỡ liên kết hai chiều để kích hoạt orphanRemoval và ngăn Hibernate cascade hồi sinh ảnh
+        if (product.getImages() != null) {
+            product.getImages().removeIf(img -> Objects.equals(img.getId(), imageId));
+        }
+        image.setProduct(null);
         productImageRepository.delete(image);
+        productImageRepository.flush();
 
         // Tự động xóa file ảnh khỏi Cloudinary để dọn rác
         cloudinaryService.deleteImageByUrl(imageUrlToDelete);
@@ -373,6 +379,7 @@ public class ProductImageServiceImpl implements ProductImageService {
                             .build());
 
             moderationResult.setIsFlagged(checkResult.isFlagged());
+            moderationResult.setFlagReason(checkResult.getFlagReason());
             moderationResult.setOverallConfidence(checkResult.getOverallConfidence());
             moderationResult.setCheckedAt(LocalDateTime.now());
             moderationResult.setRawResponse(checkResult.getRawResponse());
