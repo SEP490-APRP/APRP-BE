@@ -70,6 +70,17 @@ public enum AgriculturalProduceLabel {
     ORANGE("ORANGE", "Cam"),
     MANGO("MANGO", "Xoài"),
     WATERMELON("WATERMELON", "Dưa hấu"),
+    MELON("MELON", "Dưa lưới / Dưa gang"),
+    MUSKMELON("MUSKMELON", "Dưa lưới"),
+    CANTALOUPE("CANTALOUPE", "Dưa lưới ruột cam"),
+    HONEYDEW("HONEYDEW", "Dưa lê / Dưa bở"),
+    GALIA_MELON("GALIA MELON", "Dưa lưới Galia"),
+    CUCUMIS("CUCUMIS", "Chi Dưa (Cucumis)"),
+    WINTER_MELON("WINTER MELON", "Bí đao / Bí xanh"),
+    BITTER_MELON("BITTER MELON", "Khổ qua / Mướp đắng"),
+    BITTER_GOURD("BITTER GOURD", "Khổ qua / Mướp đắng"),
+    EGGPLANT("EGGPLANT", "Cà tím"),
+    AUBERGINE("AUBERGINE", "Cà tím"),
     PINEAPPLE("PINEAPPLE", "Dứa / Thơm"),
     DRAGON_FRUIT("DRAGON FRUIT", "Thanh long"),
     DURIAN("DURIAN", "Sầu riêng"),
@@ -86,7 +97,8 @@ public enum AgriculturalProduceLabel {
     GRAPE("GRAPE", "Nho"),
     STRAWBERRY("STRAWBERRY", "Dâu tây"),
     PEACH("PEACH", "Đào"),
-    PLUM("PLUM", "Mận");
+    PLUM("PLUM", "Mận"),
+    PASSION_FRUIT("PASSION FRUIT", "Chanh dây / Chanh leo");
 
     private final String label;
     private final String vietnameseName;
@@ -144,6 +156,10 @@ public enum AgriculturalProduceLabel {
 
         // Thứ tự ưu tiên từ dài đến ngắn để tránh nhận diện nhầm từ con
         if (lower.contains("dưa hấu")) return Optional.of(WATERMELON);
+        if (lower.contains("dưa lưới") || lower.contains("dưa vàng") || lower.contains("dưa gang") || lower.contains("dưa lê") || lower.contains("dưa bở")) return Optional.of(MELON);
+        if (lower.contains("bí đao") || lower.contains("bí xanh")) return Optional.of(WINTER_MELON);
+        if (lower.contains("khổ qua") || lower.contains("mướp đắng")) return Optional.of(BITTER_MELON);
+        if (lower.contains("cà tím")) return Optional.of(EGGPLANT);
         if (lower.contains("thanh long")) return Optional.of(DRAGON_FRUIT);
         if (lower.contains("sầu riêng")) return Optional.of(DURIAN);
         if (lower.contains("khoai lang")) return Optional.of(SWEET_POTATO);
@@ -169,7 +185,9 @@ public enum AgriculturalProduceLabel {
         if (lower.contains("nhãn")) return Optional.of(LONGAN);
         if (lower.contains("mít")) return Optional.of(JACKFRUIT);
         if (lower.contains("bưởi")) return Optional.of(POMELO);
-        if (lower.contains("chanh")) return Optional.of(LIME);
+        if (lower.contains("chanh dây") || lower.contains("chanh leo")) return Optional.of(PASSION_FRUIT);
+        if (lower.contains("chanh vàng")) return Optional.of(LEMON);
+        if (lower.contains("chanh xanh") || lower.contains("chanh")) return Optional.of(LIME);
         if (lower.contains("táo")) return Optional.of(APPLE);
         if (lower.contains("cam")) return Optional.of(ORANGE);
         if (lower.contains("nho")) return Optional.of(GRAPE);
@@ -193,7 +211,13 @@ public enum AgriculturalProduceLabel {
         if (!detected.isSpecificProduce()) return true; // Nhãn nhóm chung luôn tương thích
 
         // Các nhóm họ hàng gần gũi
-        if ((this == WATERMELON && detected == CUCUMBER) || (this == CUCUMBER && detected == WATERMELON)) return true; // Cùng họ bầu bí Cucurbitaceae
+        // Nhóm dưa lưới / dưa gang / dưa lê (Cucumis melo & các phân loài)
+        boolean isThisMelon = (this == MELON || this == MUSKMELON || this == CANTALOUPE || this == HONEYDEW || this == GALIA_MELON || this == CUCUMIS);
+        boolean isDetectedMelon = (detected == MELON || detected == MUSKMELON || detected == CANTALOUPE || detected == HONEYDEW || detected == GALIA_MELON || detected == CUCUMIS);
+        if (isThisMelon && isDetectedMelon) return true;
+
+        if ((this == BITTER_MELON && detected == BITTER_GOURD) || (this == BITTER_GOURD && detected == BITTER_MELON)) return true;
+        if ((this == EGGPLANT && detected == AUBERGINE) || (this == AUBERGINE && detected == EGGPLANT)) return true;
         if ((this == CORN && detected == MAIZE) || (this == MAIZE && detected == CORN)) return true;
         if ((this == LIME && detected == LEMON) || (this == LEMON && detected == LIME)) return true;
         if ((this == POTATO && detected == SWEET_POTATO) || (this == SWEET_POTATO && detected == POTATO)) return true;
