@@ -23,7 +23,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.math.BigDecimal;
 import java.security.Principal;
 import java.time.LocalDateTime;
 import java.util.Arrays;
@@ -260,20 +259,15 @@ public class ShipperServiceImpl implements ShipperService {
 
         LocalDateTime updatedAt = order.getDeliveredAt() != null
                 ? order.getDeliveredAt()
-                : (order.getCompletedAt() != null ? order.getCompletedAt() : (order.getCreatedAt() != null ? order.getCreatedAt() : LocalDateTime.now()));
+                : (order.getFailedAt() != null
+                        ? order.getFailedAt()
+                        : (order.getCreatedAt() != null ? order.getCreatedAt() : LocalDateTime.now()));
 
         String phase = order.getStatus() == OrderStatus.FAILED || order.getStatus() == OrderStatus.CANCELLED
                 ? "FAILED"
                 : "DELIVERED";
 
         List<String> proofs = parseProofUrls(order.getDeliveryProofUrls());
-
-        BigDecimal codAmt = order.getCodAmount();
-        if (codAmt == null && "COD".equalsIgnoreCase(order.getPaymentMethod())) {
-            codAmt = order.getTotalAmount();
-        } else if (codAmt == null) {
-            codAmt = BigDecimal.ZERO;
-        }
 
         return ShipperLocationResponse.builder()
                 .orderId(order.getOrderId())
@@ -301,9 +295,6 @@ public class ShipperServiceImpl implements ShipperService {
                 .estimatedMinutes(0)
                 .trackingActive(false)
                 .proofImageUrls(proofs)
-                .paymentMethod(order.getPaymentMethod())
-                .codAmount(codAmt)
-                .totalAmount(order.getTotalAmount())
                 .build();
     }
 
@@ -416,13 +407,6 @@ public class ShipperServiceImpl implements ShipperService {
                 || order.getStatus() == OrderStatus.FAILED
                 || order.getStatus() == OrderStatus.CANCELLED);
 
-        BigDecimal codAmt = order != null ? order.getCodAmount() : null;
-        if (codAmt == null && order != null && "COD".equalsIgnoreCase(order.getPaymentMethod())) {
-            codAmt = order.getTotalAmount();
-        } else if (codAmt == null && order != null) {
-            codAmt = BigDecimal.ZERO;
-        }
-
         return ShipperLocationResponse.builder()
                 .orderId(order != null ? order.getOrderId() : null)
                 .shipperId(shipperId)
@@ -449,9 +433,6 @@ public class ShipperServiceImpl implements ShipperService {
                 .estimatedMinutes(etaMinutes)
                 .trackingActive(!isFinished)
                 .proofImageUrls(parseProofUrls(order != null ? order.getDeliveryProofUrls() : null))
-                .paymentMethod(order != null ? order.getPaymentMethod() : null)
-                .codAmount(codAmt)
-                .totalAmount(order != null ? order.getTotalAmount() : null)
                 .build();
     }
 
