@@ -71,6 +71,9 @@ public class SecurityConfig {
             "/chatbot/message",
             "/api/v1/chatbot/message",
 
+            // Tìm kiếm sản phẩm bằng hình ảnh (hỗ trợ cả khách vãng lai và người dùng đã đăng nhập)
+            "/products/search-by-image",
+
             // Ghi nhận lượt nhấp tiếp thị liên kết (Referral Click Tracking)
             "/referrals/clicks"
     };
