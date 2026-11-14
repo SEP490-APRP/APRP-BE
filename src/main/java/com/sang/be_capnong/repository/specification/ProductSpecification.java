@@ -38,4 +38,36 @@ public class ProductSpecification {
             return cb.and(predicates.toArray(new Predicate[0]));
         };
     }
+
+    /**
+     * Specification phục vụ tìm kiếm nông sản bằng hình ảnh (Visual Search).
+     * Chỉ lấy sản phẩm có trạng thái APPROVED hoặc ACTIVE, tồn kho > 0.
+     * Khớp từ khóa theo tên sản phẩm hoặc tên danh mục, và loại trừ từ khóa con nếu có.
+     */
+    public static Specification<Product> searchForVisualSearch(String keyword, String excludeKeyword) {
+        return (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+
+            // 1. Chỉ lấy sản phẩm đang bán (APPROVED hoặc ACTIVE) và còn hàng
+            predicates.add(root.get("status").in("APPROVED", "ACTIVE"));
+            predicates.add(cb.greaterThan(root.get("stockQuantity"), 0));
+
+            // 2. Điều kiện khớp từ khóa theo tên nông sản hoặc danh mục
+            if (keyword != null && !keyword.isBlank()) {
+                String pattern = "%" + keyword.trim().toLowerCase() + "%";
+                Predicate nameMatch = cb.like(cb.lower(root.get("productName")), pattern);
+                Predicate categoryMatch = cb.like(cb.lower(root.get("category").get("name")), pattern);
+                predicates.add(cb.or(nameMatch, categoryMatch));
+            }
+
+            // 3. Loại trừ từ khóa con để tránh nhầm lẫn (ví dụ: bắp vs bắp cải)
+            if (excludeKeyword != null && !excludeKeyword.isBlank()) {
+                String excludePattern = "%" + excludeKeyword.trim().toLowerCase() + "%";
+                predicates.add(cb.notLike(cb.lower(root.get("productName")), excludePattern));
+                predicates.add(cb.notLike(cb.lower(root.get("category").get("name")), excludePattern));
+            }
+
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+    }
 }

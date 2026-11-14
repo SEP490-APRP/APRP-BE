@@ -49,6 +49,8 @@ public class ReferralServiceImpl implements ReferralService {
     ReferralAttributionRepository referralAttributionRepository;
     ReferralCommissionRepository referralCommissionRepository;
     ProductRepository productRepository;
+    BuildComboRepository buildComboRepository;
+    MysteryBoxRepository mysteryBoxRepository;
     UserRepository userRepository;
     ReferralMapper referralMapper;
     ReferralProperties referralProperties;
@@ -73,6 +75,20 @@ public class ReferralServiceImpl implements ReferralService {
                     .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
 
             if (Objects.equals(shop.getId(), userId)) {
+                throw new AppException(ErrorCode.SELF_REFERRAL_NOT_ALLOWED);
+            }
+        } else if (request.getTargetType() == ReferralTargetType.BUILD_COMBO) {
+            BuildCombo combo = buildComboRepository.findById(request.getTargetId())
+                    .orElseThrow(() -> new AppException(ErrorCode.COMBO_NOT_FOUND));
+
+            if (Objects.equals(combo.getShop().getId(), userId)) {
+                throw new AppException(ErrorCode.SELF_REFERRAL_NOT_ALLOWED);
+            }
+        } else if (request.getTargetType() == ReferralTargetType.MYSTERY_BOX) {
+            MysteryBox box = mysteryBoxRepository.findById(request.getTargetId())
+                    .orElseThrow(() -> new AppException(ErrorCode.MYSTERY_BOX_NOT_FOUND));
+
+            if (Objects.equals(box.getShop().getId(), userId)) {
                 throw new AppException(ErrorCode.SELF_REFERRAL_NOT_ALLOWED);
             }
         }
@@ -155,6 +171,24 @@ public class ReferralServiceImpl implements ReferralService {
                         .shopName(shop.getShopName())
                         .imageUrl(shop.getLogoUrl());
             }
+        } else if (link.getTargetType() == ReferralTargetType.BUILD_COMBO) {
+            BuildCombo combo = buildComboRepository.findById(link.getTargetId()).orElse(null);
+            if (combo != null) {
+                builder.targetName(combo.getComboName())
+                        .targetUrl("/combo/" + combo.getComboId())
+                        .price(combo.getPrice())
+                        .shopName(combo.getShop() != null ? combo.getShop().getShopName() : null)
+                        .imageUrl(combo.getImageUrl());
+            }
+        } else if (link.getTargetType() == ReferralTargetType.MYSTERY_BOX) {
+            MysteryBox box = mysteryBoxRepository.findById(link.getTargetId()).orElse(null);
+            if (box != null) {
+                builder.targetName(box.getBoxType() != null ? box.getBoxType() : "Túi mù nông sản")
+                        .targetUrl("/mystery-box/" + box.getMysteryId())
+                        .price(box.getPrice())
+                        .shopName(box.getShop() != null ? box.getShop().getShopName() : null)
+                        .imageUrl(box.getImageUrl());
+            }
         }
 
         return builder.build();
@@ -227,6 +261,16 @@ public class ReferralServiceImpl implements ReferralService {
             if (Objects.equals(buyerId, link.getTargetId())) {
                 throw new AppException(ErrorCode.SELF_REFERRAL_NOT_ALLOWED);
             }
+        } else if (link.getTargetType() == ReferralTargetType.BUILD_COMBO) {
+            BuildCombo combo = buildComboRepository.findById(link.getTargetId()).orElse(null);
+            if (combo != null && Objects.equals(buyerId, combo.getShop().getId())) {
+                throw new AppException(ErrorCode.SELF_REFERRAL_NOT_ALLOWED);
+            }
+        } else if (link.getTargetType() == ReferralTargetType.MYSTERY_BOX) {
+            MysteryBox box = mysteryBoxRepository.findById(link.getTargetId()).orElse(null);
+            if (box != null && Objects.equals(buyerId, box.getShop().getId())) {
+                throw new AppException(ErrorCode.SELF_REFERRAL_NOT_ALLOWED);
+            }
         }
 
         User buyer = userRepository.findById(buyerId)
@@ -290,11 +334,22 @@ public class ReferralServiceImpl implements ReferralService {
         List<ReferralCommissionResponse> content = page.getContent().stream()
                 .map(comm -> {
                     ReferralCommissionResponse resp = referralMapper.toReferralCommissionResponse(comm);
-                    if (comm.getOrderDetail() != null && comm.getOrderDetail().getProduct() != null) {
-                        Product p = comm.getOrderDetail().getProduct();
-                        resp.setProductName(p.getProductName());
-                        if (p.getImages() != null && !p.getImages().isEmpty()) {
-                            resp.setProductImageUrl(p.getImages().get(0).getImageUrl());
+                    if (comm.getOrderDetail() != null) {
+                        OrderDetail od = comm.getOrderDetail();
+                        if (od.getProduct() != null) {
+                            Product p = od.getProduct();
+                            resp.setProductName(p.getProductName());
+                            if (p.getImages() != null && !p.getImages().isEmpty()) {
+                                resp.setProductImageUrl(p.getImages().get(0).getImageUrl());
+                            }
+                        } else if (od.getBuildCombo() != null) {
+                            BuildCombo c = od.getBuildCombo();
+                            resp.setProductName(c.getComboName());
+                            resp.setProductImageUrl(c.getImageUrl());
+                        } else if (od.getMysteryBox() != null) {
+                            MysteryBox m = od.getMysteryBox();
+                            resp.setProductName(m.getBoxType() != null ? m.getBoxType() : "Túi mù");
+                            resp.setProductImageUrl(m.getImageUrl());
                         }
                     }
                     return resp;
@@ -302,6 +357,36 @@ public class ReferralServiceImpl implements ReferralService {
                 .toList();
 
         return PageResponse.from(page, content);
+    }
+
+    /**
+     * Kiểm tra dòng hàng có hợp lệ để tính hoa hồng tiếp thị liên kết:
+     * - Nông sản đơn lẻ (PRODUCT)
+     * - Combo rau củ (BUILD_COMBO)
+     * - Túi mù nông sản (MYSTERY_BOX)
+     * Loại trừ tuyệt đối: Thực đơn bữa ăn / kế hoạch AI (BUILD_PLAN / PLAN).
+     */
+    private boolean isEligibleAffiliateItem(OrderDetail detail) {
+        if (detail == null || detail.getUnitPrice() == null) {
+            return false;
+        }
+        String type = detail.getItemType();
+        if ("BUILD_PLAN".equalsIgnoreCase(type) || "PLAN".equalsIgnoreCase(type) || "MEAL_PLAN".equalsIgnoreCase(type)) {
+            return false;
+        }
+        if ("PRODUCT".equalsIgnoreCase(type) && detail.getProduct() != null) {
+            return true;
+        }
+        if ("BUILD_COMBO".equalsIgnoreCase(type) && detail.getBuildCombo() != null) {
+            return true;
+        }
+        if ("MYSTERY_BOX".equalsIgnoreCase(type) && detail.getMysteryBox() != null) {
+            return true;
+        }
+        if (type == null || type.isBlank()) {
+            return detail.getProduct() != null || detail.getBuildCombo() != null || detail.getMysteryBox() != null;
+        }
+        return false;
     }
 
     @Override
@@ -322,10 +407,10 @@ public class ReferralServiceImpl implements ReferralService {
             return;
         }
 
-        // Tính tổng tiền hàng nông sản của các OrderDetail trong đơn này (để phân bổ voucher shop)
+        // Tính tổng tiền hàng của các OrderDetail hợp lệ trong đơn này (để phân bổ voucher shop)
         BigDecimal sumItemGross = BigDecimal.ZERO;
         for (OrderDetail d : details) {
-            if ("PRODUCT".equalsIgnoreCase(d.getItemType()) && d.getUnitPrice() != null) {
+            if (isEligibleAffiliateItem(d)) {
                 sumItemGross = sumItemGross.add(d.getUnitPrice().multiply(BigDecimal.valueOf(d.getQuantity())));
             }
         }
@@ -334,42 +419,83 @@ public class ReferralServiceImpl implements ReferralService {
         BigDecimal farmerFeeRate = new BigDecimal("0.10"); // Phí sàn mặc định 10%
 
         for (OrderDetail detail : details) {
-            // MVP chỉ áp dụng cho nông sản đơn lẻ (PRODUCT)
-            if (!"PRODUCT".equalsIgnoreCase(detail.getItemType()) || detail.getProduct() == null) {
+            // Chỉ áp dụng cho PRODUCT, BUILD_COMBO, MYSTERY_BOX (loại trừ BUILD_PLAN)
+            if (!isEligibleAffiliateItem(detail)) {
                 continue;
             }
 
-            Integer productId = detail.getProduct().getProductId();
-            Integer shopId = order.getShop() != null ? order.getShop().getId() : null;
+            Integer productId = detail.getProduct() != null ? detail.getProduct().getProductId() : null;
+            Integer comboId = detail.getBuildCombo() != null ? detail.getBuildCombo().getComboId() : null;
+            Integer mysteryBoxId = detail.getMysteryBox() != null ? detail.getMysteryBox().getMysteryId() : null;
+
+            Integer itemShopId = null;
+            if (detail.getProduct() != null && detail.getProduct().getShop() != null) {
+                itemShopId = detail.getProduct().getShop().getId();
+            } else if (detail.getBuildCombo() != null && detail.getBuildCombo().getShop() != null) {
+                itemShopId = detail.getBuildCombo().getShop().getId();
+            } else if (detail.getMysteryBox() != null && detail.getMysteryBox().getShop() != null) {
+                itemShopId = detail.getMysteryBox().getShop().getId();
+            }
+            if (itemShopId == null && order.getShop() != null) {
+                itemShopId = order.getShop().getId();
+            }
 
             // 2. Tìm attribution khớp theo Strict Last-Touch với Specificity Tie-Breaker
             // activeAttrs đã được sắp xếp ORDER BY attributedAt DESC
             ReferralAttribution winningAttr = null;
 
             for (ReferralAttribution attr : activeAttrs) {
-                boolean matchProduct = attr.getTargetType() == ReferralTargetType.PRODUCT
-                        && Objects.equals(attr.getTargetId(), productId);
-                boolean matchShop = attr.getTargetType() == ReferralTargetType.SHOP
-                        && shopId != null && Objects.equals(attr.getTargetId(), shopId);
+                // 1. Khớp chính xác sản phẩm / combo / túi mù nếu link chia sẻ là món đó
+                boolean matchDirect = false;
+                if (attr.getTargetType() == ReferralTargetType.PRODUCT && productId != null) {
+                    matchDirect = Objects.equals(attr.getTargetId(), productId);
+                } else if (attr.getTargetType() == ReferralTargetType.BUILD_COMBO && comboId != null) {
+                    matchDirect = Objects.equals(attr.getTargetId(), comboId);
+                } else if (attr.getTargetType() == ReferralTargetType.MYSTERY_BOX && mysteryBoxId != null) {
+                    matchDirect = Objects.equals(attr.getTargetId(), mysteryBoxId);
+                }
 
-                if (matchProduct || matchShop) {
+                // 2. Khớp theo gian hàng (SHOP): link là SHOP của cùng gian hàng
+                boolean matchShopLink = attr.getTargetType() == ReferralTargetType.SHOP
+                        && itemShopId != null && Objects.equals(attr.getTargetId(), itemShopId);
+
+                // 3. Fallback: nếu link là PRODUCT/COMBO/MYSTERY_BOX của cùng gian hàng
+                boolean matchSameShopLink = false;
+                if (!matchDirect && !matchShopLink && itemShopId != null) {
+                    if (attr.getTargetType() == ReferralTargetType.PRODUCT) {
+                        Product refP = productRepository.findById(attr.getTargetId()).orElse(null);
+                        if (refP != null && refP.getShop() != null && Objects.equals(refP.getShop().getId(), itemShopId)) {
+                            matchSameShopLink = true;
+                        }
+                    } else if (attr.getTargetType() == ReferralTargetType.BUILD_COMBO) {
+                        BuildCombo refC = buildComboRepository.findById(attr.getTargetId()).orElse(null);
+                        if (refC != null && refC.getShop() != null && Objects.equals(refC.getShop().getId(), itemShopId)) {
+                            matchSameShopLink = true;
+                        }
+                    } else if (attr.getTargetType() == ReferralTargetType.MYSTERY_BOX) {
+                        MysteryBox refM = mysteryBoxRepository.findById(attr.getTargetId()).orElse(null);
+                        if (refM != null && refM.getShop() != null && Objects.equals(refM.getShop().getId(), itemShopId)) {
+                            matchSameShopLink = true;
+                        }
+                    }
+                }
+
+                if (matchDirect || matchShopLink || matchSameShopLink) {
                     // Chặn tự mua qua link của chính mình hoặc shop của chính mình
                     if (Objects.equals(attr.getReferrer().getId(), buyerId)) {
                         continue;
                     }
-                    if (shopId != null && Objects.equals(attr.getReferrer().getId(), shopId)) {
+                    if (itemShopId != null && Objects.equals(attr.getReferrer().getId(), itemShopId)) {
                         continue;
                     }
 
                     if (winningAttr == null) {
                         winningAttr = attr;
                     } else {
-                        // Tie-breaker: Nếu cùng thời điểm thì link PRODUCT ưu tiên hơn link SHOP
-                        if (attr.getAttributedAt().isEqual(winningAttr.getAttributedAt())) {
-                            if (attr.getTargetType() == ReferralTargetType.PRODUCT
-                                    && winningAttr.getTargetType() == ReferralTargetType.SHOP) {
-                                winningAttr = attr;
-                            }
+                        // Tie-breaker: Khớp trực tiếp được ưu tiên hơn cùng shop; nếu cùng loại thì Last-Click
+                        boolean winningIsDirect = isDirectMatch(winningAttr, productId, comboId, mysteryBoxId);
+                        if (!winningIsDirect && matchDirect) {
+                            winningAttr = attr;
                         }
                     }
                 }
@@ -419,9 +545,10 @@ public class ReferralServiceImpl implements ReferralService {
 
             referralCommissionRepository.save(commission);
 
-            // 5. Tăng bộ đếm đơn chuyển đổi của attribution
+            // 5. Tăng bộ đếm đơn chuyển đổi của attribution (nếu maxConversions > 0 thì mới xét trần)
             winningAttr.setConvertedOrderCount(winningAttr.getConvertedOrderCount() + 1);
-            if (winningAttr.getConvertedOrderCount() >= winningAttr.getMaxConversions()) {
+            if (winningAttr.getMaxConversions() != null && winningAttr.getMaxConversions() > 0
+                    && winningAttr.getConvertedOrderCount() >= winningAttr.getMaxConversions()) {
                 winningAttr.setStatus(AttributionStatus.EXHAUSTED);
             }
             referralAttributionRepository.save(winningAttr);
@@ -457,6 +584,20 @@ public class ReferralServiceImpl implements ReferralService {
         }
     }
 
+    private boolean isDirectMatch(ReferralAttribution attr, Integer productId, Integer comboId, Integer mysteryBoxId) {
+        if (attr == null) return false;
+        if (attr.getTargetType() == ReferralTargetType.PRODUCT && productId != null) {
+            return Objects.equals(attr.getTargetId(), productId);
+        }
+        if (attr.getTargetType() == ReferralTargetType.BUILD_COMBO && comboId != null) {
+            return Objects.equals(attr.getTargetId(), comboId);
+        }
+        if (attr.getTargetType() == ReferralTargetType.MYSTERY_BOX && mysteryBoxId != null) {
+            return Objects.equals(attr.getTargetId(), mysteryBoxId);
+        }
+        return false;
+    }
+
     private void enrichLinkResponse(ReferralLinkResponse response, ReferralLink link) {
         String base = referralProperties.getBaseUrl();
         if (base == null || base.isBlank()) {
@@ -481,6 +622,16 @@ public class ReferralServiceImpl implements ReferralService {
             userRepository.findById(link.getTargetId()).ifPresent(shop -> {
                 response.setTargetName(shop.getShopName());
                 response.setTargetImageUrl(shop.getLogoUrl());
+            });
+        } else if (link.getTargetType() == ReferralTargetType.BUILD_COMBO) {
+            buildComboRepository.findById(link.getTargetId()).ifPresent(combo -> {
+                response.setTargetName(combo.getComboName());
+                response.setTargetImageUrl(combo.getImageUrl());
+            });
+        } else if (link.getTargetType() == ReferralTargetType.MYSTERY_BOX) {
+            mysteryBoxRepository.findById(link.getTargetId()).ifPresent(box -> {
+                response.setTargetName(box.getBoxType() != null ? box.getBoxType() : "Túi mù nông sản");
+                response.setTargetImageUrl(box.getImageUrl());
             });
         }
     }

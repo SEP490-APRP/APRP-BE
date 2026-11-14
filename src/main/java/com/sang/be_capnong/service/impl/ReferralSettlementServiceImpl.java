@@ -1,6 +1,7 @@
 package com.sang.be_capnong.service.impl;
 
 import com.sang.be_capnong.entity.Order;
+import com.sang.be_capnong.entity.OrderDetail;
 import com.sang.be_capnong.entity.ReferralCommission;
 import com.sang.be_capnong.entity.ReturnRequest;
 import com.sang.be_capnong.enums.CommissionStatus;
@@ -113,9 +114,17 @@ public class ReferralSettlementServiceImpl implements ReferralSettlementService 
 
         // Tầng Idempotency 3: Cộng tiền vào ví TYPE_BUYER của người giới thiệu (chống cộng trùng bằng referral_commission_id UNIQUE)
         Order order = comm.getOrder();
-        String productName = comm.getOrderDetail() != null && comm.getOrderDetail().getProduct() != null
-                ? comm.getOrderDetail().getProduct().getProductName()
-                : "Nông sản";
+        String productName = "Nông sản";
+        if (comm.getOrderDetail() != null) {
+            OrderDetail od = comm.getOrderDetail();
+            if (od.getProduct() != null) {
+                productName = od.getProduct().getProductName();
+            } else if (od.getBuildCombo() != null) {
+                productName = od.getBuildCombo().getComboName();
+            } else if (od.getMysteryBox() != null) {
+                productName = od.getMysteryBox().getBoxType() != null ? od.getMysteryBox().getBoxType() : "Túi mù";
+            }
+        }
 
         String desc = "Hoa hồng tiếp thị liên kết đơn #" + order.getOrderId() + " (" + productName + "): +" + finalCommission + "đ";
 

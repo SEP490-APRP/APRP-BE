@@ -57,7 +57,7 @@ public class ReferralAttribution {
 
     @Column(name = "max_conversions", nullable = false)
     @Builder.Default
-    Integer maxConversions = 3;
+    Integer maxConversions = 0;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 20)
