@@ -47,6 +47,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
 import com.sang.be_capnong.dto.request.ProductRejectRequest;
+import com.sang.be_capnong.service.NotificationService;
 
 @Service
 @RequiredArgsConstructor
@@ -65,6 +66,7 @@ public class ProductServiceImpl implements ProductService {
     BuildComboRepository buildComboRepository;
     ProductImageRepository productImageRepository;
     ModerationResultRepository moderationResultRepository;
+    NotificationService notificationService;
 
     @Override
     @Transactional
@@ -191,7 +193,8 @@ public class ProductServiceImpl implements ProductService {
 
         int pageIndex = Math.max(0, page - 1);
         int pageSize = Math.min(Math.max(1, size), 100);
-        Pageable pageable = PageRequest.of(pageIndex, pageSize, Sort.by(Sort.Direction.DESC, "productId"));
+        Sort sort = Sort.by(Sort.Direction.DESC, "updatedAt").and(Sort.by(Sort.Direction.DESC, "productId"));
+        Pageable pageable = PageRequest.of(pageIndex, pageSize, sort);
 
         String filterStatus = null;
         if (status != null && !status.isBlank()) {
@@ -228,9 +231,9 @@ public class ProductServiceImpl implements ProductService {
             throw new AppException(ErrorCode.PRODUCT_EXPIRY_INVALID);
         }
 
-        // Shop cannot self-activate product directly if it is not already ACTIVE
+        // Shop cannot self-activate product directly if it is not already ACTIVE (unless resuming from INACTIVE to PENDING)
         if (request.getStatus() != null && "ACTIVE".equalsIgnoreCase(request.getStatus().trim())) {
-            if (!"ACTIVE".equalsIgnoreCase(product.getStatus())) {
+            if (!"ACTIVE".equalsIgnoreCase(product.getStatus()) && !"INACTIVE".equalsIgnoreCase(product.getStatus())) {
                 throw new AppException(ErrorCode.CANNOT_ACTIVATE_DIRECTLY);
             }
         }
@@ -256,8 +259,9 @@ public class ProductServiceImpl implements ProductService {
                 product.setStatus("ACTIVE");
             }
         } else if ("INACTIVE".equalsIgnoreCase(currentStatus)) {
-            if (request.getStatus() != null && "ACTIVE".equalsIgnoreCase(request.getStatus().trim())) {
+            if (request.getStatus() != null && ("ACTIVE".equalsIgnoreCase(request.getStatus().trim()) || "PENDING".equalsIgnoreCase(request.getStatus().trim()))) {
                 product.setStatus("PENDING");
+                product.setRejectReason(null);
             } else if (request.getStatus() != null && !request.getStatus().isBlank()) {
                 product.setStatus(request.getStatus().trim());
             }
@@ -284,6 +288,13 @@ public class ProductServiceImpl implements ProductService {
 
         if (product.getShop() == null || !Objects.equals(product.getShop().getId(), currentUserId)) {
             throw new AppException(ErrorCode.NOT_PRODUCT_OWNER);
+        }
+
+        // Nếu sản phẩm ở trạng thái PENDING và chưa từng có ảnh hợp lệ/chưa phát sinh quan hệ, xóa hoàn toàn để dọn rác (Rollback clean-up)
+        if ("PENDING".equalsIgnoreCase(product.getStatus()) && (product.getImages() == null || product.getImages().isEmpty())) {
+            productRepository.delete(product);
+            log.info("Permanently deleted empty pending product id: {} (Rollback clean-up)", productId);
+            return;
         }
 
         product.setStatus("INACTIVE");
@@ -327,6 +338,19 @@ public class ProductServiceImpl implements ProductService {
 
         Product savedProduct = productRepository.save(product);
         log.info("Product id: {} successfully approved to ACTIVE", productId);
+
+        // Gửi thông báo đến Shop khi sản phẩm được Admin duyệt thành công
+        if (product.getShop() != null) {
+            String title = "Sản phẩm đã được phê duyệt!";
+            String message = String.format("Nông sản \"%s\" (#%d) của bạn đã được Admin phê duyệt và chính thức mở bán trên sàn.",
+                    product.getProductName(), product.getProductId());
+            try {
+                notificationService.sendNotificationToUser(product.getShop(), title, message, "PRODUCT_APPROVED", product.getProductId());
+            } catch (Exception notifEx) {
+                log.warn("Failed to send approval notification to shop id {}: {}", product.getShop().getId(), notifEx.getMessage());
+            }
+        }
+
         return productMapper.toProductResponse(savedProduct);
     }
 
@@ -349,6 +373,18 @@ public class ProductServiceImpl implements ProductService {
         log.info("Product id: {} successfully set to REJECTED", productId);
 
         cascadeDeactivateLinkedBoxesAndCombos(productId);
+
+        // Gửi thông báo đến Shop kèm lý do từ chối
+        if (product.getShop() != null) {
+            String title = "Sản phẩm bị từ chối duyệt";
+            String message = String.format("Nông sản \"%s\" (#%d) đã bị Admin từ chối duyệt. Lý do: %s",
+                    product.getProductName(), product.getProductId(), request.getReason().trim());
+            try {
+                notificationService.sendNotificationToUser(product.getShop(), title, message, "PRODUCT_REJECTED", product.getProductId());
+            } catch (Exception notifEx) {
+                log.warn("Failed to send rejection notification to shop id {}: {}", product.getShop().getId(), notifEx.getMessage());
+            }
+        }
 
         return productMapper.toProductResponse(savedProduct);
     }

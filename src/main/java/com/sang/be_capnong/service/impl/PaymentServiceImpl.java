@@ -62,6 +62,8 @@ public class PaymentServiceImpl implements PaymentService {
     final VoucherUsageRepository voucherUsageRepository;
     final UserRepository userRepository;
     final WalletService walletService;
+    final com.sang.be_capnong.repository.WalletTopupRepository walletTopupRepository;
+    final com.sang.be_capnong.service.ReferralService referralService;
 
     /** Số phút giữ đơn chờ thanh toán PayOS. 0 = không tự huỷ */
     @Value("${capnong.payment.expire-minutes:30}")
@@ -238,7 +240,8 @@ public class PaymentServiceImpl implements PaymentService {
         for (int i = 0; i < 5; i++) {
             long code = System.currentTimeMillis() * 1000L + java.util.concurrent.ThreadLocalRandom.current().nextInt(1000);
             String c = String.valueOf(code);
-            if (paymentRepository.findByPayosOrderCode(c).isEmpty() && checkoutBatchRepository.findByPayosOrderCode(c).isEmpty()) {
+            if (paymentRepository.findByPayosOrderCode(c).isEmpty() && checkoutBatchRepository.findByPayosOrderCode(c).isEmpty()
+                    && !walletTopupRepository.existsByPayosOrderCode(c)) {
                 return code;
             }
         }
@@ -441,7 +444,10 @@ public class PaymentServiceImpl implements PaymentService {
                 String orderCode = String.valueOf(webhookData.getOrderCode());
                 log.info("[PayOS Webhook] Verified webhook for orderCode: {}, code: {}", orderCode, webhookData.getCode());
                 if ("00".equals(webhookData.getCode())) {
-                    settlePaidOrderCode(orderCode);
+                    // Mã PayOS có thể là lệnh nạp ví (WalletTopup) hoặc thanh toán đơn
+                    if (!walletService.settleTopupIfExists(orderCode)) {
+                        settlePaidOrderCode(orderCode);
+                    }
                 }
             }
         } catch (Exception e) {
@@ -684,6 +690,7 @@ public class PaymentServiceImpl implements PaymentService {
         cancelOpenPayosLinksForOrder(order);
         restoreOrderStockAndVouchers(order);
         cartService.restoreOrderItemsToCart(order);
+        referralService.handleOrderCancelled(order.getOrderId());
         order.setStatus(OrderStatus.CANCELLED);
         orderRepository.save(order);
 

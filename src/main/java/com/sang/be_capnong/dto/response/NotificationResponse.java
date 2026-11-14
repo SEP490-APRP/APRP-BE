@@ -22,6 +22,8 @@ public class NotificationResponse {
     LocalDateTime createAt;
 
     String receiverType;
+    String type;
+    Integer referenceId;
     Boolean isRead;
 
     Integer adminId;

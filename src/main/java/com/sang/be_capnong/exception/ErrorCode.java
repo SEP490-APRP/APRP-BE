@@ -136,6 +136,12 @@ public enum ErrorCode {
     INVALID_ORDER_STATE(7002, "Invalid order state transition", HttpStatus.BAD_REQUEST),
     SHOP_NOT_FOUND(7003, "Shop not found or is currently inactive", HttpStatus.BAD_REQUEST),
     SHIPPER_HAS_ACTIVE_ORDER(7004, "Shipper đang có đơn hàng đang giao. Vui lòng hoàn tất đơn hiện tại trước khi nhận thêm đơn mới", HttpStatus.BAD_REQUEST),
+    ORDER_ALREADY_TAKEN(7005, "Đơn hàng này đã được shipper khác nhận", HttpStatus.CONFLICT),
+    SHIPPER_NOT_ONLINE(7006, "Bạn cần bật trực tuyến để xem và nhận đơn", HttpStatus.BAD_REQUEST),
+    DELIVERY_PROOF_REQUIRED(7007, "Cần ít nhất 1 ảnh bằng chứng giao hàng", HttpStatus.BAD_REQUEST),
+    FAIL_REASON_REQUIRED(7008, "Vui lòng chọn lý do giao thất bại", HttpStatus.BAD_REQUEST),
+    FAIL_CALL_ATTEMPTS_REQUIRED(7009, "Cần gọi khách tối thiểu 3 cuộc trước khi báo không liên lạc được", HttpStatus.BAD_REQUEST),
+    FAIL_NOTE_REQUIRED(7010, "Vui lòng ghi rõ lý do giao thất bại", HttpStatus.BAD_REQUEST),
 
     // Cart Errors (Series 8000)
     CART_ITEM_NOT_FOUND(8001, "Cart item not found", HttpStatus.NOT_FOUND),
@@ -234,6 +240,10 @@ public enum ErrorCode {
     WITHDRAW_NOT_FOUND(16010, "Withdrawal request not found", HttpStatus.NOT_FOUND),
     WITHDRAW_ALREADY_PROCESSED(16011, "Withdrawal request was already processed", HttpStatus.BAD_REQUEST),
     WALLET_INSUFFICIENT_BALANCE(16012, "Wallet balance is not enough to perform this operation", HttpStatus.BAD_REQUEST),
+    SHIPPER_COD_BALANCE_INSUFFICIENT(16013, "Số dư khả dụng trong ví không đủ để ký quỹ đơn COD. Vui lòng nạp thêm tiền vào ví", HttpStatus.BAD_REQUEST),
+    WALLET_HAS_DEBT(16014, "Ví đang âm do còn tiền COD chưa nộp về sàn. Vui lòng nạp ví hoặc nộp tiền COD trước khi nhận đơn", HttpStatus.BAD_REQUEST),
+    TOPUP_AMOUNT_INVALID(16015, "Số tiền nạp không hợp lệ", HttpStatus.BAD_REQUEST),
+    TOPUP_NOT_FOUND(16016, "Không tìm thấy lệnh nạp tiền", HttpStatus.NOT_FOUND),
 
     // Return & Refund Errors (Series 17000)
     RETURN_REQUEST_NOT_FOUND(17001, "Return request not found", HttpStatus.NOT_FOUND),
@@ -244,7 +254,15 @@ public enum ErrorCode {
     INVALID_RETURN_STATUS(17006, "Current return request status does not allow this operation", HttpStatus.BAD_REQUEST),
     RETURN_REFUND_AMOUNT_INVALID(17007, "Refund amount cannot exceed item purchase amount", HttpStatus.BAD_REQUEST),
     SHIPPER_NOT_ASSIGNED_TO_RETURN(17008, "You are not assigned as the shipper for this return order", HttpStatus.FORBIDDEN),
-    RETURN_WALLET_INSUFFICIENT_BALANCE(17009, "Shop wallet balance is not enough to pay return shipping fee. Please top up or choose COD.", HttpStatus.BAD_REQUEST);
+    RETURN_WALLET_INSUFFICIENT_BALANCE(17009, "Shop wallet balance is not enough to pay return shipping fee. Please top up or choose COD.", HttpStatus.BAD_REQUEST),
+
+    // Referral / Affiliate Errors (Series 18000)
+    REFERRAL_LINK_NOT_FOUND(18001, "Referral link not found", HttpStatus.NOT_FOUND),
+    REFERRAL_LINK_INACTIVE(18002, "Referral link is inactive", HttpStatus.BAD_REQUEST),
+    SELF_REFERRAL_NOT_ALLOWED(18003, "Cannot refer yourself or your own shop/product", HttpStatus.BAD_REQUEST),
+    REFERRAL_RATE_LIMIT_EXCEEDED(18004, "Too many clicks from this IP, please try again later", HttpStatus.TOO_MANY_REQUESTS),
+    REFERRAL_INVALID_TARGET(18005, "Target product or shop does not exist or is inactive", HttpStatus.BAD_REQUEST),
+    REFERRAL_COMMISSION_NOT_FOUND(18006, "Referral commission not found", HttpStatus.NOT_FOUND);
 
     private final int code;
     private final String message;
