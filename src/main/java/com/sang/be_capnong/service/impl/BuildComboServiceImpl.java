@@ -143,8 +143,24 @@ public class BuildComboServiceImpl implements BuildComboService {
             String sortBy,
             String sortDirection
     ) {
-        log.info("Fetching build combos - status: {}, mealType: {}, region: {}, type: {}, keyword: {}, page: {}, size: {}",
-                status, mealType, region, type, keyword, page, size);
+        return getCombos(null, status, mealType, region, type, keyword, page, size, sortBy, sortDirection);
+    }
+
+    @Override
+    public PageResponse<BuildComboResponse> getCombos(
+            Integer shopId,
+            String status,
+            MealType mealType,
+            String region,
+            String type,
+            String keyword,
+            int page,
+            int size,
+            String sortBy,
+            String sortDirection
+    ) {
+        log.info("Fetching build combos - shopId: {}, status: {}, mealType: {}, region: {}, type: {}, keyword: {}, page: {}, size: {}",
+                shopId, status, mealType, region, type, keyword, page, size);
 
         String effectiveStatus = (status != null && !status.isBlank()) ? status.trim().toUpperCase() : "ACTIVE";
         String effectiveSortBy = (sortBy != null && !sortBy.isBlank()) ? sortBy : "comboId";
@@ -155,7 +171,7 @@ public class BuildComboServiceImpl implements BuildComboService {
         Pageable pageable = PageRequest.of(pageIndex, pageSize, Sort.by(direction, effectiveSortBy));
 
         Specification<BuildCombo> spec = BuildComboSpecification.filterCombos(
-                effectiveStatus, mealType, region, type, keyword
+                shopId, effectiveStatus, mealType, region, type, keyword
         );
         Page<BuildCombo> comboPage = buildComboRepository.findAll(spec, pageable);
 
