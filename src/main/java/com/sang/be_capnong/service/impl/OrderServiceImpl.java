@@ -15,6 +15,7 @@ import com.sang.be_capnong.exception.ErrorCode;
 import com.sang.be_capnong.mapper.OrderMapper;
 import com.sang.be_capnong.repository.*;
 import com.sang.be_capnong.service.GoogleMapService;
+import com.sang.be_capnong.service.NotificationService;
 import com.sang.be_capnong.service.OrderService;
 import com.sang.be_capnong.service.ShippingFeeService;
 import com.sang.be_capnong.enums.UserStatus;
@@ -79,6 +80,7 @@ public class OrderServiceImpl implements OrderService {
     com.sang.be_capnong.service.DispatchService dispatchService;
     com.sang.be_capnong.service.ShipperService shipperService;
     com.sang.be_capnong.service.ReferralService referralService;
+    NotificationService notificationService;
 
     /** Bán kính tối đa (km) để shipper thấy đơn READY trong danh sách */
     static final double READY_LIST_MAX_KM = 15.0;
@@ -294,6 +296,30 @@ public class OrderServiceImpl implements OrderService {
 
             if (!itemsToDelete.isEmpty()) {
                 cartItemRepository.deleteAll(itemsToDelete);
+            }
+        }
+
+        // 6. Gửi thông báo cho Shop và Buyer
+        for (Order savedOrder : savedOrders) {
+            try {
+                if (savedOrder.getShop() != null) {
+                    notificationService.sendNotificationToUser(
+                            savedOrder.getShop(),
+                            "Bạn có đơn hàng mới!",
+                            "Đơn hàng #" + savedOrder.getOrderId() + " đã được đặt và đang chờ xác nhận.",
+                            "NEW_ORDER",
+                            savedOrder.getOrderId()
+                    );
+                }
+                notificationService.sendNotificationToUser(
+                        buyer,
+                        "Đặt hàng thành công",
+                        "Đơn hàng #" + savedOrder.getOrderId() + " đã được tạo thành công.",
+                        "ORDER_STATUS",
+                        savedOrder.getOrderId()
+                );
+            } catch (Exception e) {
+                log.warn("[Order] Failed to send order creation notification for order #{}: {}", savedOrder.getOrderId(), e.getMessage());
             }
         }
 
@@ -980,6 +1006,21 @@ public class OrderServiceImpl implements OrderService {
         }
         order.setStatus(OrderStatus.CONFIRMED);
         Order saved = orderRepository.save(order);
+        try {
+            if (saved.getBuyer() != null) {
+                String shopName = saved.getShop() != null && saved.getShop().getFullName() != null
+                        ? saved.getShop().getFullName() : "Nhà vườn";
+                notificationService.sendNotificationToUser(
+                        saved.getBuyer(),
+                        "Nhà vườn đã xác nhận đơn hàng",
+                        shopName + " đã xác nhận đơn hàng #" + saved.getOrderId() + " và đang chuẩn bị hàng.",
+                        "ORDER_STATUS",
+                        saved.getOrderId()
+                );
+            }
+        } catch (Exception e) {
+            log.warn("[Order] Failed to send order confirmed notification: {}", e.getMessage());
+        }
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
         return buildOrderResponse(saved, details);
     }
@@ -1235,6 +1276,37 @@ public class OrderServiceImpl implements OrderService {
         referralService.handleOrderCancelled(order.getOrderId());
         order.setStatus(OrderStatus.CANCELLED);
         Order saved = orderRepository.save(order);
+        try {
+            String canceller = isBuyer ? "Người mua" : "Nhà vườn";
+            if (isBuyer && saved.getShop() != null) {
+                notificationService.sendNotificationToUser(
+                        saved.getShop(),
+                        "Đơn hàng đã bị hủy",
+                        "Người mua đã hủy đơn hàng #" + saved.getOrderId() + ".",
+                        "ORDER_STATUS",
+                        saved.getOrderId()
+                );
+            } else if (!isBuyer && saved.getBuyer() != null) {
+                notificationService.sendNotificationToUser(
+                        saved.getBuyer(),
+                        "Đơn hàng đã bị hủy",
+                        "Nhà vườn đã hủy đơn hàng #" + saved.getOrderId() + ".",
+                        "ORDER_STATUS",
+                        saved.getOrderId()
+                );
+            }
+            if (saved.getShipper() != null) {
+                notificationService.sendNotificationToUser(
+                        saved.getShipper(),
+                        "Đơn hàng đã bị hủy",
+                        "Đơn hàng #" + saved.getOrderId() + " đã bị hủy bởi " + canceller + ".",
+                        "ORDER_STATUS",
+                        saved.getOrderId()
+                );
+            }
+        } catch (Exception e) {
+            log.warn("[Order] Failed to send order cancelled notification: {}", e.getMessage());
+        }
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
         return buildOrderResponse(saved, details);
     }
@@ -1324,6 +1396,28 @@ public class OrderServiceImpl implements OrderService {
         order.setCompletedAt(LocalDateTime.now());
         Order saved = orderRepository.saveAndFlush(order);
         walletService.settleOrder(saved.getOrderId());
+        try {
+            if (saved.getShop() != null) {
+                notificationService.sendNotificationToUser(
+                        saved.getShop(),
+                        "Đơn hàng hoàn tất",
+                        "Đơn hàng #" + saved.getOrderId() + " đã hoàn tất. Tiền bán hàng đã được cộng vào ví của bạn.",
+                        "ORDER_STATUS",
+                        saved.getOrderId()
+                );
+            }
+            if (saved.getBuyer() != null) {
+                notificationService.sendNotificationToUser(
+                        saved.getBuyer(),
+                        "Đơn hàng hoàn tất",
+                        "Đơn hàng #" + saved.getOrderId() + " đã hoàn tất. Cảm ơn bạn đã mua sắm nông sản!",
+                        "ORDER_STATUS",
+                        saved.getOrderId()
+                );
+            }
+        } catch (Exception e) {
+            log.warn("[Order] Failed to send order completed notification: {}", e.getMessage());
+        }
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
         return buildOrderResponse(saved, details);
     }

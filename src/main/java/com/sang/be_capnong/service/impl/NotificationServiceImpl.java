@@ -14,6 +14,7 @@ import com.sang.be_capnong.repository.NotificationRepository;
 import com.sang.be_capnong.repository.UserNotificationRepository;
 import com.sang.be_capnong.repository.UserRepository;
 import com.sang.be_capnong.repository.specification.NotificationSpecification;
+import com.sang.be_capnong.service.ExpoPushService;
 import com.sang.be_capnong.service.NotificationService;
 import com.sang.be_capnong.util.SecurityUtils;
 import lombok.AccessLevel;
@@ -31,8 +32,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -47,6 +50,7 @@ public class NotificationServiceImpl implements NotificationService {
     UserRepository userRepository;
     NotificationMapper notificationMapper;
     SimpMessagingTemplate simpMessagingTemplate;
+    ExpoPushService expoPushService;
 
     @Override
     @Transactional
@@ -134,6 +138,18 @@ public class NotificationServiceImpl implements NotificationService {
                         un.getUser().getId(), e.getMessage());
             }
         }
+
+        // 3. Batch Push Notification ra điện thoại cho tất cả target users
+        try {
+            List<Integer> targetUserIds = targetUsers.stream().map(User::getId).collect(Collectors.toList());
+            Map<String, Object> pushData = new HashMap<>();
+            pushData.put("notiId", savedNotification.getNotiId());
+            pushData.put("type", "ADMIN_BROADCAST");
+            pushData.put("title", savedNotification.getTitle());
+            expoPushService.sendPushToUsersAsync(targetUserIds, savedNotification.getTitle(), savedNotification.getMessage(), pushData, "general_promotions");
+        } catch (Exception e) {
+            log.warn("[Notification] Could not trigger push notifications for group broadcast: {}", e.getMessage());
+        }
     }
 
     @Override
@@ -171,6 +187,44 @@ public class NotificationServiceImpl implements NotificationService {
         } catch (Exception e) {
             log.warn("Failed to send notification via WebSocket to user {}: {}", user.getId(), e.getMessage());
         }
+
+        // 3. Gửi Push Notification ra điện thoại (hỗ trợ khi app chạy ngầm hoặc tắt hẳn)
+        try {
+            Map<String, Object> pushData = new HashMap<>();
+            pushData.put("notificationId", un.getId());
+            pushData.put("notiId", notification.getNotiId());
+            pushData.put("type", notification.getType() != null ? notification.getType() : "GENERAL");
+            if (notification.getReferenceId() != null) {
+                pushData.put("referenceId", notification.getReferenceId());
+                pushData.put("orderId", notification.getReferenceId());
+            }
+            if (user.getRole() != null) {
+                pushData.put("role", user.getRole().getName());
+            }
+            String channelId = resolveChannelId(notification.getType());
+
+            expoPushService.sendPushToUserAsync(
+                    user.getId(),
+                    notification.getTitle(),
+                    notification.getMessage(),
+                    pushData,
+                    channelId
+            );
+        } catch (Exception e) {
+            log.warn("Failed to trigger push notification for user {}: {}", user.getId(), e.getMessage());
+        }
+    }
+
+    private String resolveChannelId(String notiType) {
+        if (notiType == null) return "general_promotions";
+        String upper = notiType.toUpperCase();
+        if (upper.startsWith("ORDER_") || upper.startsWith("NEW_ORDER") || upper.startsWith("SHIPPER_") || upper.startsWith("DISPATCH_")) {
+            return "order_updates";
+        }
+        if (upper.startsWith("CHAT_")) {
+            return "chat_messages";
+        }
+        return "general_promotions";
     }
 
     @Override
