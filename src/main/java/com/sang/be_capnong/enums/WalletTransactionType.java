@@ -60,5 +60,9 @@ public enum WalletTransactionType {
     /** Tạo lệnh rút: trừ số dư ngay (âm) để không rút trùng */
     WITHDRAW_REQUESTED,
     /** Admin từ chối lệnh rút: trả lại số dư (dương) */
-    WITHDRAW_REFUNDED
+    WITHDRAW_REFUNDED,
+
+    // ── Tiếp thị liên kết (Referral / Affiliate) ──
+    /** Cộng hoa hồng tiếp thị liên kết vào ví Buyer (dương = cộng ví Buyer) */
+    REFERRAL_COMMISSION
 }

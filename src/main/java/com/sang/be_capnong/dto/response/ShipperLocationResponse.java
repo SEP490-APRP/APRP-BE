@@ -3,6 +3,7 @@ package com.sang.be_capnong.dto.response;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -44,4 +45,11 @@ public class ShipperLocationResponse {
     Boolean trackingActive;
     /** Danh sách ảnh bằng chứng giao hàng (nếu đã DELIVERED) */
     List<String> proofImageUrls;
+
+    /** Phương thức thanh toán của đơn (COD, PAYOS...) */
+    String paymentMethod;
+    /** Số tiền COD cần thu của khách (0 nếu đã trả online) */
+    BigDecimal codAmount;
+    /** Tổng tiền đơn hàng */
+    BigDecimal totalAmount;
 }

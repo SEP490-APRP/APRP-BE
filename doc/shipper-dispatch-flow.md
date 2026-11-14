@@ -4,9 +4,10 @@ Bổ sung cho [`order-and-tracking-flow.md`](order-and-tracking-flow.md) và [`w
 
 ```
 READY ──(điều phối: quét shipper online quanh vườn, mời qua STOMP + thông báo)──► shipper bấm nhận
-      ──(khoá đơn, kiểm tra online / 1 đơn / ví)──► SHIPPING ──(Đã lấy hàng)──► PICKED_UP
+      ──(khoá đơn, kiểm tra online / 1 đơn [giao xuôi + hoàn] / ví)──► SHIPPING ──(Đã lấy hàng)──► PICKED_UP
       ──(GPS /app/shipper/location → /topic/order/{id}/location, kèm distanceKm + estimatedMinutes)
-      ├─► DELIVERED (bắt buộc ảnh) ──► COMPLETED ──► chia tiền
+      ├─► DELIVERED (bắt buộc ảnh PoD) ──► CỘNG NGAY CƯỚC GIAO vào ví khả dụng Shipper (không cần chờ 24h)
+      │                               ──► COMPLETED (khách bấm nhận hoặc hết 24h) ──► Quyết toán tiền hàng Shop & hoa hồng Affiliate
       └─► FAILED (lý do + số cuộc gọi + ảnh) ──► hoàn kho, gỡ ký quỹ, ghi hoàn tiền nếu đã trả online
 ```
 
@@ -42,25 +43,40 @@ Kiểm tra theo thứ tự (lỗi thì rollback toàn bộ):
 | Khoá dòng đơn (`SELECT ... FOR UPDATE`), đơn đã có shipper khác | 7005 `ORDER_ALREADY_TAKEN` |
 | Đơn không ở READY | 7002 |
 | Shipper chưa online | 7006 `SHIPPER_NOT_ONLINE` |
-| Đang có đơn SHIPPING / PICKED_UP | 7004 `SHIPPER_HAS_ACTIVE_ORDER` |
+| Đang có đơn giao xuôi (SHIPPING/PICKED_UP) HOẶC đơn hoàn trả (RETURN_SHIPPING/RETURN_PICKED_UP) | 7004 `SHIPPER_HAS_ACTIVE_ORDER` |
 | Ví âm (nợ COD luồng cũ) | 16014 `WALLET_HAS_DEBT` |
 | Đơn COD, số dư khả dụng < `totalAmount` | 16013 `SHIPPER_COD_BALANCE_INSUFFICIENT`, `result = { required, available, missing }` |
 
+> **Ràng buộc "1 tài xế - 1 đơn tại 1 thời điểm" (Cross-task checking):**
+> Shipper chỉ được phép thực thi **duy nhất 1 nhiệm vụ giao vận** tại một thời điểm trên toàn hệ thống.
+> Kiểm tra chéo đồng thời 2 bảng:
+> 1. `orders`: `existsByShipper_IdAndStatusIn(shipperId, [SHIPPING, PICKED_UP])`
+> 2. `return_requests`: `existsByShipper_IdAndStatusIn(shipperId, [RETURN_SHIPPING, RETURN_PICKED_UP])`
+> - Khi nhận đơn giao hàng mới (`PUT /orders/{id}/ship`): chặn nếu đang có đơn giao xuôi hoặc đơn hoàn trả đang thực thi.
+> - Khi nhận đơn hoàn hàng mới (`POST /return-requests/{id}/shipper-accept`): cũng áp dụng cùng kiểm tra chéo, chặn nếu đang giao đơn hàng thông thường hoặc đơn hoàn khác.
+
 Thành công: gán shipper, SHIPPING, giữ chỗ COD, tạm giữ cước (`SHIPPER_INCOME_HOLD`), báo Buyer + Shop.
 
-## 4. Ký quỹ COD (chỉ nhận COD bằng số dư ví)
+## 4. Ký quỹ COD & Giải phóng cước giao ngay khi hoàn thành (DELIVERED)
 
-Mục tiêu: shipper không thể cầm tiền mặt đơn lớn rồi không nộp về sàn.
+Mục tiêu:
+1. Shipper không thể cầm tiền mặt đơn lớn rồi không nộp về sàn (ký quỹ COD).
+2. Công sức lao động của Shipper được bảo vệ và thanh toán ngay khi hoàn thành chặng giao hàng (`DELIVERED`), không bị giữ lại 24h chờ đối soát đơn như doanh thu hàng của Shop.
 
 - Cột mới `wallets.cod_reserved`. **Số dư khả dụng = `total_balance − cod_reserved`**, dùng cho nhận đơn COD và **rút tiền**.
 - Nhận đơn COD: `cod_reserved += totalAmount`, `orders.cod_reserved_amount = totalAmount`, bút toán `COD_RESERVED` (amount âm = khả dụng giảm, số dư không đổi).
-- Giao thành công: `COD_RESERVE_RELEASED` + `COD_CASH_COLLECTED −totalAmount`. Tiền mặt shipper thu chính là tiền đã ứng, nên `cod_settled = true` ngay, **không cần Admin xác nhận nộp tiền**.
+- Giao thành công (`DELIVERED`):
+  1. `COD_RESERVE_RELEASED` + `COD_CASH_COLLECTED −totalAmount`. Tiền mặt shipper thu chính là tiền đã ứng, nên `cod_settled = true` ngay, **không cần Admin xác nhận nộp tiền**.
+  2. **Giải phóng cước giao ngay (`releaseShipperFeeOnDelivered`)**: Hệ thống tự động gỡ khoản cước tạm giữ (`HOLD_RELEASED −s.shipperReceive`) và cộng cước thực nhận thẳng vào số dư khả dụng của Shipper (`SHIPPER_INCOME +s.shipperReceive`), đánh dấu `order.shipperPaidAt = now()`.
+  3. Tiền hàng của Shop và hoa hồng Người mua (Affiliate) vẫn giữ nguyên trạng thái tạm giữ / chờ đối soát 24h để đảm bảo quyền khiếu nại trả hàng của Buyer. Khi Buyer xác nhận hoặc hết 24h cron `settleOrder()` chạy, hệ thống kiểm tra `order.getShipperPaidAt() == null` để đảm bảo **tính duy nhất (idempotent), không cộng tiền cước 2 lần**.
 - Giao thất bại: `COD_RESERVE_RELEASED`, số dư như trước khi nhận.
 - Đơn PayOS: không giữ chỗ, chỉ cần ví không âm.
 - Đơn nhận trước khi có ký quỹ (`cod_reserved_amount` NULL) vẫn chạy luồng cũ: ghi nợ, Admin xác nhận qua `POST /wallets/cod/{orderId}/settle`.
 
-Ví dụ: ví 500.000đ, đơn COD 215.000đ (200.000 hàng + 15.000 ship).
-Nhận đơn: khả dụng 285.000đ. Giao xong: ví 285.000đ + 215.000đ tiền mặt. COMPLETED: +14.550đ cước → 299.550đ. Shipper lời đúng 14.550đ.
+Ví dụ: ví 500.000đ, đơn COD 215.000đ (200.000 hàng + 15.000 ship, shipper nhận 14.550đ sau phí sàn).
+- Nhận đơn: khả dụng 285.000đ (tạm giữ 14.550đ cước ở mục frozen).
+- Giao xong (`DELIVERED`): thu 215.000đ tiền mặt, gỡ ký quỹ COD, **cộng ngay 14.550đ cước vào số dư khả dụng** → ví hiển thị 299.550đ khả dụng + 215.000đ tiền mặt = tổng tài sản 514.550đ. Shipper lời đúng 14.550đ ngay khi giao xong!
+- Đơn hoàn tất (`COMPLETED` sau 24h): Tiền hàng 200.000đ quyết toán cho Shop, hoa hồng cộng cho Buyer, Shipper không bị tác động thêm.
 
 ### Nạp ví
 
@@ -72,7 +88,7 @@ Nhận đơn: khả dụng 285.000đ. Giao xong: ví 285.000đ + 215.000đ tiề
 
 Webhook PayOS dùng chung `/payments/payos/webhook`: nếu `orderCode` thuộc `wallet_topups` thì cộng ví (`TOP_UP`), không thì xử lý như thanh toán đơn.
 
-## 5. Bằng chứng giao hàng
+## 5. Bằng chứng giao hàng & Giao diện thu tiền (PoD & Payment Display)
 
 Ảnh upload trước qua `POST /upload/image` (folder `delivery-proofs`), gửi URL.
 
@@ -81,6 +97,12 @@ Webhook PayOS dùng chung `/payments/payos/webhook`: nếu `orderCode` thuộc `
   - `reason`: `KHONG_LIEN_LAC_DUOC | SAI_DIA_CHI | KHACH_TU_CHOI | KHAC` (thiếu: 7008);
   - `KHONG_LIEN_LAC_DUOC` cần `callAttempts ≥ 3` (7009); `KHAC` cần `note` (7010); ít nhất 1 ảnh (7007).
 - Lưu ở `orders.delivery_proof_urls`, `fail_reason`, `fail_note`, `fail_call_attempts`, `fail_proof_urls`, `failed_at`; trả trong `OrderResponse`.
+
+### Giao diện kết quả giao hàng & Xác nhận tiền thu (Web + Mobile):
+- Endpoint `GET /shippers/location/order/{orderId}` bổ sung trường: `paymentMethod`, `codAmount`, `totalAmount`.
+- **Màn hình giao hàng (`DeliveryResultModal` / `DeliveryResultSheet`):**
+  - **Đơn COD**: Hiển thị thẻ màu vàng/hổ phách (amber) nổi bật: **"🏷️ ĐƠN THU TIỀN MẶT (COD): Thu đủ [XXX.XXX đ] tiền mặt của khách"**. Nhắc nhở số tiền này đã được ký quỹ trong ví tài xế.
+  - **Đơn thanh toán online (PayOS / VietQR / Ví)**: Hiển thị banner màu xanh lá (emerald) nổi bật: **"✓ ĐÃ THANH TOÁN ONLINE (VIETQR): Không thu tiền mặt của khách (0 đ)"**. Giúp tài xế an tâm bàn giao hàng mà không lo nhầm lẫn việc thu tiền mặt.
 
 ## 6. Lấy hàng: đối soát mã đơn
 

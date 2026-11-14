@@ -18,7 +18,8 @@ import java.time.LocalDateTime;
 @Table(name = "wallet_transactions",
         indexes = {
                 @Index(name = "idx_wallet_tx_wallet_created", columnList = "wallet_id, created_at"),
-                @Index(name = "idx_wallet_tx_order", columnList = "order_id")
+                @Index(name = "idx_wallet_tx_order", columnList = "order_id"),
+                @Index(name = "idx_wallet_tx_ref_comm", columnList = "referral_commission_id")
         })
 @Getter
 @Setter
@@ -39,6 +40,10 @@ public class WalletTransaction {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "order_id")
     Order order;
+
+    /** ID hoa hồng tiếp thị liên kết (1-1 với ReferralCommission để chống cộng trùng) */
+    @Column(name = "referral_commission_id", unique = true)
+    Long referralCommissionId;
 
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.VARCHAR)

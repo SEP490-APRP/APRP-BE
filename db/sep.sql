@@ -41,6 +41,11 @@ DROP TABLE IF EXISTS return_requests;
 DROP TABLE IF EXISTS voucher_usages;
 DROP TABLE IF EXISTS voucher_users;
 DROP TABLE IF EXISTS vouchers;
+DROP TABLE IF EXISTS referral_commissions;
+DROP TABLE IF EXISTS referral_attributions;
+DROP TABLE IF EXISTS referral_clicks;
+DROP TABLE IF EXISTS referral_links;
+DROP TABLE IF EXISTS wallet_transactions;
 DROP TABLE IF EXISTS wallet_topups;
 DROP TABLE IF EXISTS withdraw_requests;
 DROP TABLE IF EXISTS wallets;
@@ -510,6 +515,24 @@ CREATE TABLE withdraw_requests (
     CONSTRAINT fk_withdraw_admin FOREIGN KEY (admin_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 2.20.1 WALLET TRANSACTIONS (SỔ CÁI BIẾN ĐỘNG VÍ & QUYẾT TOÁN HOA HỒNG)
+CREATE TABLE wallet_transactions (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    wallet_id INT NOT NULL,
+    order_id INT NULL,
+    referral_commission_id BIGINT NULL UNIQUE,
+    type VARCHAR(40) NOT NULL,
+    amount DECIMAL(15,2) NOT NULL,
+    balance_after DECIMAL(15,2) NOT NULL,
+    frozen_after DECIMAL(15,2) NULL,
+    description VARCHAR(500) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_wallet_tx_wallet FOREIGN KEY (wallet_id) REFERENCES wallets(wallet_id) ON DELETE CASCADE,
+    CONSTRAINT fk_wallet_tx_order FOREIGN KEY (order_id) REFERENCES orders(order_id) ON DELETE SET NULL,
+    INDEX idx_wallet_tx_wallet_created (wallet_id, created_at),
+    INDEX idx_wallet_tx_order (order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 2.21 VOUCHERS
 CREATE TABLE vouchers (
     voucher_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -791,6 +814,80 @@ CREATE TABLE plan_generation_requests (
     raw_ai_response LONGTEXT,
     CONSTRAINT fk_plgen_plan FOREIGN KEY (plan_id) REFERENCES build_plans(plan_id) ON DELETE SET NULL,
     CONSTRAINT fk_plgen_buyer FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2.30 REFERRAL LINKS (TIẾP THỊ LIÊN KẾT: LINK GIỚI THIỆU SẢN PHẨM / GIAN HÀNG)
+CREATE TABLE referral_links (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    referral_code VARCHAR(32) NOT NULL,
+    referrer_id INT NOT NULL,
+    target_type VARCHAR(20) NOT NULL,
+    target_id INT NOT NULL,
+    commission_rate DECIMAL(5,2) NULL,
+    clicks_count INT NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_ref_link_referrer FOREIGN KEY (referrer_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY uk_ref_code (referral_code),
+    UNIQUE KEY uk_referrer_target (referrer_id, target_type, target_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2.31 REFERRAL CLICKS (LỊCH SỬ NHẤP LINK TIẾP THỊ)
+CREATE TABLE referral_clicks (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    referral_link_id BIGINT NOT NULL,
+    ip_address VARCHAR(45) NULL,
+    user_agent VARCHAR(500) NULL,
+    buyer_id INT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_ref_click_link FOREIGN KEY (referral_link_id) REFERENCES referral_links(id) ON DELETE CASCADE,
+    CONSTRAINT fk_ref_click_buyer FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE SET NULL,
+    INDEX idx_click_link_created (referral_link_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2.32 REFERRAL ATTRIBUTIONS (GHI NHẬN CHUYỂN ĐỔI 7 NGÀY - CAPPED MULTI-CONVERSION)
+CREATE TABLE referral_attributions (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    buyer_id INT NOT NULL,
+    referral_link_id BIGINT NOT NULL,
+    referrer_id INT NOT NULL,
+    target_type VARCHAR(20) NOT NULL,
+    target_id INT NOT NULL,
+    attributed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME NOT NULL,
+    converted_order_count INT NOT NULL DEFAULT 0,
+    max_conversions INT NOT NULL DEFAULT 3,
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+    CONSTRAINT fk_ref_attr_buyer FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_ref_attr_link FOREIGN KEY (referral_link_id) REFERENCES referral_links(id) ON DELETE CASCADE,
+    CONSTRAINT fk_ref_attr_referrer FOREIGN KEY (referrer_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_attr_buyer_target (buyer_id, target_type, target_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2.33 REFERRAL COMMISSIONS (HOA HỒNG TIẾP THỊ LIÊN KẾT THEO TỪNG DÒNG HÀNG)
+CREATE TABLE referral_commissions (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    order_detail_id INT NOT NULL,
+    referral_link_id BIGINT NOT NULL,
+    referral_attribution_id BIGINT NULL,
+    referrer_id INT NOT NULL,
+    buyer_id INT NOT NULL,
+    commission_rate DECIMAL(5,2) NOT NULL,
+    base_amount DECIMAL(15,2) NOT NULL,
+    commission_amount DECIMAL(15,2) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    settled_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_ref_comm_order FOREIGN KEY (order_id) REFERENCES orders(order_id) ON DELETE CASCADE,
+    CONSTRAINT fk_ref_comm_order_detail FOREIGN KEY (order_detail_id) REFERENCES order_details(order_detail_id) ON DELETE CASCADE,
+    CONSTRAINT fk_ref_comm_link FOREIGN KEY (referral_link_id) REFERENCES referral_links(id) ON DELETE CASCADE,
+    CONSTRAINT fk_ref_comm_attr FOREIGN KEY (referral_attribution_id) REFERENCES referral_attributions(id) ON DELETE SET NULL,
+    CONSTRAINT fk_ref_comm_referrer FOREIGN KEY (referrer_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_ref_comm_buyer FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY uk_ref_comm_order_detail (order_detail_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ==============================================================================

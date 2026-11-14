@@ -17,8 +17,23 @@ public class BuildComboSpecification {
             String type,
             String keyword
     ) {
+        return filterCombos(null, status, mealType, region, type, keyword);
+    }
+
+    public static Specification<BuildCombo> filterCombos(
+            Integer shopId,
+            String status,
+            MealType mealType,
+            String region,
+            String type,
+            String keyword
+    ) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
+
+            if (shopId != null) {
+                predicates.add(cb.equal(root.get("shop").get("id"), shopId));
+            }
 
             if (status != null && !status.isBlank()) {
                 predicates.add(cb.equal(cb.lower(root.get("status")), status.trim().toLowerCase()));
