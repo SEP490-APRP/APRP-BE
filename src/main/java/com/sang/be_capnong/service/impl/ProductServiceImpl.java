@@ -141,7 +141,15 @@ public class ProductServiceImpl implements ProductService {
 
         int pageIndex = Math.max(0, page - 1);
         int pageSize = Math.min(Math.max(1, size), 100);
-        Pageable pageable = PageRequest.of(pageIndex, pageSize, Sort.by(direction, effectiveSortBy));
+        // Sắp xếp tự nhiên: Ưu tiên theo điểm đánh giá của shop (shop.ratingAverage DESC).
+        // Shop bị phạt trừ 1 sao do 3 active risk flags sẽ tự động giảm thứ hạng ưu tiên hiển thị.
+        Sort sort;
+        if (sortBy == null || sortBy.isBlank() || "productId".equalsIgnoreCase(sortBy)) {
+            sort = Sort.by(Sort.Direction.DESC, "shop.ratingAverage").and(Sort.by(direction, effectiveSortBy));
+        } else {
+            sort = Sort.by(direction, effectiveSortBy);
+        }
+        Pageable pageable = PageRequest.of(pageIndex, pageSize, sort);
 
         String effectiveStatus = "ACTIVE";
         if (status != null && !status.isBlank()) {

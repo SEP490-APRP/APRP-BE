@@ -61,6 +61,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     NotificationService notificationService;
     WalletService walletService;
     WalletRepository walletRepository;
+    UserService userService;
 
     public static final Set<ReturnStatus> TERMINAL_STATUSES = Set.of(
             ReturnStatus.COMPLETED,
@@ -318,6 +319,11 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             if (request.getRefundAmount() != null && request.getRefundAmount().compareTo(BigDecimal.ZERO) > 0) {
                 returnRequest.setRefundAmount(request.getRefundAmount());
             }
+
+            returnRequest = returnRequestRepository.save(returnRequest);
+
+            // Gắn 1 Risk Flag cho Shop khi Admin xác nhận khiếu nại giao hàng hỏng
+            userService.addRiskFlagForAdminApprovedReturn(returnRequest, request.getAdminRemark());
 
             // Cách 1: Chuyển quyền cho Shop vào chọn phương án lấy lại hàng hoặc hoàn tiền ngay trong vòng 24h
             if (shop != null) {

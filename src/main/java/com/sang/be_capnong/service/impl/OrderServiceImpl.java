@@ -74,12 +74,13 @@ public class OrderServiceImpl implements OrderService {
     CheckoutBatchRepository checkoutBatchRepository;
     SavedAddressRepository savedAddressRepository;
     GoogleMapService googleMapService;
-    com.sang.be_capnong.service.CartService cartService;
-    com.sang.be_capnong.service.WalletService walletService;
-    com.sang.be_capnong.service.PaymentService paymentService;
-    com.sang.be_capnong.service.DispatchService dispatchService;
-    com.sang.be_capnong.service.ShipperService shipperService;
-    com.sang.be_capnong.service.ReferralService referralService;
+    CartService cartService;
+    WalletService walletService;
+    PaymentService paymentService;
+    DispatchService dispatchService;
+    ShipperService shipperService;
+    ReferralService referralService;
+    UserService userService;
     NotificationService notificationService;
 
     /** Bán kính tối đa (km) để shipper thấy đơn READY trong danh sách */
@@ -107,8 +108,13 @@ public class OrderServiceImpl implements OrderService {
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
 
+        // Chống bom hàng: Kiểm tra xem khách có bị tước quyền thanh toán COD không
+        if ("COD".equalsIgnoreCase(request.getPaymentMethod())) {
+            userService.checkCodAllowed(buyer);
+        }
+
         // 1. Nhóm items và validate (trừ tồn kho)
-        java.util.Map<User, List<OrderDetail>> mapShopToDetails = groupItemsByShop(request.getItems(), true);
+        Map<User, List<OrderDetail>> mapShopToDetails = groupItemsByShop(request.getItems(), true);
 
         // 2. Tính toán tiền và Voucher giống như Preview
         CheckoutPreviewResponse previewRes = buildCheckoutPreview(buyer, request.getShippingAddress(), request.getVoucherCodes(), mapShopToDetails);
@@ -660,12 +666,17 @@ public class OrderServiceImpl implements OrderService {
         BigDecimal effectiveTotalDiscount = totalGoodsAmount.add(totalShippingFee).subtract(finalTotalAmount).setScale(0, java.math.RoundingMode.HALF_UP);
         if (effectiveTotalDiscount.compareTo(BigDecimal.ZERO) < 0) effectiveTotalDiscount = BigDecimal.ZERO;
 
+        boolean isCodAllowed = buyer == null || !userService.isCodBlocked(buyer.getId());
+        String codRestrictionReason = isCodAllowed ? null : "Tài khoản của bạn đã bị tước quyền thanh toán COD do có từ 3 lần giao hàng thất bại (bom hàng).";
+
         return CheckoutPreviewResponse.builder()
                 .shopOrders(shopOrderPreviews)
                 .totalGoodsAmount(totalGoodsAmount)
                 .totalShippingFee(totalShippingFee)
                 .totalVoucherDiscount(effectiveTotalDiscount)
                 .finalTotalAmount(finalTotalAmount)
+                .codAllowed(isCodAllowed)
+                .codRestrictionReason(codRestrictionReason)
                 .build();
     }
 
@@ -1363,6 +1374,8 @@ public class OrderServiceImpl implements OrderService {
         referralService.handleOrderCancelled(order.getOrderId());
         order.setStatus(OrderStatus.FAILED);
         Order saved = orderRepository.save(order);
+        // Xử lý phạt khách hàng nếu giao thất bại do lỗi chủ quan (Chống bom hàng)
+        userService.handleDeliveryFailed(saved, request.getReason());
         shipperService.detachOrderFromShipperLocation(saved.getOrderId());
         dispatchService.notifyStatusChangedAfterCommit(saved.getOrderId());
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();

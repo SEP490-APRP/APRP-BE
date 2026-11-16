@@ -38,6 +38,7 @@ public enum ErrorCode {
     SEND_MAIL_FAILED(1024, "Failed to send email", HttpStatus.INTERNAL_SERVER_ERROR),
     USER_PENDING_APPROVAL(1025, "Account is pending admin approval. Please wait for approval before accessing the platform", HttpStatus.FORBIDDEN),
     USER_LOCKED(1026, "Account has been locked. Please contact support", HttpStatus.FORBIDDEN),
+    USER_SUSPENDED_TEMPORARILY(1034, "Tài khoản của bạn đang bị tạm khóa do vi phạm chính sách giao nhận (bom hàng)", HttpStatus.FORBIDDEN),
     OLD_PASSWORD_INCORRECT(1027, "Mật khẩu hiện tại không chính xác", HttpStatus.BAD_REQUEST),
     PASSWORD_CONFIRMATION_NOT_MATCH(1028, "Password confirmation does not match", HttpStatus.BAD_REQUEST),
     NEW_PASSWORD_SAME_AS_OLD(1029, "New password cannot be the same as old password", HttpStatus.BAD_REQUEST),
@@ -242,6 +243,7 @@ public enum ErrorCode {
     WALLET_INSUFFICIENT_BALANCE(16012, "Wallet balance is not enough to perform this operation", HttpStatus.BAD_REQUEST),
     SHIPPER_COD_BALANCE_INSUFFICIENT(16013, "Số dư khả dụng trong ví không đủ để ký quỹ đơn COD. Vui lòng nạp thêm tiền vào ví", HttpStatus.BAD_REQUEST),
     WALLET_HAS_DEBT(16014, "Ví đang âm do còn tiền COD chưa nộp về sàn. Vui lòng nạp ví hoặc nộp tiền COD trước khi nhận đơn", HttpStatus.BAD_REQUEST),
+    COD_NOT_ALLOWED(16015, "Tài khoản của bạn đã bị tước quyền thanh toán khi nhận hàng (COD) do có từ 3 lần giao hàng thất bại (bom hàng). Vui lòng chọn phương thức thanh toán trực tuyến.", HttpStatus.FORBIDDEN),
     TOPUP_AMOUNT_INVALID(16015, "Số tiền nạp không hợp lệ", HttpStatus.BAD_REQUEST),
     TOPUP_NOT_FOUND(16016, "Không tìm thấy lệnh nạp tiền", HttpStatus.NOT_FOUND),
 
@@ -255,6 +257,7 @@ public enum ErrorCode {
     RETURN_REFUND_AMOUNT_INVALID(17007, "Refund amount cannot exceed item purchase amount", HttpStatus.BAD_REQUEST),
     SHIPPER_NOT_ASSIGNED_TO_RETURN(17008, "You are not assigned as the shipper for this return order", HttpStatus.FORBIDDEN),
     RETURN_WALLET_INSUFFICIENT_BALANCE(17009, "Shop wallet balance is not enough to pay return shipping fee. Please top up or choose COD.", HttpStatus.BAD_REQUEST),
+    RISK_FLAG_NOT_FOUND(17015, "Không tìm thấy cờ rủi ro vi phạm", HttpStatus.NOT_FOUND),
 
     // Referral / Affiliate Errors (Series 18000)
     REFERRAL_LINK_NOT_FOUND(18001, "Referral link not found", HttpStatus.NOT_FOUND),
