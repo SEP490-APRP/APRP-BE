@@ -7,6 +7,7 @@ import com.sang.be_capnong.enums.PreOrderStatus;
 import com.sang.be_capnong.repository.CampaignRepository;
 import com.sang.be_capnong.repository.PreOrderRepository;
 import com.sang.be_capnong.service.CampaignService;
+import com.sang.be_capnong.service.campaign.CampaignProposalService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,6 +27,7 @@ public class CampaignScheduler {
     private final CampaignRepository campaignRepository;
     private final PreOrderRepository preOrderRepository;
     private final CampaignService campaignService;
+    private final CampaignProposalService proposalService;
 
     @Value("${capnong.campaign.preorder-expire-minutes:15}")
     private int preOrderExpireMinutes;
@@ -52,6 +54,17 @@ public class CampaignScheduler {
             } catch (Exception e) {
                 log.error("[CampaignScheduler] Expire pre-order {} failed: {}", p.getCode(), e.getMessage(), e);
             }
+        }
+    }
+
+    /** Lời mời cùng đề xuất chiến dịch quá 72 giờ không trả lời -> hết hạn */
+    @Scheduled(fixedDelayString = "${capnong.scheduler.proposal-invite-expire-delay-ms:300000}", initialDelay = 60000)
+    public void expireProposalInvites() {
+        try {
+            int n = proposalService.expireStaleInvites();
+            if (n > 0) log.info("[CampaignScheduler] Expired {} proposal invites", n);
+        } catch (Exception e) {
+            log.error("[CampaignScheduler] Expire proposal invites failed: {}", e.getMessage(), e);
         }
     }
 }

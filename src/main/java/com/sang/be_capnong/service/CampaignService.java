@@ -16,6 +16,9 @@ public interface CampaignService {
 
     CampaignResponse updateCampaign(int campaignId, CampaignUpsertRequest request);
 
+    /** Admin tuỳ chỉnh banner trang chủ của chiến dịch (được sửa ở mọi giai đoạn trừ khi đã huỷ / hoàn tất) */
+    CampaignResponse updateBanner(int campaignId, com.sang.be_capnong.dto.request.campaign.CampaignBannerRequest request);
+
     PageResponse<CampaignResponse> getAdminCampaigns(String status, int page, int size);
 
     CampaignResponse getAdminCampaign(int campaignId);
@@ -48,11 +51,40 @@ public interface CampaignService {
      */
     CampaignResponse resolveShortfall(int campaignId);
 
+    /** Mở kêu gọi nhà vườn bổ sung hàng cho phần thiếu (sau khi mọi nhà vườn đã giao) */
+    CampaignResponse openTopUpCall(int campaignId);
+
+    /** Đóng kêu gọi bổ sung */
+    CampaignResponse closeTopUpCall(int campaignId);
+
     /** DEPOSIT_PAID -> PROCESSING: đóng gói, sinh mã QR, gán khu giao */
     PreOrderResponse packPreOrder(int preOrderId, PreOrderPackRequest request);
 
     /** Xe tới hub: các đơn PROCESSING -> READY (READY_FOR_PICKUP) */
     CampaignResponse dispatchToHub(int campaignId);
+
+    /** Khách tự đến điểm tập kết đã nhận hàng và trả phần còn lại: PROCESSING -> DELIVERED */
+    PreOrderResponse confirmPickup(int preOrderId);
+
+    /** Đơn tự đến lấy đã đóng gói: gửi thông báo nhắc khách tới điểm tập kết */
+    PreOrderResponse remindPickup(int preOrderId);
+
+    /** Đã nhắc mà khách không tới: đóng đơn (FAILED), cọc không hoàn, để chiến dịch hoàn tất được */
+    PreOrderResponse markPickupNoShow(int preOrderId, com.sang.be_capnong.dto.request.campaign.CampaignNoteRequest request);
+
+    /** Bảng chia đơn giao: đơn giao tận nơi gom theo phường, xếp theo độ gấp */
+    com.sang.be_capnong.dto.response.campaign.DispatchBoardResponse getDispatchBoard(int campaignId);
+
+    /** Đưa các đơn đã đóng gói ra hub, giao thẳng cho shipper nếu có shipperId */
+    com.sang.be_capnong.dto.response.campaign.DispatchBoardResponse dispatchPreOrders(int campaignId,
+            com.sang.be_capnong.dto.request.campaign.PreOrderDispatchRequest request);
+
+    /** Đơn giao thất bại: đưa về chờ chia lại để giao lần nữa */
+    PreOrderResponse retryPreOrder(int preOrderId);
+
+    /** Báo giá phí giao trước khi đặt (công khai) */
+    com.sang.be_capnong.dto.response.campaign.CampaignShippingQuoteResponse quoteShipping(
+            int campaignId, java.math.BigDecimal totalKg, String method, Double lat, Double lng, String address);
 
     /** FULFILLING -> COMPLETED: giải ngân cọc và chi trả nhà vườn */
     CampaignResponse completeCampaign(int campaignId);

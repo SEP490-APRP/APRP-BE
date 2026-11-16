@@ -87,6 +87,33 @@ public class PreOrder {
     @Column(length = 100)
     String deliveryZone;
 
+    // ── Nhận hàng: DELIVERY (giao tận nơi) | PICKUP (tự đến điểm tập kết, 0đ) ──
+    @Column(length = 16)
+    String fulfillmentMethod;
+    /** Phường/xã giao hàng, dùng để giảm phí gom đơn */
+    @Column(length = 150)
+    String deliveryWard;
+    /** Khoảng cách điểm tập kết -> người mua (km) */
+    Double shippingDistanceKm;
+    /** Phí gốc theo khoảng cách (chưa giảm) */
+    BigDecimal shippingBaseFee;
+    /** Phí giao sau khi giảm theo kg (thu khi nhận hàng, nằm trong remainingAmount) */
+    BigDecimal shippingFee;
+    /** Giảm thêm do gom đơn cùng phường (trừ vào remainingAmount) */
+    BigDecimal shippingDiscountAmount;
+    /** Số lần đưa lại ra hub sau khi giao thất bại */
+    Integer retryCount;
+
+    /** Tiền thu hộ (phần còn lại) shipper đang ký quỹ trong ví cho lượt giao hiện tại */
+    @Column(precision = 15, scale = 2)
+    BigDecimal codReservedAmount;
+    /** Đơn tự đến lấy: lần nhắc khách gần nhất và số lần đã nhắc */
+    LocalDateTime pickupRemindedAt;
+    Integer pickupRemindCount;
+    /** Tổng cước đã trả cho shipper (sau phí dịch vụ), cộng dồn qua các lượt giao */
+    @Column(precision = 15, scale = 2)
+    BigDecimal shipperIncomeAmount;
+
     /** Nội dung tem QR dán trên thùng */
     @Column(length = 100)
     String qrCode;
@@ -127,4 +154,9 @@ public class PreOrder {
 
     @OneToOne(mappedBy = "preOrder", fetch = FetchType.LAZY)
     CampaignDeposit deposit;
+
+    /** Lô hàng của nhà vườn được dùng để đóng thùng cho đơn này (gán lúc đóng gói) */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "source_registration_id")
+    CampaignFarmRegistration sourceRegistration;
 }

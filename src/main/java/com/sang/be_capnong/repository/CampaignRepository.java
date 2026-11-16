@@ -33,7 +33,9 @@ public interface CampaignRepository extends JpaRepository<Campaign, Integer> {
 
     /** Lời kêu gọi đang mở cho nhà vườn: DRAFT đã đăng lời kêu gọi, hoặc ACTIVE */
     @Query("select c from Campaign c where (c.status = com.sang.be_capnong.enums.CampaignStatus.DRAFT and c.callPostedAt is not null) "
-            + "or c.status = com.sang.be_capnong.enums.CampaignStatus.ACTIVE order by c.cutoffAt asc")
+            + "or c.status = com.sang.be_capnong.enums.CampaignStatus.ACTIVE "
+            + "or (c.status = com.sang.be_capnong.enums.CampaignStatus.FULFILLING and c.topUpCallAt is not null and c.topUpClosedAt is null) "
+            + "order by c.cutoffAt asc")
     List<Campaign> findOpenCalls();
 
     List<Campaign> findTop100ByStatusAndCutoffAtBefore(CampaignStatus status, LocalDateTime before);

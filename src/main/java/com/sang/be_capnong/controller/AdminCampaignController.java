@@ -25,6 +25,7 @@ import java.util.List;
 public class AdminCampaignController {
 
     CampaignService campaignService;
+    com.sang.be_capnong.service.campaign.DamageClaimService damageClaimService;
 
     @Operation(summary = "Tạo chiến dịch (DRAFT)")
     @PostMapping("")
@@ -38,6 +39,13 @@ public class AdminCampaignController {
     @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<CampaignResponse> update(@PathVariable int id, @RequestBody CampaignUpsertRequest request) {
         return ApiResponse.<CampaignResponse>builder().result(campaignService.updateCampaign(id, request)).build();
+    }
+
+    @Operation(summary = "Tuỳ chỉnh banner trang chủ của chiến dịch")
+    @PutMapping("/{id}/banner")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<CampaignResponse> updateBanner(@PathVariable int id, @RequestBody CampaignBannerRequest request) {
+        return ApiResponse.<CampaignResponse>builder().result(campaignService.updateBanner(id, request)).build();
     }
 
     @Operation(summary = "Danh sách chiến dịch (lọc theo status)")
@@ -117,6 +125,43 @@ public class AdminCampaignController {
         return ApiResponse.<List<PreOrderResponse>>builder().result(campaignService.getCampaignPreOrders(id)).build();
     }
 
+    @Operation(summary = "Kêu gọi nhà vườn bổ sung hàng khi mọi nhà vườn đã giao mà vẫn thiếu")
+    @PostMapping("/{id}/top-up-call")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<CampaignResponse> openTopUp(@PathVariable int id) {
+        return ApiResponse.<CampaignResponse>builder().result(campaignService.openTopUpCall(id)).build();
+    }
+
+    @Operation(summary = "Đóng kêu gọi bổ sung")
+    @PostMapping("/{id}/top-up-call/close")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<CampaignResponse> closeTopUp(@PathVariable int id) {
+        return ApiResponse.<CampaignResponse>builder().result(campaignService.closeTopUpCall(id)).build();
+    }
+
+    @Operation(summary = "Danh sách báo hàng hư của chiến dịch")
+    @GetMapping("/{id}/damage-claims")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<List<com.sang.be_capnong.dto.response.campaign.DamageClaimResponse>> damageClaims(@PathVariable int id) {
+        return ApiResponse.<List<com.sang.be_capnong.dto.response.campaign.DamageClaimResponse>>builder().result(damageClaimService.campaignClaims(id)).build();
+    }
+
+    @Operation(summary = "Duyệt báo hư: hoàn tiền phần hư từ ví sàn vào ví người mua")
+    @PostMapping("/damage-claims/{claimId}/approve")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<com.sang.be_capnong.dto.response.campaign.DamageClaimResponse> approveDamage(
+            @PathVariable int claimId, @RequestBody(required = false) com.sang.be_capnong.dto.request.campaign.DamageClaimReviewRequest request) {
+        return ApiResponse.<com.sang.be_capnong.dto.response.campaign.DamageClaimResponse>builder().result(damageClaimService.approve(claimId, request)).build();
+    }
+
+    @Operation(summary = "Từ chối báo hư")
+    @PostMapping("/damage-claims/{claimId}/reject")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<com.sang.be_capnong.dto.response.campaign.DamageClaimResponse> rejectDamage(
+            @PathVariable int claimId, @RequestBody com.sang.be_capnong.dto.request.campaign.DamageClaimReviewRequest request) {
+        return ApiResponse.<com.sang.be_capnong.dto.response.campaign.DamageClaimResponse>builder().result(damageClaimService.reject(claimId, request)).build();
+    }
+
     @Operation(summary = "Xử lý thiếu hàng: giữ hàng cho đơn cọc trước, giảm thùng hoặc huỷ đơn sau và hoàn cọc")
     @PostMapping("/{id}/resolve-shortfall")
     @PreAuthorize("hasRole('ADMIN')")
@@ -129,6 +174,51 @@ public class AdminCampaignController {
     @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<PreOrderResponse> pack(@PathVariable int preOrderId, @RequestBody(required = false) PreOrderPackRequest request) {
         return ApiResponse.<PreOrderResponse>builder().result(campaignService.packPreOrder(preOrderId, request)).build();
+    }
+
+    @Operation(summary = "Khách tự đến điểm tập kết đã nhận hàng (PICKUP): PROCESSING -> DELIVERED")
+    @PostMapping("/pre-orders/{preOrderId}/picked-up")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<PreOrderResponse> pickedUp(@PathVariable int preOrderId) {
+        return ApiResponse.<PreOrderResponse>builder().result(campaignService.confirmPickup(preOrderId)).build();
+    }
+
+    @Operation(summary = "Nhắc khách tự đến điểm tập kết nhận đơn đã đóng gói")
+    @PostMapping("/pre-orders/{preOrderId}/remind-pickup")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<PreOrderResponse> remindPickup(@PathVariable int preOrderId) {
+        return ApiResponse.<PreOrderResponse>builder().result(campaignService.remindPickup(preOrderId)).build();
+    }
+
+    @Operation(summary = "Đã nhắc mà khách không tới nhận: đóng đơn, cọc không hoàn")
+    @PostMapping("/pre-orders/{preOrderId}/pickup-no-show")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<PreOrderResponse> pickupNoShow(@PathVariable int preOrderId, @RequestBody(required = false) CampaignNoteRequest request) {
+        return ApiResponse.<PreOrderResponse>builder().result(campaignService.markPickupNoShow(preOrderId, request)).build();
+    }
+
+    @Operation(summary = "Bảng chia đơn giao theo phường, xếp theo độ gấp")
+    @GetMapping("/{id}/dispatch-board")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<com.sang.be_capnong.dto.response.campaign.DispatchBoardResponse> dispatchBoard(@PathVariable int id) {
+        return ApiResponse.<com.sang.be_capnong.dto.response.campaign.DispatchBoardResponse>builder()
+                .result(campaignService.getDispatchBoard(id)).build();
+    }
+
+    @Operation(summary = "Chia đơn: đưa đơn đã đóng gói ra hub, giao cho shipper (tuỳ chọn)")
+    @PostMapping("/{id}/dispatch")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<com.sang.be_capnong.dto.response.campaign.DispatchBoardResponse> dispatch(
+            @PathVariable int id, @RequestBody com.sang.be_capnong.dto.request.campaign.PreOrderDispatchRequest request) {
+        return ApiResponse.<com.sang.be_capnong.dto.response.campaign.DispatchBoardResponse>builder()
+                .result(campaignService.dispatchPreOrders(id, request)).build();
+    }
+
+    @Operation(summary = "Giao lại đơn thất bại: FAILED -> PROCESSING (chờ chia lại)")
+    @PostMapping("/pre-orders/{preOrderId}/retry")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<PreOrderResponse> retry(@PathVariable int preOrderId) {
+        return ApiResponse.<PreOrderResponse>builder().result(campaignService.retryPreOrder(preOrderId)).build();
     }
 
     @Operation(summary = "Xe tới hub: PROCESSING -> READY")

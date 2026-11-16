@@ -21,6 +21,16 @@ public class CampaignResponse {
     String categoryName;
     String season;
     String coverImageUrl;
+    /** Banner trang chủ (Admin tuỳ chỉnh). bannerMode null = AUTO */
+    String bannerMode;
+    String bannerTheme;
+    String bannerHeadline;
+    String bannerSubline;
+    String bannerBadge;
+    String bannerCtaText;
+    String bannerImageUrl;
+    Boolean bannerOnHome;
+    java.time.LocalDateTime bannerUpdatedAt;
     BigDecimal targetVolumeKg;
     BigDecimal minThresholdKg;
     BigDecimal rescuePricePerKg;
@@ -31,6 +41,12 @@ public class CampaignResponse {
     String collectionSiteAddress;
     Double collectionSiteLatitude;
     Double collectionSiteLongitude;
+    /** Quy tắc phí giao (đã áp mặc định) */
+    BigDecimal shipHalfKg;
+    BigDecimal shipFreeKg;
+    Double shipFreeRadiusKm;
+    Integer groupDiscountMinOrders;
+    Boolean pickupEnabled;
     String status;
     /** Kg người mua đã cọc thành công */
     BigDecimal bookedVolumeKg;
@@ -56,6 +72,13 @@ public class CampaignResponse {
     BigDecimal shortfallVolumeKg;
     /** Số nhà vườn được phân bổ nhưng chưa cân nhận hàng */
     long intakePendingCount;
+    /** Đang kêu gọi nhà vườn bổ sung hàng cho phần thiếu */
+    boolean topUpOpen;
+    LocalDateTime topUpCallAt;
+    LocalDateTime topUpClosedAt;
+    BigDecimal topUpKg;
+    /** Kg còn cần bổ sung = thiếu - phần đã chia cho lô bổ sung chưa giao */
+    BigDecimal topUpRemainingKg;
     LocalDateTime callPostedAt;
     LocalDateTime publishedAt;
     LocalDateTime evaluatedAt;

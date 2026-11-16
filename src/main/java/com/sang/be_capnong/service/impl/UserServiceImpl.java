@@ -53,6 +53,7 @@ public class UserServiceImpl implements UserService {
     PasswordEncoder passwordEncoder;
     OtpService otpService;
     CloudinaryService cloudinaryService;
+    com.sang.be_capnong.service.GoogleMapService googleMapService;
 
     @Override
     @Transactional
@@ -339,6 +340,7 @@ public class UserServiceImpl implements UserService {
             }
             user.setPhoneNumber(newPhone);
         }
+        boolean addressChanged = request.getAddress() != null && !request.getAddress().equals(user.getAddress());
         if (request.getAddress() != null) user.setAddress(request.getAddress());
         if (request.getCccd() != null) user.setCccd(request.getCccd());
         if (request.getBankAccount() != null) user.setBankAccount(request.getBankAccount());
@@ -362,6 +364,20 @@ public class UserServiceImpl implements UserService {
             if (request.getAchievement() != null) user.setAchievement(request.getAchievement());
             if (request.getLicense() != null) user.setLicense(request.getLicense());
             if (request.getLicenseImageUrl() != null) user.setLicenseImageUrl(request.getLicenseImageUrl());
+            // Toạ độ shop: ưu tiên điểm chọn trên bản đồ; đổi địa chỉ mà không gửi toạ độ thì tự lấy từ địa chỉ
+            if (request.getShopLatitude() != null && request.getShopLongitude() != null) {
+                user.setShopLatitude(request.getShopLatitude());
+                user.setShopLongitude(request.getShopLongitude());
+            } else if (addressChanged && user.getAddress() != null && !user.getAddress().isBlank()) {
+                double[] ll = null;
+                try {
+                    ll = googleMapService.geocodeAddress(user.getAddress());
+                } catch (Exception e) {
+                    log.warn("Geocode shop #{} failed: {}", user.getId(), e.getMessage());
+                }
+                user.setShopLatitude(ll != null ? ll[0] : null);
+                user.setShopLongitude(ll != null ? ll[1] : null);
+            }
         }
 
         // Cập nhật thông tin đặc thù của SHIPPER

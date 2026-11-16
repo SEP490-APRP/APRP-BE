@@ -54,6 +54,8 @@ public class FarmRegistrationResponse {
     List<String> intakePhotoUrls;
     String intakeNote;
     LocalDateTime intakeAt;
+    /** Tiền dự tính sau khi cân = giá chốt x kg tính tiền x (1 - phí); tiền thật chuyển khi hoàn thành chiến dịch */
+    BigDecimal estimatedPayoutAmount;
     BigDecimal payoutAmount;
     LocalDateTime paidOutAt;
     LocalDateTime createdAt;

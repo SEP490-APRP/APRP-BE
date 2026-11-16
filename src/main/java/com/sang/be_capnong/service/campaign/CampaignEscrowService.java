@@ -34,6 +34,7 @@ public class CampaignEscrowService {
     static final String TYPE_SHOP = "SHOP";
     static final String TYPE_BUYER = "BUYER";
     static final String TYPE_REFERRAL = "REFERRAL";
+    static final String TYPE_SHIPPER = "SHIPPER";
 
     private final WalletRepository walletRepository;
     private final WalletTransactionRepository walletTransactionRepository;
@@ -125,6 +126,80 @@ public class CampaignEscrowService {
                 "Tiền hàng chiến dịch " + c + " (" + reg.getReceivedWeightKg() + " kg, đã trừ phí dịch vụ)");
     }
 
+    // ───────────── Shipper: ký quỹ tiền thu hộ + cước giao ─────────────
+
+    /**
+     * Shipper lấy đơn khỏi hub: giữ chỗ trong ví đúng số tiền sẽ thu của người mua (giống ký quỹ COD đơn thường).
+     * Ví đang âm (còn nợ) hoặc số dư khả dụng không đủ thì không cho nhận.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public BigDecimal reserveShipperCod(PreOrder p, User shipper) {
+        Wallet w = walletRepository.findByIdForUpdate(userWallet(shipper, TYPE_SHIPPER).getWalletId())
+                .orElseThrow(() -> new AppException(ErrorCode.WALLET_NOT_FOUND));
+        if (nz(w.getTotalBalance()).signum() < 0) {
+            throw new AppException(ErrorCode.WALLET_HAS_DEBT, null, java.util.Map.of("balance", nz(w.getTotalBalance())));
+        }
+        BigDecimal required = nz(p.getRemainingAmount()).setScale(2, RoundingMode.HALF_UP);
+        if (required.signum() <= 0) return BigDecimal.ZERO;
+        BigDecimal available = nz(w.getTotalBalance()).subtract(nz(w.getCodReserved())).max(BigDecimal.ZERO);
+        if (available.compareTo(required) < 0) {
+            throw new AppException(ErrorCode.SHIPPER_COD_BALANCE_INSUFFICIENT, null, java.util.Map.of(
+                    "required", required, "available", available, "missing", required.subtract(available)));
+        }
+        reserve(w, required, WalletTransactionType.COD_RESERVED,
+                "Đơn đặt trước " + p.getCode() + ": ký quỹ " + plain(required) + "đ tiền thu hộ, trả lại khi giao xong hoặc giao thất bại");
+        return required;
+    }
+
+    /** Gỡ ký quỹ của lượt giao hiện tại (giao xong / thất bại) */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void releaseShipperCod(PreOrder p, String reason) {
+        BigDecimal amount = nz(p.getCodReservedAmount());
+        if (amount.signum() <= 0 || p.getShipper() == null) return;
+        Wallet w = walletRepository.findByIdForUpdate(userWallet(p.getShipper(), TYPE_SHIPPER).getWalletId())
+                .orElseThrow(() -> new AppException(ErrorCode.WALLET_NOT_FOUND));
+        reserve(w, amount.negate(), WalletTransactionType.COD_RESERVE_RELEASED,
+                "Đơn đặt trước " + p.getCode() + ": " + reason + ", gỡ ký quỹ " + plain(amount) + "đ");
+    }
+
+    /** Shipper đã cầm tiền mặt của người mua: trừ ví shipper đúng số đó (sàn đã ghi nhận ở recordRemainingCollected) */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void shipperCashCollected(PreOrder p) {
+        BigDecimal cash = nz(p.getRemainingAmount());
+        if (cash.signum() <= 0 || p.getShipper() == null) return;
+        adjust(userWallet(p.getShipper(), TYPE_SHIPPER), BigDecimal.ZERO, cash.negate(), WalletTransactionType.COD_CASH_COLLECTED,
+                "Đơn đặt trước " + p.getCode() + ": thu tiền mặt " + plain(cash) + "đ của người mua, trừ vào tiền ký quỹ");
+    }
+
+    /** Trả cước một lượt giao cho shipper: sàn trừ số dư, shipper nhận phần sau phí dịch vụ. Trả về số shipper nhận */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public BigDecimal payShipper(PreOrder p, BigDecimal gross, BigDecimal feeRate, String what) {
+        if (gross == null || gross.signum() <= 0 || p.getShipper() == null) return BigDecimal.ZERO;
+        BigDecimal fee = gross.multiply(feeRate).setScale(0, RoundingMode.HALF_UP);
+        BigDecimal net = gross.subtract(fee);
+        if (net.signum() <= 0) return BigDecimal.ZERO;
+        adjust(platformWallet(), BigDecimal.ZERO, net.negate(), WalletTransactionType.CAMPAIGN_SHIPPER_PAYOUT,
+                "Trả cước " + what + " đơn " + p.getCode() + " cho shipper #" + p.getShipper().getId()
+                        + " (" + plain(gross) + "đ - phí dịch vụ " + plain(fee) + "đ)");
+        adjust(userWallet(p.getShipper(), TYPE_SHIPPER), BigDecimal.ZERO, net, WalletTransactionType.SHIPPER_INCOME,
+                "Cước " + what + " đơn đặt trước " + p.getCode() + ": " + plain(gross) + "đ - phí dịch vụ " + plain(fee) + "đ");
+        return net;
+    }
+
+    /** Báo hàng hư được duyệt: sàn lấy tiền từ ví sàn trả vào ví người mua */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void compensateDamage(PreOrder p, BigDecimal amount, BigDecimal kg) {
+        if (amount == null || amount.signum() <= 0) return;
+        Wallet platform = walletRepository.findByIdForUpdate(platformWallet().getWalletId())
+                .orElseThrow(() -> new AppException(ErrorCode.WALLET_NOT_FOUND));
+        if (nz(platform.getTotalBalance()).compareTo(amount) < 0) {
+            throw new AppException(ErrorCode.PLATFORM_BALANCE_INSUFFICIENT);
+        }
+        String what = kg.stripTrailingZeros().toPlainString() + " kg hư, đơn " + p.getCode() + " (chiến dịch " + p.getCampaign().getCode() + ")";
+        adjust(platform, BigDecimal.ZERO, amount.negate(), WalletTransactionType.CAMPAIGN_DAMAGE_COMPENSATION, "Bồi thường " + what);
+        adjust(userWallet(p.getBuyer(), TYPE_BUYER), BigDecimal.ZERO, amount, WalletTransactionType.CAMPAIGN_DAMAGE_REFUND, "Hoàn tiền " + what);
+    }
+
     /** Cộng/trừ frozen và số dư khả dụng của một ví, ghi 1 dòng sổ cái */
     private void adjust(Wallet wallet, BigDecimal frozenDelta, BigDecimal balanceDelta, WalletTransactionType type, String description) {
         Wallet locked = walletRepository.findByIdForUpdate(wallet.getWalletId())
@@ -133,7 +208,7 @@ public class CampaignEscrowService {
         BigDecimal balance = nz(locked.getTotalBalance()).add(balanceDelta);
         locked.setFrozenBalance(frozen);
         locked.setTotalBalance(balance);
-        if (type == WalletTransactionType.CAMPAIGN_FARM_INCOME) {
+        if (type == WalletTransactionType.CAMPAIGN_FARM_INCOME || type == WalletTransactionType.SHIPPER_INCOME) {
             locked.setTotalRevenueAllTime(nz(locked.getTotalRevenueAllTime()).add(balanceDelta));
         }
         locked.setUpdateAt(LocalDateTime.now());
@@ -149,6 +224,27 @@ public class CampaignEscrowService {
                 .description(description.length() > 500 ? description.substring(0, 500) : description)
                 .createdAt(LocalDateTime.now())
                 .build());
+    }
+
+    /** Cộng/trừ tiền giữ chỗ (codReserved), số dư không đổi; ghi 1 dòng sổ cái */
+    private void reserve(Wallet locked, BigDecimal delta, WalletTransactionType type, String description) {
+        BigDecimal reserved = nz(locked.getCodReserved()).add(delta).max(BigDecimal.ZERO);
+        locked.setCodReserved(reserved);
+        locked.setUpdateAt(LocalDateTime.now());
+        walletRepository.save(locked);
+        walletTransactionRepository.save(WalletTransaction.builder()
+                .wallet(locked)
+                .type(type)
+                .amount(delta.negate().setScale(2, RoundingMode.HALF_UP))
+                .balanceAfter(nz(locked.getTotalBalance()))
+                .frozenAfter(nz(locked.getFrozenBalance()))
+                .description(description.length() > 500 ? description.substring(0, 500) : description)
+                .createdAt(LocalDateTime.now())
+                .build());
+    }
+
+    private static String plain(BigDecimal v) {
+        return v == null ? "0" : v.stripTrailingZeros().toPlainString();
     }
 
     private Wallet platformWallet() {

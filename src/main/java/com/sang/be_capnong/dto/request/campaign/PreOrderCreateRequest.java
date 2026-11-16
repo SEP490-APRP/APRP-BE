@@ -20,5 +20,9 @@ public class PreOrderCreateRequest {
     Double shippingLongitude;
     /** true = trừ ví người mua trước cho tiền cọc, phần còn lại qua PayOS */
     Boolean useWallet;
+    /** DELIVERY (mặc định) | PICKUP: tự đến điểm tập kết lấy hàng */
+    String fulfillmentMethod;
+    /** Phường/xã giao hàng (để gom đơn) */
+    String deliveryWard;
     String note;
 }

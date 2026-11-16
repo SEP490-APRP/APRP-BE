@@ -30,4 +30,9 @@ public class CampaignUpsertRequest {
     String collectionSiteAddress;
     Double collectionSiteLatitude;
     Double collectionSiteLongitude;
+    java.math.BigDecimal shipHalfKg;
+    java.math.BigDecimal shipFreeKg;
+    Double shipFreeRadiusKm;
+    Integer groupDiscountMinOrders;
+    Boolean pickupEnabled;
 }

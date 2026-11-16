@@ -84,6 +84,18 @@ public class Campaign {
     Double collectionSiteLatitude;
     Double collectionSiteLongitude;
 
+    // ── Phí giao hàng (null = mặc định trong CampaignShippingCalculator) ──
+    /** Từ bấy nhiêu kg trở lên giảm 50% phí giao (mặc định 10) */
+    BigDecimal shipHalfKg;
+    /** Từ bấy nhiêu kg trở lên miễn phí giao trong bán kính shipFreeRadiusKm (mặc định 20) */
+    BigDecimal shipFreeKg;
+    /** Bán kính miễn phí giao (km, mặc định 10) */
+    Double shipFreeRadiusKm;
+    /** Phường có từ bấy nhiêu đơn trở lên được giảm thêm 50% phí giao (mặc định 5) */
+    Integer groupDiscountMinOrders;
+    /** Cho phép tự đến điểm tập kết lấy hàng (mặc định có) */
+    Boolean pickupEnabled;
+
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(nullable = false, length = 30)
@@ -105,8 +117,35 @@ public class Campaign {
     LocalDateTime completedAt;
     LocalDateTime cancelledAt;
 
+    /** Kêu gọi bổ sung: mở khi mọi nhà vườn đã giao đủ phần được chia mà hàng đạt chuẩn vẫn thiếu so với số đã bán */
+    LocalDateTime topUpCallAt;
+    LocalDateTime topUpClosedAt;
+    /** Số kg cần bổ sung tại thời điểm mở kêu gọi */
+    @Column(precision = 12, scale = 2)
+    BigDecimal topUpKg;
+
     @Column(length = 500)
     String cancelReason;
+
+    /** Banner trang chủ do Admin tuỳ chỉnh: AUTO (dựng từ thông tin chiến dịch) | IMAGE (ảnh tải lên). null = AUTO */
+    @Column(length = 10)
+    String bannerMode;
+    /** ORANGE | GREEN | RED */
+    @Column(length = 20)
+    String bannerTheme;
+    @Column(length = 200)
+    String bannerHeadline;
+    @Column(length = 300)
+    String bannerSubline;
+    @Column(length = 60)
+    String bannerBadge;
+    @Column(length = 60)
+    String bannerCtaText;
+    @Column(length = 500)
+    String bannerImageUrl;
+    /** null = có hiện ở trang chủ */
+    Boolean bannerOnHome;
+    LocalDateTime bannerUpdatedAt;
 
     LocalDateTime createdAt;
     LocalDateTime updatedAt;

@@ -14,6 +14,8 @@ import lombok.experimental.FieldDefaults;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 
 @RestController
 @RequestMapping("")
@@ -23,6 +25,7 @@ import org.springframework.web.bind.annotation.*;
 public class CampaignController {
 
     CampaignService campaignService;
+    com.sang.be_capnong.service.campaign.DamageClaimService damageClaimService;
 
     @Operation(summary = "Danh sách chiến dịch công khai theo giai đoạn: UPCOMING | ONGOING (mặc định) | DELIVERING | DONE")
     @GetMapping("/campaigns")
@@ -39,11 +42,39 @@ public class CampaignController {
         return ApiResponse.<CampaignResponse>builder().result(campaignService.getPublicCampaign(id)).build();
     }
 
+    @Operation(summary = "Báo giá phí giao hàng (công khai): method = DELIVERY | PICKUP")
+    @GetMapping("/campaigns/{id}/shipping-quote")
+    public ApiResponse<com.sang.be_capnong.dto.response.campaign.CampaignShippingQuoteResponse> shippingQuote(
+            @PathVariable int id,
+            @RequestParam(defaultValue = "0") java.math.BigDecimal totalKg,
+            @RequestParam(defaultValue = "DELIVERY") String method,
+            @RequestParam(required = false) Double lat,
+            @RequestParam(required = false) Double lng,
+            @RequestParam(required = false) String address) {
+        return ApiResponse.<com.sang.be_capnong.dto.response.campaign.CampaignShippingQuoteResponse>builder()
+                .result(campaignService.quoteShipping(id, totalKg, method, lat, lng, address)).build();
+    }
+
     @Operation(summary = "Đặt trước + tạo link cọc PayOS")
     @PostMapping("/campaigns/{id}/pre-orders")
     @PreAuthorize("hasRole('BUYER')")
     public ApiResponse<PreOrderResponse> createPreOrder(@PathVariable int id, @RequestBody PreOrderCreateRequest request) {
         return ApiResponse.<PreOrderResponse>builder().result(campaignService.createPreOrder(id, request)).build();
+    }
+
+    @Operation(summary = "Báo hàng hư (cân + ảnh), không cần hoàn hàng")
+    @PostMapping("/pre-orders/{id}/damage-claims")
+    @PreAuthorize("hasRole('BUYER')")
+    public ApiResponse<com.sang.be_capnong.dto.response.campaign.DamageClaimResponse> reportDamage(
+            @PathVariable int id, @RequestBody com.sang.be_capnong.dto.request.campaign.DamageClaimRequest request) {
+        return ApiResponse.<com.sang.be_capnong.dto.response.campaign.DamageClaimResponse>builder().result(damageClaimService.submit(id, request)).build();
+    }
+
+    @Operation(summary = "Các lần báo hư của đơn")
+    @GetMapping("/pre-orders/{id}/damage-claims")
+    @PreAuthorize("hasRole('BUYER')")
+    public ApiResponse<List<com.sang.be_capnong.dto.response.campaign.DamageClaimResponse>> damageClaims(@PathVariable int id) {
+        return ApiResponse.<List<com.sang.be_capnong.dto.response.campaign.DamageClaimResponse>>builder().result(damageClaimService.myClaims(id)).build();
     }
 
     @Operation(summary = "Đơn đặt trước của tôi")

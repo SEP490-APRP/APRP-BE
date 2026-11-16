@@ -54,6 +54,10 @@ public interface PreOrderRepository extends JpaRepository<PreOrder, Integer> {
     @Query("select coalesce(sum(p.totalKg), 0) from PreOrder p where p.campaign.campaignId = :campaignId and p.status in :statuses")
     BigDecimal sumKgByStatuses(@Param("campaignId") int campaignId, @Param("statuses") Collection<PreOrderStatus> statuses);
 
+    /** Kg đã đóng thùng từ một lô nhà vườn */
+    @org.springframework.data.jpa.repository.Query("select coalesce(sum(p.totalKg), 0) from PreOrder p where p.sourceRegistration.registrationId = :registrationId and p.status in :statuses")
+    BigDecimal sumKgBySourceRegistration(@Param("registrationId") int registrationId, @Param("statuses") Collection<PreOrderStatus> statuses);
+
     /** Đơn đã cọc chờ đóng gói, ai cọc trước được giữ hàng trước */
     List<PreOrder> findByCampaign_CampaignIdAndStatusOrderByDepositPaidAtAscPreOrderIdAsc(int campaignId, PreOrderStatus status);
 

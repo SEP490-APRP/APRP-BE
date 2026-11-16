@@ -38,6 +38,38 @@ public class PreOrderResponse {
     Double shippingLongitude;
     String note;
     String deliveryZone;
+    String fulfillmentMethod;
+    String deliveryWard;
+    Double shippingDistanceKm;
+    BigDecimal shippingBaseFee;
+    BigDecimal shippingFee;
+    /** Đơn tự đến lấy: lần nhắc khách gần nhất và số lần đã nhắc */
+    LocalDateTime pickupRemindedAt;
+    Integer pickupRemindCount;
+    /** Shipper: tiền thu hộ đang ký quỹ trong ví cho lượt giao hiện tại */
+    BigDecimal codReservedAmount;
+    /** Shipper: tổng cước đã nhận cho đơn này (sau phí dịch vụ) */
+    BigDecimal shipperIncomeAmount;
+    BigDecimal shippingDiscountAmount;
+    String collectionSiteName;
+    String collectionSiteAddress;
+    /** Độ gấp khi giao: URGENT (Gấp) | HIGH (Ưu tiên) | NORMAL (Thường) */
+    String priorityLevel;
+    String priorityReason;
+    /** Hạn nên giao tới khách để nông sản còn tươi */
+    LocalDateTime deliverBy;
+    String shelfLifeTier;
+    Integer retryCount;
+    /** Báo hàng hư: hạn báo (48h sau khi nhận), yêu cầu mới nhất, tổng tiền đã được hoàn */
+    java.time.LocalDateTime damageClaimDeadline;
+    String damageClaimStatus;
+    BigDecimal damageClaimKg;
+    BigDecimal damageRefundTotal;
+    /** Lô hàng nhà vườn dùng cho đơn (theo phân loại thời gian bảo quản shop đã khai) */
+    Integer sourceRegistrationId;
+    String sourceShopName;
+    String sourceProductName;
+    java.time.LocalDate sourceHarvestDate;
     String qrCode;
     String status;
     Integer shipperId;

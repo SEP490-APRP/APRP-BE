@@ -30,6 +30,6 @@ public class FarmRegistrationRequest {
     BigDecimal proposedPricePerKg;
     /** Phải true: nhà vườn cam kết giữ giá + số lượng + chất lượng đã khai */
     Boolean priceCommitted;
-    /** DAYS_1_2 | DAYS_3_4 | DAYS_5_6 */
+    /** DAYS_2_3 | DAYS_3_4 | DAYS_5_6 */
     ShelfLifeTier shelfLifeTier;
 }

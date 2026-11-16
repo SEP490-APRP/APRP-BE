@@ -38,6 +38,8 @@ public class UserResponse {
     String achievement;
     String license;
     String licenseImageUrl;
+    Double shopLatitude;
+    Double shopLongitude;
 
     // ===== SHIPPER FIELDS =====
     String vehicleNumber;
