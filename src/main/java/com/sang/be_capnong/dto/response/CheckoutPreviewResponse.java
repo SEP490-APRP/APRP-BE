@@ -17,6 +17,8 @@ public class CheckoutPreviewResponse {
     BigDecimal totalShippingFee;
     BigDecimal totalVoucherDiscount;
     BigDecimal finalTotalAmount;
+    Boolean codAllowed;
+    String codRestrictionReason;
 
     @Data
     @NoArgsConstructor

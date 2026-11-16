@@ -54,4 +54,28 @@ public interface UserService {
     void deactivateUser(Integer userId);
 
     PageResponse<UserResponse> getUsersByRolePaged(List<String> roles, String status, int page, int size);
+
+    // ===== CUSTOMER PENALTY SYSTEM (CHỐNG BOM HÀNG) =====
+    long countDeliveryFailures(int buyerId);
+
+    boolean isCodBlocked(int buyerId);
+
+    void handleDeliveryFailed(com.sang.be_capnong.entity.Order order, com.sang.be_capnong.enums.DeliveryFailReason reason);
+
+    void checkCodAllowed(com.sang.be_capnong.entity.User buyer);
+
+    void autoUnsuspendAccounts();
+
+    void resetCustomerPenalties(int userId);
+
+    // ===== SELLER RISK FLAGGING (CỜ RỦI RO SHOP) =====
+    long countActiveRiskFlags(int shopId);
+
+    void addRiskFlagForAdminApprovedReturn(com.sang.be_capnong.entity.ReturnRequest returnRequest, String adminRemark);
+
+    List<com.sang.be_capnong.dto.response.ShopRiskFlagResponse> getMyRiskFlags();
+
+    List<com.sang.be_capnong.dto.response.ShopRiskFlagResponse> getShopRiskFlags(int shopId);
+
+    void resolveRiskFlag(int flagId, String resolutionNote);
 }

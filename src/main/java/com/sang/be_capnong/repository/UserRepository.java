@@ -26,4 +26,6 @@ public interface UserRepository extends JpaRepository<User, Integer> {
     Page<User> findByRole_NameIn(Collection<String> roleNames, Pageable pageable);
     Page<User> findByStatus(UserStatus status, Pageable pageable);
     long countByRole_NameInAndStatus(Collection<String> roleNames, UserStatus status);
+
+    List<User> findByStatusAndLockedAtBefore(UserStatus status, java.time.LocalDateTime time);
 }
