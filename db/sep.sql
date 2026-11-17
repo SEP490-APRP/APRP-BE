@@ -927,8 +927,9 @@ INSERT INTO categories (category_id, name, description) VALUES
 (2, 'Củ', 'Các loại củ tươi ngon: cà rốt, khoai tây, khoai lang, củ cải, hành tỏi Đà Lạt.'),
 (3, 'Quả / Trái cây', 'Trái cây tươi đặc sản: chuối, bưởi da xanh, xoài cát, cam sành, dâu tây mọng nước.'),
 (4, 'Nông sản hữu cơ VietGAP', 'Nông sản canh tác tự nhiên đạt chuẩn chứng nhận an toàn thực phẩm.'),
-(5, 'Combo & Túi mù', 'Gói rau củ theo món ăn và túi mù nông sản tiết kiệm bảo vệ môi trường.')
-ON DUPLICATE KEY UPDATE name=VALUES(name);
+(5, 'Nấm tươi & Đậu organic', 'Các loại nấm tươi sạch giàu đạm thực vật và đậu hũ non organic tuyển chọn.'),
+(6, 'Đặc sản vùng miền', 'Nông sản đặc sản nức tiếng theo mùa: hạt sen Đồng Tháp, bơ sáp Đắk Lắk...')
+ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description);
 
 -- 3.4 PRODUCTS (ĐƯỢC GẮN VỚI SHOP 4 VÀ SHOP 5)
 INSERT INTO products (product_id, shop_id, category_id, product_name, unit, selling_price, stock_quantity, description, status, expiry_date, discount_percent) VALUES
@@ -942,10 +943,10 @@ INSERT INTO products (product_id, shop_id, category_id, product_name, unit, sell
 (107, 4, 2, 'Khoai lang mật tím', 'kg', 28000, 75, 'Khoai lang mật tím dẻo ngọt, nướng hoặc hấp thơm lừng.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 15 DAY), 0),
 (108, 4, 3, 'Cà chua bi ngọt mọng nước', 'kg', 35000, 60, 'Cà chua chín cây đỏ mọng, giàu vitamin C và chất chống oxy hóa lycopene.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
 (109, 4, 3, 'Dâu tây giống Nhật Đà Lạt', 'kg', 180000, 30, 'Dâu tây đỏ mọng hái sáng sớm tại nhà kính Đà Lạt, ngọt thanh chua nhẹ.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 3 DAY), 15),
-(209, 4, 4, 'Nấm đùi gà hữu cơ Đà Lạt', 'khay', 32000, 80, 'Nấm đùi gà thịt dày dai ngọt, giàu đạm thực vật và khoáng chất, tuyệt hảo cho món xào nướng lẩu.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
-(210, 4, 4, 'Nấm rơm tươi Đồng Nai', 'khay', 28000, 60, 'Nấm rơm tròn búp tươi ngon, vị ngọt thanh tự nhiên, phù hợp nấu súp, canh chay, kho quẹt.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 4 DAY), 0),
-(211, 4, 4, 'Đậu hũ non organic đậu nành', 'hộp', 14000, 100, 'Đậu hũ non mềm mịn béo ngậy từ 100% đậu nành không biến đổi gen, giàu protein thực vật.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 6 DAY), 0),
-(214, 4, 1, 'Bông cải xanh (Broccoli) Đà Lạt', 'kg', 38000, 70, 'Bông cải xanh đậm màu tươi giòn, giàu chất chống oxy hóa và chất xơ cao.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 6 DAY), 0),
+(209, 4, 5, 'Nấm đùi gà hữu cơ Đà Lạt', 'khay', 32000, 80, 'Nấm đùi gà thịt dày dai ngọt, giàu đạm thực vật và khoáng chất, tuyệt hảo cho món xào nướng lẩu.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
+(210, 4, 5, 'Nấm rơm tươi Đồng Nai', 'khay', 28000, 60, 'Nấm rơm tròn búp tươi ngon, vị ngọt thanh tự nhiên, phù hợp nấu súp, canh chay, kho quẹt.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 4 DAY), 0),
+(211, 4, 5, 'Đậu hũ non organic đậu nành', 'hộp', 14000, 100, 'Đậu hũ non mềm mịn béo ngậy từ 100% đậu nành không biến đổi gen, giàu protein thực vật.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 6 DAY), 0),
+(214, 4, 4, 'Bông cải xanh (Broccoli) Đà Lạt', 'kg', 38000, 70, 'Bông cải xanh đậm màu tươi giòn, giàu chất chống oxy hóa và chất xơ cao.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 6 DAY), 0),
 (217, 4, 2, 'Bí ngòi xanh Đà Lạt', 'kg', 26000, 65, 'Bí ngòi xanh vỏ bóng giòn ngọt, ít calo giàu nước, phù hợp xào tỏi hoặc nấu canh.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
 (218, 4, 3, 'Ớt chuông đỏ ngọt Đà Lạt', 'kg', 42000, 55, 'Ớt chuông đỏ dày cùi giòn ngọt, giàu vitamin C gấp 3 lần cam, lý tưởng làm salad.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 8 DAY), 0),
 
@@ -958,10 +959,10 @@ INSERT INTO products (product_id, shop_id, category_id, product_name, unit, sell
 (206, 5, 3, 'Cam sành Tiền Giang', 'kg', 35000, 150, 'Cam sành vỏ mỏng mọng nước, vị chua ngọt tự nhiên giàu vitamin C giải khát.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 12 DAY), 0),
 (207, 5, 3, 'Xoài cát Hòa Lộc Tiền Giang', 'kg', 85000, 40, 'Xoài cát Hòa Lộc nức tiếng thịt vàng ươm, thơm ngát, vị ngọt đậm đà.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 8 DAY), 10),
 (208, 5, 3, 'Dưa hấu ruột đỏ ngọt lịm', 'kg', 14000, 180, 'Dưa hấu vỏ mỏng ruột đỏ đặc ruột, ngọt lịm giải nhiệt.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 14 DAY), 0),
-(212, 5, 2, 'Hạt sen tươi Đồng Tháp Mười', 'gói', 45000, 50, 'Hạt sen tươi bỏ tâm không đắng, vị bùi bở thơm mát, bổ tâm an thần, tốt cho giấc ngủ.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 10 DAY), 0),
+(212, 5, 6, 'Hạt sen tươi Đồng Tháp Mười', 'gói', 45000, 50, 'Hạt sen tươi bỏ tâm không đắng, vị bùi bở thơm mát, bổ tâm an thần, tốt cho giấc ngủ.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 10 DAY), 0),
 (213, 5, 2, 'Bắp ngọt vàng Tiền Giang', 'trái', 12000, 120, 'Bắp ngọt hạt đều căng mọng, vị ngọt tự nhiên đậm đà, luộc hay nấu canh đều ngon.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 8 DAY), 0),
-(215, 5, 3, 'Bơ sáp Đắk Lắk dẻo béo', 'kg', 45000, 90, 'Bơ sáp loại 1 thịt vàng dẻo quánh, giàu chất béo tốt không bão hòa và vitamin E.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
-(216, 5, 3, 'Chuối già Nam Mỹ hữu cơ', 'nải', 25000, 80, 'Chuối chín thơm ngon dẻo ngọt, nguồn kali và năng lượng lành mạnh tự nhiên.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 6 DAY), 0)
+(215, 5, 6, 'Bơ sáp Đắk Lắk dẻo béo', 'kg', 45000, 90, 'Bơ sáp loại 1 thịt vàng dẻo quánh, giàu chất béo tốt không bão hòa và vitamin E.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
+(216, 5, 4, 'Chuối già Nam Mỹ hữu cơ', 'nải', 25000, 80, 'Chuối chín thơm ngon dẻo ngọt, nguồn kali và năng lượng lành mạnh tự nhiên.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 6 DAY), 0)
 ON DUPLICATE KEY UPDATE product_name=VALUES(product_name), selling_price=VALUES(selling_price);
 
 -- 3.5 MYSTERY BOXES & BUILD COMBOS (REFERENCED FROM EXE.SQL / SWD.SQL)
