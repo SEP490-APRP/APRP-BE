@@ -31,7 +31,7 @@ spring:
   datasource:
     url: jdbc:mysql://localhost:3306/DB_CapNong?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Ho_Chi_Minh&useUnicode=true&characterEncoding=UTF-8
     username: root
-    password: 123456789
+    password: 123456
     driver-class-name: com.mysql.cj.jdbc.Driver
 
     hikari:
@@ -86,9 +86,9 @@ jwt:
 # CLOUDINARY CONFIG
 # ===============================
 cloudinary:
-  cloud-name: ${CLOUDINARY_CLOUD_NAME:}
-  api-key: ${CLOUDINARY_API_KEY:}
-  api-secret: ${CLOUDINARY_API_SECRET:}
+  cloud-name: ${CLOUDINARY_CLOUD_NAME:dkfolzb8m}
+  api-key: ${CLOUDINARY_API_KEY:336641818692124}
+  api-secret: ${CLOUDINARY_API_SECRET:rTM22iLVUkrYqTHcb-G_hOGqunU}
 
 # ===============================
 # PAYOS CONFIGURATION

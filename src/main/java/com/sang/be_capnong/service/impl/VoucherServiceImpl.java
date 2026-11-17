@@ -1,6 +1,7 @@
 package com.sang.be_capnong.service.impl;
 
 import com.sang.be_capnong.dto.request.VoucherCreateRequest;
+import com.sang.be_capnong.dto.request.VoucherUpdateRequest;
 import com.sang.be_capnong.dto.response.ApiResponse;
 import com.sang.be_capnong.dto.response.PageResponse;
 import com.sang.be_capnong.dto.response.VoucherResponse;
@@ -157,6 +158,48 @@ public class VoucherServiceImpl implements VoucherService {
         }
 
         voucher.setActive(!Boolean.TRUE.equals(voucher.getActive()));
+        return mapToResponse(voucherRepository.save(voucher));
+    }
+
+    @Transactional
+    @Override
+    public VoucherResponse updateVoucher(int voucherId, VoucherUpdateRequest request) {
+        Voucher voucher = voucherRepository.findById(voucherId)
+                .orElseThrow(() -> new AppException(ErrorCode.VOUCHER_NOT_FOUND));
+
+        User currentUser = getCurrentUser();
+        boolean isCurrentUserAdmin = currentUser.getRole() != null && "ADMIN".equalsIgnoreCase(currentUser.getRole().getName());
+        if (!isCurrentUserAdmin) {
+            if (voucher.getShop() == null || !Objects.equals(voucher.getShop().getId(), currentUser.getId())) {
+                throw new AppException(ErrorCode.UNAUTHORIZED);
+            }
+        }
+
+        if (request.getClaimLimit() != null) {
+            int currentClaimed = voucher.getClaimedCount() != null ? voucher.getClaimedCount() : 0;
+            if (request.getClaimLimit() < currentClaimed) {
+                throw new IllegalArgumentException("Tổng lượt nhận mới không thể nhỏ hơn số lượt đã nhận (" + currentClaimed + ")");
+            }
+            voucher.setClaimLimit(request.getClaimLimit());
+            voucher.setUsageLimit(request.getClaimLimit());
+        }
+
+        if (request.getExpiryDate() != null) {
+            voucher.setExpiryDate(request.getExpiryDate());
+        }
+
+        if (request.getMinOrderValue() != null) {
+            voucher.setMinOrderValue(request.getMinOrderValue());
+        }
+
+        if (request.getIsPublic() != null) {
+            voucher.setAutoCreatedReason(Boolean.TRUE.equals(request.getIsPublic()) ? null : "HIDDEN");
+        }
+
+        if (request.getActive() != null) {
+            voucher.setActive(request.getActive());
+        }
+
         return mapToResponse(voucherRepository.save(voucher));
     }
 

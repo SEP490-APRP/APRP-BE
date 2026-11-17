@@ -25,6 +25,7 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
     Page<Order> findByBuyer_Id(int buyerId, Pageable pageable);
     Page<Order> findByBuyer_IdAndStatusIn(int buyerId, List<OrderStatus> statuses, Pageable pageable);
     Page<Order> findByStatus(OrderStatus status, Pageable pageable);
+    Page<Order> findByStatusIn(List<OrderStatus> statuses, Pageable pageable);
     Page<Order> findByShipper_Id(int shipperId, Pageable pageable);
     Page<Order> findByShipper_IdAndStatusIn(int shipperId, List<OrderStatus> statuses, Pageable pageable);
     List<Order> findByCheckoutBatch_Id(int batchId);
@@ -70,4 +71,10 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
             OrderStatus status,
             java.util.Collection<com.sang.be_capnong.enums.DeliveryFailReason> failReasons
     );
+
+    List<Order> findByCreatedAtBetween(LocalDateTime start, LocalDateTime end);
+    List<Order> findByShop_IdAndCreatedAtBetween(int shopId, LocalDateTime start, LocalDateTime end);
+    long countByStatus(OrderStatus status);
+    long countByShop_IdAndStatus(int shopId, OrderStatus status);
+    List<Order> findByShop_Id(int shopId);
 }
