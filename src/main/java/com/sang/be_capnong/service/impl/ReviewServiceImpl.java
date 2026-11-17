@@ -15,6 +15,7 @@ import com.sang.be_capnong.exception.ErrorCode;
 import com.sang.be_capnong.mapper.ReviewMapper;
 import com.sang.be_capnong.repository.*;
 import com.sang.be_capnong.service.ReviewService;
+import com.sang.be_capnong.service.UserService;
 import com.sang.be_capnong.util.SecurityUtils;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
