@@ -117,6 +117,13 @@ public class ReviewController {
                 .build();
     }
 
+    @GetMapping("/combo/{comboId}")
+    public ApiResponse<List<ReviewResponse>> getByComboId(@PathVariable("comboId") int comboId) {
+        return ApiResponse.<List<ReviewResponse>>builder()
+                .result(reviewService.getReviewsByCombo(comboId))
+                .build();
+    }
+
     @GetMapping("/my")
     public ApiResponse<List<ReviewResponse>> getMyReviews() {
         return ApiResponse.<List<ReviewResponse>>builder()

@@ -22,6 +22,9 @@ public interface ReviewRepository extends JpaRepository<Review, Integer> {
     List<Review> findByMysteryBox_MysteryId(int mysteryId);
     Page<Review> findByMysteryBox_MysteryId(int mysteryId, Pageable pageable);
 
+    List<Review> findByBuildCombo_ComboId(int comboId);
+    Page<Review> findByBuildCombo_ComboId(int comboId, Pageable pageable);
+
     List<Review> findByBuyer_Id(int buyerId);
     Page<Review> findByBuyer_Id(int buyerId, Pageable pageable);
 

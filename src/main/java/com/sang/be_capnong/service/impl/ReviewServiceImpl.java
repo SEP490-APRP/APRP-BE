@@ -302,6 +302,15 @@ public class ReviewServiceImpl implements ReviewService {
     }
 
     @Override
+    public List<ReviewResponse> getReviewsByCombo(int comboId) {
+        Integer currentUserId = SecurityUtils.getCurrentUserIdOrNull();
+        return reviewRepository.findByBuildCombo_ComboId(comboId)
+                .stream()
+                .map(r -> toReviewResponseWithReactions(r, currentUserId))
+                .toList();
+    }
+
+    @Override
     public List<ReviewResponse> getMyReviews() {
         Integer currentUserId = SecurityUtils.getCurrentUserId();
         return reviewRepository.findByBuyer_Id(currentUserId)

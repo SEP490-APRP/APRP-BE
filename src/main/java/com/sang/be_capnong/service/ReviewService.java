@@ -31,6 +31,8 @@ public interface ReviewService {
 
     List<ReviewResponse> getReviewsByMysteryBox(int mysteryId);
 
+    List<ReviewResponse> getReviewsByCombo(int comboId);
+
     List<ReviewResponse> getMyReviews();
 
     PageResponse<ReviewResponse> getMyReviewsPaged(int page, int size);
