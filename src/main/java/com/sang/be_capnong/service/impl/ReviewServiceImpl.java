@@ -1,5 +1,6 @@
 package com.sang.be_capnong.service.impl;
 
+import com.sang.be_capnong.service.UserService;
 import com.sang.be_capnong.dto.request.ReviewCreateRequest;
 import com.sang.be_capnong.dto.request.ReviewReactionRequest;
 import com.sang.be_capnong.dto.request.ReviewReplyRequest;

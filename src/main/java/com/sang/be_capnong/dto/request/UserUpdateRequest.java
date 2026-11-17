@@ -34,6 +34,9 @@ public class UserUpdateRequest {
     String achievement;
     String license;
     String licenseImageUrl;
+    /** Toạ độ shop (chọn trên bản đồ); bỏ trống thì BE tự lấy từ địa chỉ */
+    Double shopLatitude;
+    Double shopLongitude;
     String bankAccount;
     String bankAccountHolder;
     String bankName;

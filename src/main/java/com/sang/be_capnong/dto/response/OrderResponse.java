@@ -45,6 +45,10 @@ public class OrderResponse {
     Double distanceKm;
     BigDecimal rescuedWeight;
     BigDecimal refundAmount;
+    /** Phần đã trả bằng ví người mua */
+    BigDecimal walletPaidAmount;
+    /** Số còn phải trả qua COD / PayOS = totalAmount - walletPaidAmount */
+    BigDecimal amountDue;
     /** Số tiền COD đang/đã ký quỹ trong ví Shipper */
     BigDecimal codReservedAmount;
     /** Khoảng cách từ Shipper (vị trí gửi lên) tới nhà vườn, chỉ có ở GET /orders/ready */
