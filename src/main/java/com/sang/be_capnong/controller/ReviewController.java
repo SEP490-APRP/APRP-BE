@@ -5,6 +5,7 @@ import com.sang.be_capnong.dto.request.ReviewReactionRequest;
 import com.sang.be_capnong.dto.request.ReviewReplyRequest;
 import com.sang.be_capnong.dto.response.ApiResponse;
 import com.sang.be_capnong.dto.response.PageResponse;
+import com.sang.be_capnong.dto.response.ReviewFeaturedResponse;
 import com.sang.be_capnong.dto.response.ReviewResponse;
 import com.sang.be_capnong.dto.response.ReviewShopReport;
 import com.sang.be_capnong.service.ReviewService;
@@ -144,6 +145,16 @@ public class ReviewController {
     public ApiResponse<ReviewShopReport> getShopReport(@PathVariable("shopId") int shopId) {
         return ApiResponse.<ReviewShopReport>builder()
                 .result(reviewService.getShopReport(shopId))
+                .build();
+    }
+
+    @GetMapping("/featured")
+    public ApiResponse<ReviewFeaturedResponse> getFeaturedReviews(
+            @RequestParam(name = "limit", defaultValue = "10") int limit
+    ) {
+        log.info("REST request to get featured reviews for homepage, limit={}", limit);
+        return ApiResponse.<ReviewFeaturedResponse>builder()
+                .result(reviewService.getFeaturedReviews(limit))
                 .build();
     }
 
