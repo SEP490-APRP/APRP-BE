@@ -62,6 +62,38 @@ public enum WalletTransactionType {
     /** Admin từ chối lệnh rút: trả lại số dư (dương) */
     WITHDRAW_REFUNDED,
 
+    // ── Chiến dịch giải cứu (WF-01) ──
+    /** Ví Sàn: tiền cọc PayOS của người mua đang tạm giữ (escrow, cộng frozenBalance) */
+    CAMPAIGN_DEPOSIT_HOLD,
+    /** Ví Sàn: gỡ tạm giữ khi giải ngân cho nhà vườn (frozen âm, số dư sàn cộng) */
+    CAMPAIGN_DEPOSIT_RELEASED,
+    /** Chiến dịch huỷ: Sàn gỡ tạm giữ (âm) / Người mua nhận lại tiền cọc vào ví (dương) */
+    CAMPAIGN_DEPOSIT_REFUNDED,
+    /** Ví Sàn: shipper thu phần còn lại (tiền mặt) của đơn đặt trước khi giao */
+    CAMPAIGN_REMAINING_COLLECTED,
+    /** Ví Nhà vườn: tiền hàng chiến dịch sau khi trừ phí dịch vụ nông dân */
+    CAMPAIGN_FARM_INCOME,
+    /** Ví Sàn: chi trả tiền hàng cho nhà vườn (âm) */
+    CAMPAIGN_FARM_PAYOUT,
+    /** Ví Sàn: trả cước giao đơn đặt trước cho shipper (âm, đã trừ phí dịch vụ shipper) */
+    CAMPAIGN_SHIPPER_PAYOUT,
+
+    // ── Người mua trả bằng ví ──
+    /** Ví người mua: trừ tiền ví để trả một phần / toàn bộ đơn hàng (âm) */
+    ORDER_WALLET_PAYMENT,
+    /** Ví người mua: hoàn lại phần đã trả bằng ví khi đơn huỷ / giao thất bại / hết hạn thanh toán (dương) */
+    ORDER_WALLET_REFUND,
+    /** Ví người mua: trừ tiền ví để trả một phần / toàn bộ tiền cọc chiến dịch (âm) */
+    CAMPAIGN_DEPOSIT_WALLET_PAID,
+    /** Ví người mua: hoàn phần cọc đã trả bằng ví khi đơn đặt trước huỷ trước lúc cọc xong (dương) */
+    CAMPAIGN_DEPOSIT_WALLET_REFUND,
+
+    // ── Báo hàng hư đơn chiến dịch (không hoàn hàng) ──
+    /** Ví Sàn: chi tiền bồi thường phần hàng hư cho người mua (âm) */
+    CAMPAIGN_DAMAGE_COMPENSATION,
+    /** Ví người mua: nhận tiền phần hàng hư (dương) */
+    CAMPAIGN_DAMAGE_REFUND,
+
     // ── Tiếp thị liên kết (Referral / Affiliate) ──
     /** Cộng hoa hồng tiếp thị liên kết vào ví Buyer (dương = cộng ví Buyer) */
     REFERRAL_COMMISSION

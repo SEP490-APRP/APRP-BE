@@ -108,6 +108,9 @@ public class SecurityConfig {
             "/reviews/shop/{id:[0-9]+}",
             "/reviews/shop/{id:[0-9]+}/**",
             "/reviews/mystery-box/**",
+            "/campaigns",
+            "/campaigns/{id:[0-9]+}",
+            "/campaigns/{id:[0-9]+}/shipping-quote",
 
             // Phân giải link tiếp thị liên kết (Referral Link Resolve)
             "/referrals/resolve/**"
