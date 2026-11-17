@@ -41,6 +41,11 @@ DROP TABLE IF EXISTS return_requests;
 DROP TABLE IF EXISTS voucher_usages;
 DROP TABLE IF EXISTS voucher_users;
 DROP TABLE IF EXISTS vouchers;
+DROP TABLE IF EXISTS referral_commissions;
+DROP TABLE IF EXISTS referral_attributions;
+DROP TABLE IF EXISTS referral_clicks;
+DROP TABLE IF EXISTS referral_links;
+DROP TABLE IF EXISTS wallet_transactions;
 DROP TABLE IF EXISTS wallet_topups;
 DROP TABLE IF EXISTS withdraw_requests;
 DROP TABLE IF EXISTS wallets;
@@ -510,6 +515,24 @@ CREATE TABLE withdraw_requests (
     CONSTRAINT fk_withdraw_admin FOREIGN KEY (admin_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 2.20.1 WALLET TRANSACTIONS (SỔ CÁI BIẾN ĐỘNG VÍ & QUYẾT TOÁN HOA HỒNG)
+CREATE TABLE wallet_transactions (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    wallet_id INT NOT NULL,
+    order_id INT NULL,
+    referral_commission_id BIGINT NULL UNIQUE,
+    type VARCHAR(40) NOT NULL,
+    amount DECIMAL(15,2) NOT NULL,
+    balance_after DECIMAL(15,2) NOT NULL,
+    frozen_after DECIMAL(15,2) NULL,
+    description VARCHAR(500) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_wallet_tx_wallet FOREIGN KEY (wallet_id) REFERENCES wallets(wallet_id) ON DELETE CASCADE,
+    CONSTRAINT fk_wallet_tx_order FOREIGN KEY (order_id) REFERENCES orders(order_id) ON DELETE SET NULL,
+    INDEX idx_wallet_tx_wallet_created (wallet_id, created_at),
+    INDEX idx_wallet_tx_order (order_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 2.21 VOUCHERS
 CREATE TABLE vouchers (
     voucher_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -791,6 +814,80 @@ CREATE TABLE plan_generation_requests (
     raw_ai_response LONGTEXT,
     CONSTRAINT fk_plgen_plan FOREIGN KEY (plan_id) REFERENCES build_plans(plan_id) ON DELETE SET NULL,
     CONSTRAINT fk_plgen_buyer FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2.30 REFERRAL LINKS (TIẾP THỊ LIÊN KẾT: LINK GIỚI THIỆU SẢN PHẨM / GIAN HÀNG)
+CREATE TABLE referral_links (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    referral_code VARCHAR(32) NOT NULL,
+    referrer_id INT NOT NULL,
+    target_type VARCHAR(20) NOT NULL,
+    target_id INT NOT NULL,
+    commission_rate DECIMAL(5,2) NULL,
+    clicks_count INT NOT NULL DEFAULT 0,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_ref_link_referrer FOREIGN KEY (referrer_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY uk_ref_code (referral_code),
+    UNIQUE KEY uk_referrer_target (referrer_id, target_type, target_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2.31 REFERRAL CLICKS (LỊCH SỬ NHẤP LINK TIẾP THỊ)
+CREATE TABLE referral_clicks (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    referral_link_id BIGINT NOT NULL,
+    ip_address VARCHAR(45) NULL,
+    user_agent VARCHAR(500) NULL,
+    buyer_id INT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_ref_click_link FOREIGN KEY (referral_link_id) REFERENCES referral_links(id) ON DELETE CASCADE,
+    CONSTRAINT fk_ref_click_buyer FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE SET NULL,
+    INDEX idx_click_link_created (referral_link_id, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2.32 REFERRAL ATTRIBUTIONS (GHI NHẬN CHUYỂN ĐỔI 7 NGÀY - CAPPED MULTI-CONVERSION)
+CREATE TABLE referral_attributions (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    buyer_id INT NOT NULL,
+    referral_link_id BIGINT NOT NULL,
+    referrer_id INT NOT NULL,
+    target_type VARCHAR(20) NOT NULL,
+    target_id INT NOT NULL,
+    attributed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME NOT NULL,
+    converted_order_count INT NOT NULL DEFAULT 0,
+    max_conversions INT NOT NULL DEFAULT 3,
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',
+    CONSTRAINT fk_ref_attr_buyer FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_ref_attr_link FOREIGN KEY (referral_link_id) REFERENCES referral_links(id) ON DELETE CASCADE,
+    CONSTRAINT fk_ref_attr_referrer FOREIGN KEY (referrer_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_attr_buyer_target (buyer_id, target_type, target_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2.33 REFERRAL COMMISSIONS (HOA HỒNG TIẾP THỊ LIÊN KẾT THEO TỪNG DÒNG HÀNG)
+CREATE TABLE referral_commissions (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    order_id INT NOT NULL,
+    order_detail_id INT NOT NULL,
+    referral_link_id BIGINT NOT NULL,
+    referral_attribution_id BIGINT NULL,
+    referrer_id INT NOT NULL,
+    buyer_id INT NOT NULL,
+    commission_rate DECIMAL(5,2) NOT NULL,
+    base_amount DECIMAL(15,2) NOT NULL,
+    commission_amount DECIMAL(15,2) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    settled_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    CONSTRAINT fk_ref_comm_order FOREIGN KEY (order_id) REFERENCES orders(order_id) ON DELETE CASCADE,
+    CONSTRAINT fk_ref_comm_order_detail FOREIGN KEY (order_detail_id) REFERENCES order_details(order_detail_id) ON DELETE CASCADE,
+    CONSTRAINT fk_ref_comm_link FOREIGN KEY (referral_link_id) REFERENCES referral_links(id) ON DELETE CASCADE,
+    CONSTRAINT fk_ref_comm_attr FOREIGN KEY (referral_attribution_id) REFERENCES referral_attributions(id) ON DELETE SET NULL,
+    CONSTRAINT fk_ref_comm_referrer FOREIGN KEY (referrer_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_ref_comm_buyer FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY uk_ref_comm_order_detail (order_detail_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ==============================================================================
@@ -1355,6 +1452,60 @@ INSERT INTO images (id, image_url, media_type, created_at, review_id) VALUES
 (1004, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916481/brands/s5ld5232nl4s4fwczawr.jpg', 'PHOTO', DATE_SUB(NOW(), INTERVAL 2 DAY), 4),
 (1005, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917344/brands/c2i9gkbkl8vx7iwulwsz.png', 'PHOTO', DATE_SUB(NOW(), INTERVAL 1 DAY), 5)
 ON DUPLICATE KEY UPDATE image_url=VALUES(image_url);
+
+-- 3.19 NOTIFICATIONS (THÔNG BÁO MẪU CHO BUYER & HỆ THỐNG)
+INSERT INTO notifications (noti_id, admin_id, title, message, evidence, create_at, receiver_type) VALUES
+-- 1. Đơn hàng đã giao hoàn tất (Đơn #106 - Bưởi da xanh) -> Test deep-link vào /buyer/order/106
+(1, 1, 'Đơn hàng #106 đã giao thành công', 'Đơn hàng #106 của bạn gồm Bưởi da xanh Bến Tre đã được giao hoàn tất bởi tài xế Nguyễn Văn Hoàng. Vui lòng kiểm tra và gửi đánh giá nông sản để tích điểm giải cứu nhé!', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917344/brands/c2i9gkbkl8vx7iwulwsz.png', DATE_SUB(NOW(), INTERVAL 20 MINUTE), 'BUYER'),
+
+-- 2. Đang vận chuyển (Đơn #108 - Cà rốt & Rau muống) -> Test deep-link vào /buyer/order/108
+(2, 1, 'Tài xế đang giao đơn hàng #108', 'Tài xế Nguyễn Văn Hoàng đang trên đường giao đơn hàng #108 đến bạn. Rau củ tươi được đóng thùng cách nhiệt bảo quản độ giòn mát tối đa, dự kiến giao trong 30 phút.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916721/brands/uj1eoinkwvthfjvtpvpq.jpg', DATE_SUB(NOW(), INTERVAL 1 HOUR), 'BUYER'),
+
+-- 3. Xác nhận đơn hàng (Đơn #109 - Cà chua bi) -> Test deep-link vào /buyer/order/109
+(3, 1, 'Đơn hàng #109 đã được xác nhận', 'Nhà vườn Nông Sản Xấu Mã - Vườn Đà Lạt đã xác nhận đơn hàng #109. Nông dân đang chuẩn bị thu hái Cà chua bi tươi ngon và đóng gói cẩn thận giao cho shipper.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916530/brands/xjiiaehe5evwybwhmpmu.jpg', DATE_SUB(NOW(), INTERVAL 1 DAY), 'BUYER'),
+
+-- 4. Đơn hàng chuẩn bị xuất kho (Đơn #112 - Xoài cát) -> Test deep-link vào /buyer/order/112
+(4, 1, 'Đơn hàng #112 chuẩn bị xuất kho', 'Đơn hàng #112 gồm Xoài cát Hòa Lộc Tiền Giang ngọt lịm đã được nhà vườn Vườn Xanh tuyển chọn và đóng gói kỹ càng, chuẩn bị bàn giao cho đơn vị vận chuyển.', 'https://images.unsplash.com/photo-1553279768-865429fa0078?w=600&h=400&fit=crop', DATE_SUB(NOW(), INTERVAL 2 DAY), 'BUYER'),
+
+-- 5. Voucher ưu đãi miễn phí ship -> Test deep-link vào /buyer/vouchers
+(5, 1, 'Voucher mới: Giảm 15K phí vận chuyển', 'CapNong tặng bạn mã DALATFREESHIP giảm ngay 15.000đ phí giao hàng cho mọi đơn nông sản sạch từ 100.000đ. Nhấn để lưu voucher vào kho ưu đãi ngay!', NULL, DATE_SUB(NOW(), INTERVAL 4 HOUR), 'BUYER'),
+
+-- 6. Voucher ưu đãi giảm giá đơn hàng -> Test deep-link vào /buyer/vouchers
+(6, 1, 'Voucher mới: CAPNONG10K tri ân khách', 'Mã ưu đãi CAPNONG10K giảm trực tiếp 10.000đ áp dụng cho mọi đơn hàng giải cứu rau củ quả tươi từ 50.000đ. Nhanh tay sử dụng trong 30 ngày nhé!', NULL, DATE_SUB(NOW(), INTERVAL 3 DAY), 'BUYER'),
+
+-- 7. Nông sản mới về kho -> Icon Gói hàng (Package)
+(7, 1, 'Nông sản mới: Dâu tây & Bơ sáp 034', 'Kho nông sản vừa cập bến lô Dâu tây giống Nhật đỏ mọng thu hái sáng sớm và Bơ sáp 034 Đắk Lắk dẻo béo ngậy. Mở app đặt ngay để giữ trọn vị tươi ngon!', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773943061/brands/qtspypfmdjcxtsbme7xi.jpg', DATE_SUB(NOW(), INTERVAL 8 HOUR), 'BUYER'),
+
+-- 8. Nông sản mới miền Tây -> Icon Gói hàng (Package)
+(8, 1, 'Nông sản mới: Sầu riêng Ri6 & Bưởi', 'Vườn Xanh Miền Tây vừa mở bán đợt Sầu riêng Ri6 cơm vàng hạt lép chín cây và Bưởi da xanh tép hồng mọng nước chuẩn VietGAP với giá giải cứu siêu tiết kiệm.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917344/brands/c2i9gkbkl8vx7iwulwsz.png', DATE_SUB(NOW(), INTERVAL 4 DAY), 'BUYER'),
+
+-- 9. Thông báo chào mừng thành viên mới -> Icon Chuông (Bell)
+(9, 1, 'Chào mừng bạn đến với CapNong!', 'Chào mừng bạn gia nhập cộng đồng tiêu dùng xanh CapNong! Hãy cùng chúng tôi bảo vệ công sức người nông dân và thưởng thức nông sản thuần tự nhiên an toàn mỗi ngày.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252968/brands/vxm3b2gvixlqzf7xocoy.jpg', DATE_SUB(NOW(), INTERVAL 5 DAY), 'BUYER'),
+
+-- 10. Cập nhật tích điểm / xếp hạng giải cứu -> Icon Chuông (Bell)
+(10, 1, 'Cập nhật hạng: Thành viên Nông Hộ', 'Chúc mừng bạn đã hoàn thành các đơn hàng giải cứu nông sản thành công và chính thức thăng hạng Thành viên Nông Hộ Thân Thiết. Nhiều ưu đãi đặc quyền đang chờ đón bạn!', NULL, DATE_SUB(NOW(), INTERVAL 6 DAY), 'BUYER')
+ON DUPLICATE KEY UPDATE title=VALUES(title), message=VALUES(message), evidence=VALUES(evidence), create_at=VALUES(create_at), receiver_type=VALUES(receiver_type);
+
+-- 3.20 USER NOTIFICATIONS (LIÊN KẾT THÔNG BÁO VỚI BUYER)
+-- Buyer 1 (id=2: Ngô Gia Sang / buyer1@gmail.com): 10 thông báo (4 chưa đọc: #1, #2, #5, #7; 6 đã đọc: #3, #4, #6, #8, #9, #10)
+-- Buyer 2 (id=3: Trần Thị Mai / buyer2@gmail.com): 4 thông báo (2 chưa đọc: #5, #7; 2 đã đọc: #9, #10)
+INSERT INTO user_notifications (id, user_id, notification_id, is_read, is_deleted) VALUES
+(1, 2, 1, 0, 0),   -- Buyer 1: Chưa đọc (Đơn #106)
+(2, 2, 2, 0, 0),   -- Buyer 1: Chưa đọc (Tài xế giao Đơn #108)
+(3, 2, 5, 0, 0),   -- Buyer 1: Chưa đọc (Voucher 15K freeship)
+(4, 2, 7, 0, 0),   -- Buyer 1: Chưa đọc (Nông sản mới Dâu tây & Bơ)
+(5, 2, 3, 1, 0),   -- Buyer 1: Đã đọc (Đơn #109)
+(6, 2, 4, 1, 0),   -- Buyer 1: Đã đọc (Đơn #112)
+(7, 2, 6, 1, 0),   -- Buyer 1: Đã đọc (Voucher CAPNONG10K)
+(8, 2, 8, 1, 0),   -- Buyer 1: Đã đọc (Nông sản mới Sầu riêng)
+(9, 2, 9, 1, 0),   -- Buyer 1: Đã đọc (Chào mừng)
+(10, 2, 10, 1, 0), -- Buyer 1: Đã đọc (Xếp hạng)
+
+(11, 3, 5, 0, 0),  -- Buyer 2: Chưa đọc (Voucher freeship)
+(12, 3, 7, 0, 0),  -- Buyer 2: Chưa đọc (Nông sản mới)
+(13, 3, 9, 1, 0),  -- Buyer 2: Đã đọc (Chào mừng)
+(14, 3, 10, 1, 0)  -- Buyer 2: Đã đọc (Xếp hạng)
+ON DUPLICATE KEY UPDATE is_read=VALUES(is_read), is_deleted=VALUES(is_deleted);
 
 SET FOREIGN_KEY_CHECKS = 1;
 

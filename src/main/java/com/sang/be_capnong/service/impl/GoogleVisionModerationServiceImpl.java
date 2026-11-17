@@ -304,6 +304,8 @@ public class GoogleVisionModerationServiceImpl implements ImageModerationService
                     AgriculturalProduceLabel expected = expectedProduceOpt.get();
                     AgriculturalProduceLabel topConflictProduce = null;
                     float topConflictScore = 0.0f;
+                    AgriculturalProduceLabel topGroupConflict = null;
+                    float topGroupConflictScore = 0.0f;
                     boolean hasExpectedProduceFamily = false;
 
                     for (ModerationCheckResult.ModerationLabelItem item : matchedLabels) {
@@ -312,21 +314,31 @@ public class GoogleVisionModerationServiceImpl implements ImageModerationService
                             AgriculturalProduceLabel detected = detectedOpt.get();
                             if (expected.isFamilyCompatibleWith(detected)) {
                                 hasExpectedProduceFamily = true;
-                            } else if (detected.isSpecificProduce() && item.getConfidence().floatValue() >= minConfidenceThreshold) {
+                            } else if (detected.isSpecificProduce() && item.getConfidence().floatValue() >= 50.0f) {
                                 if (item.getConfidence().floatValue() > topConflictScore) {
                                     topConflictProduce = detected;
                                     topConflictScore = item.getConfidence().floatValue();
+                                }
+                            } else if (detected == AgriculturalProduceLabel.ROOT_VEGETABLE && item.getConfidence().floatValue() >= 65.0f) {
+                                if (item.getConfidence().floatValue() > topGroupConflictScore) {
+                                    topGroupConflict = detected;
+                                    topGroupConflictScore = item.getConfidence().floatValue();
                                 }
                             }
                         }
                     }
 
-                    // Nếu hoàn toàn không có họ hàng mong đợi, mà lại nhận diện ra loại cụ thể khác >= 70%
+                    // Nếu hoàn toàn không có họ hàng mong đợi, mà lại nhận diện ra loại cụ thể khác >= 50%
                     if (!hasExpectedProduceFamily && topConflictProduce != null) {
                         isMismatch = true;
                         mismatchReason = "Nghi ngờ ảnh chưa khớp với tên sản phẩm: Tên sản phẩm là '" + expected.getVietnameseName()
                                 + "' nhưng AI nhận diện có đặc điểm '" + topConflictProduce.getVietnameseName()
                                 + "' (" + String.format(Locale.US, "%.1f", topConflictScore) + "%). Đề nghị Admin kiểm tra mắt thường.";
+                    } else if (!hasExpectedProduceFamily && topGroupConflict != null) {
+                        isMismatch = true;
+                        mismatchReason = "Nghi ngờ ảnh chưa khớp với tên sản phẩm: Tên sản phẩm là '" + expected.getVietnameseName()
+                                + "' nhưng AI nhận diện thuộc nhóm '" + topGroupConflict.getVietnameseName()
+                                + "' (" + String.format(Locale.US, "%.1f", topGroupConflictScore) + "%). Đề nghị Admin kiểm tra mắt thường.";
                     }
                 }
             }

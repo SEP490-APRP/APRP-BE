@@ -259,7 +259,11 @@ public class ShipperServiceImpl implements ShipperService {
 
         LocalDateTime updatedAt = order.getDeliveredAt() != null
                 ? order.getDeliveredAt()
-                : (order.getFailedAt() != null ? order.getFailedAt() : LocalDateTime.now());
+                : (order.getFailedAt() != null
+                        ? order.getFailedAt()
+                        : (order.getCompletedAt() != null
+                                ? order.getCompletedAt()
+                                : (order.getCreatedAt() != null ? order.getCreatedAt() : LocalDateTime.now())));
 
         String phase = order.getStatus() == OrderStatus.FAILED || order.getStatus() == OrderStatus.CANCELLED
                 ? "FAILED"

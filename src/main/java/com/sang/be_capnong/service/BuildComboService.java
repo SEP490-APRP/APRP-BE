@@ -22,6 +22,19 @@ public interface BuildComboService {
             String sortDirection
     );
 
+    PageResponse<BuildComboResponse> getCombos(
+            Integer shopId,
+            String status,
+            MealType mealType,
+            String region,
+            String type,
+            String keyword,
+            int page,
+            int size,
+            String sortBy,
+            String sortDirection
+    );
+
     BuildComboResponse getComboById(Integer comboId);
 
     PageResponse<BuildComboResponse> getMyCombos(String status, MealType mealType, int page, int size);

@@ -38,6 +38,7 @@ public enum ErrorCode {
     SEND_MAIL_FAILED(1024, "Failed to send email", HttpStatus.INTERNAL_SERVER_ERROR),
     USER_PENDING_APPROVAL(1025, "Account is pending admin approval. Please wait for approval before accessing the platform", HttpStatus.FORBIDDEN),
     USER_LOCKED(1026, "Account has been locked. Please contact support", HttpStatus.FORBIDDEN),
+    USER_SUSPENDED_TEMPORARILY(1034, "Tài khoản của bạn đang bị tạm khóa do vi phạm chính sách giao nhận (bom hàng)", HttpStatus.FORBIDDEN),
     OLD_PASSWORD_INCORRECT(1027, "Mật khẩu hiện tại không chính xác", HttpStatus.BAD_REQUEST),
     PASSWORD_CONFIRMATION_NOT_MATCH(1028, "Password confirmation does not match", HttpStatus.BAD_REQUEST),
     NEW_PASSWORD_SAME_AS_OLD(1029, "New password cannot be the same as old password", HttpStatus.BAD_REQUEST),
@@ -242,6 +243,7 @@ public enum ErrorCode {
     WALLET_INSUFFICIENT_BALANCE(16012, "Wallet balance is not enough to perform this operation", HttpStatus.BAD_REQUEST),
     SHIPPER_COD_BALANCE_INSUFFICIENT(16013, "Số dư khả dụng trong ví không đủ để ký quỹ đơn COD. Vui lòng nạp thêm tiền vào ví", HttpStatus.BAD_REQUEST),
     WALLET_HAS_DEBT(16014, "Ví đang âm do còn tiền COD chưa nộp về sàn. Vui lòng nạp ví hoặc nộp tiền COD trước khi nhận đơn", HttpStatus.BAD_REQUEST),
+    COD_NOT_ALLOWED(16015, "Tài khoản của bạn đã bị tước quyền thanh toán khi nhận hàng (COD) do có từ 3 lần giao hàng thất bại (bom hàng). Vui lòng chọn phương thức thanh toán trực tuyến.", HttpStatus.FORBIDDEN),
     TOPUP_AMOUNT_INVALID(16015, "Số tiền nạp không hợp lệ", HttpStatus.BAD_REQUEST),
     TOPUP_NOT_FOUND(16016, "Không tìm thấy lệnh nạp tiền", HttpStatus.NOT_FOUND),
 
@@ -312,7 +314,16 @@ public enum ErrorCode {
     PROPOSAL_COOLDOWN(19012, "Bạn có 3 đơn bị từ chối trong 30 ngày, tạm thời chưa tạo đơn mới được (7 ngày)", HttpStatus.BAD_REQUEST),
     PROPOSAL_NOTE_REQUIRED(19013, "Vui lòng ghi lý do", HttpStatus.BAD_REQUEST),
     PROPOSAL_SITE_REQUIRED(19014, "Hãy chọn điểm tập kết trên bản đồ trước khi tìm shop lân cận", HttpStatus.BAD_REQUEST),
-    PROPOSAL_HARVEST_TOO_SOON(19015, "Ngày thu hoạch phải cách hôm nay ít nhất 3 ngày để kịp mở bán", HttpStatus.BAD_REQUEST);
+    PROPOSAL_HARVEST_TOO_SOON(19015, "Ngày thu hoạch phải cách hôm nay ít nhất 3 ngày để kịp mở bán", HttpStatus.BAD_REQUEST),
+    RISK_FLAG_NOT_FOUND(17015, "Không tìm thấy cờ rủi ro vi phạm", HttpStatus.NOT_FOUND),
+
+    // Referral / Affiliate Errors (Series 20000, dời từ 18000 để không trùng mã chiến dịch)
+    REFERRAL_LINK_NOT_FOUND(20001, "Referral link not found", HttpStatus.NOT_FOUND),
+    REFERRAL_LINK_INACTIVE(20002, "Referral link is inactive", HttpStatus.BAD_REQUEST),
+    SELF_REFERRAL_NOT_ALLOWED(20003, "Cannot refer yourself or your own shop/product", HttpStatus.BAD_REQUEST),
+    REFERRAL_RATE_LIMIT_EXCEEDED(20004, "Too many clicks from this IP, please try again later", HttpStatus.TOO_MANY_REQUESTS),
+    REFERRAL_INVALID_TARGET(20005, "Target product or shop does not exist or is inactive", HttpStatus.BAD_REQUEST),
+    REFERRAL_COMMISSION_NOT_FOUND(20006, "Referral commission not found", HttpStatus.NOT_FOUND);
 
     private final int code;
     private final String message;

@@ -1,5 +1,6 @@
 package com.sang.be_capnong.service.impl;
 
+import com.sang.be_capnong.service.UserService;
 import com.sang.be_capnong.dto.request.ReviewCreateRequest;
 import com.sang.be_capnong.dto.request.ReviewReactionRequest;
 import com.sang.be_capnong.dto.request.ReviewReplyRequest;
@@ -45,6 +46,7 @@ public class ReviewServiceImpl implements ReviewService {
     UserRepository userRepository;
     MysteryBoxRepository mysteryBoxRepository;
     ReviewMapper reviewMapper;
+    UserService userService;
 
     @Override
     @Transactional
@@ -175,6 +177,10 @@ public class ReviewServiceImpl implements ReviewService {
     private void updateShopRating(User shopOwner) {
         Double avg = reviewRepository.getAverageRatingByShopId(shopOwner.getId());
         double rounded = (avg != null && avg > 0) ? Math.round(avg * 10.0) / 10.0 : 0.0;
+        // Nếu shop đang chịu phạt >= 3 risk flags thì tự động trừ 1 sao trên điểm đánh giá công khai
+        if (userService != null && userService.countActiveRiskFlags(shopOwner.getId()) >= 3) {
+            rounded = Math.max(1.0, Math.round((rounded - 1.0) * 10.0) / 10.0);
+        }
         shopOwner.setRatingAverage(rounded);
         userRepository.save(shopOwner);
     }

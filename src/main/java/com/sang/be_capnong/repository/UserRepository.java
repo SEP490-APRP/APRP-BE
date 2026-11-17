@@ -33,4 +33,6 @@ public interface UserRepository extends JpaRepository<User, Integer> {
             + "and u.shopLatitude between :minLat and :maxLat and u.shopLongitude between :minLng and :maxLng")
     List<User> findShopsInBox(@Param("minLat") double minLat, @Param("maxLat") double maxLat,
                               @Param("minLng") double minLng, @Param("maxLng") double maxLng);
+
+    List<User> findByStatusAndLockedAtBefore(UserStatus status, java.time.LocalDateTime time);
 }

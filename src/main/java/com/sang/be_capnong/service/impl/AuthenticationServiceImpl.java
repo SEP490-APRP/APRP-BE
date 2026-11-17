@@ -37,6 +37,7 @@ import com.sang.be_capnong.service.OtpService;
 import java.math.BigDecimal;
 import java.text.ParseException;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -87,9 +88,7 @@ public class AuthenticationServiceImpl implements AuthenticationService {
             throw new AppException(ErrorCode.USER_PENDING_APPROVAL);
         }
 
-        if (user.getStatus() == UserStatus.LOCKED) {
-            throw new AppException(ErrorCode.USER_LOCKED);
-        }
+        validateUserNotLocked(user);
 
         String token = generateToken(user);
 
@@ -242,9 +241,7 @@ public class AuthenticationServiceImpl implements AuthenticationService {
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
 
-        if (user.getStatus() == UserStatus.LOCKED) {
-            throw new AppException(ErrorCode.USER_LOCKED);
-        }
+        validateUserNotLocked(user);
 
         otpService.generateAndSendForgotPasswordOtp(user.getEmail());
     }
@@ -258,9 +255,7 @@ public class AuthenticationServiceImpl implements AuthenticationService {
         User user = userRepository.findByEmail(request.getEmail())
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
 
-        if (user.getStatus() == UserStatus.LOCKED) {
-            throw new AppException(ErrorCode.USER_LOCKED);
-        }
+        validateUserNotLocked(user);
 
         if (request.getConfirmPassword() != null && !request.getConfirmPassword().isBlank()
                 && !request.getNewPassword().equals(request.getConfirmPassword())) {
@@ -316,10 +311,7 @@ public class AuthenticationServiceImpl implements AuthenticationService {
             log.warn("Google login failed: Account is pending approval for email: {}", email);
             throw new AppException(ErrorCode.USER_PENDING_APPROVAL);
         }
-        if (user.getStatus() == UserStatus.LOCKED) {
-            log.warn("Google login failed: Account is locked for email: {}", email);
-            throw new AppException(ErrorCode.USER_LOCKED);
-        }
+        validateUserNotLocked(user);
 
         String token = generateToken(user);
         return AuthenticationResponse.builder()
@@ -423,5 +415,25 @@ public class AuthenticationServiceImpl implements AuthenticationService {
             log.info("Automatically registered new BUYER via Google login: {}", email);
             return savedUser;
         });
+    }
+
+    private void validateUserNotLocked(User user) {
+        if (user.getStatus() == UserStatus.LOCKED) {
+            if (user.getLockedAt() != null) {
+                LocalDateTime unlockTime = user.getLockedAt().plusDays(7);
+                if (LocalDateTime.now().isAfter(unlockTime)) {
+                    // Tự động mở khóa sau 7 ngày tạm ngưng (tận dụng lockedAt có sẵn)
+                    user.setStatus(UserStatus.ACTIVE);
+                    user.setLockedAt(null);
+                    userRepository.save(user);
+                    log.info("[CustomerPenalty] User id={} auto-unsuspended upon login", user.getId());
+                    return;
+                }
+                String untilStr = unlockTime.format(DateTimeFormatter.ofPattern("HH:mm dd/MM/yyyy"));
+                throw new AppException(ErrorCode.USER_SUSPENDED_TEMPORARILY,
+                        "Tài khoản của bạn đang bị tạm khóa 7 ngày (đến " + untilStr + ") do vi phạm chính sách giao nhận (bom hàng 5 lần).");
+            }
+            throw new AppException(ErrorCode.USER_LOCKED);
+        }
     }
 }

@@ -1,5 +1,12 @@
 package com.sang.be_capnong.service.impl;
 
+import com.sang.be_capnong.service.CartService;
+import com.sang.be_capnong.service.WalletService;
+import com.sang.be_capnong.service.PaymentService;
+import com.sang.be_capnong.service.DispatchService;
+import com.sang.be_capnong.service.ShipperService;
+import com.sang.be_capnong.service.ReferralService;
+import com.sang.be_capnong.service.UserService;
 import com.sang.be_capnong.dto.request.CheckoutPreviewRequest;
 import com.sang.be_capnong.dto.request.CreateOrderRequest;
 import com.sang.be_capnong.dto.request.OrderItemRequest;
@@ -9,11 +16,13 @@ import com.sang.be_capnong.dto.response.OrderDetailResponse;
 import com.sang.be_capnong.dto.response.OrderResponse;
 import com.sang.be_capnong.entity.*;
 import com.sang.be_capnong.enums.OrderStatus;
+import com.sang.be_capnong.enums.ReturnStatus;
 import com.sang.be_capnong.exception.AppException;
 import com.sang.be_capnong.exception.ErrorCode;
 import com.sang.be_capnong.mapper.OrderMapper;
 import com.sang.be_capnong.repository.*;
 import com.sang.be_capnong.service.GoogleMapService;
+import com.sang.be_capnong.service.NotificationService;
 import com.sang.be_capnong.service.OrderService;
 import com.sang.be_capnong.service.ShippingFeeService;
 import com.sang.be_capnong.enums.UserStatus;
@@ -62,6 +71,7 @@ public class OrderServiceImpl implements OrderService {
     ProductMysteryRepository productMysteryRepository;
     ProductComboRepository productComboRepository;
     UserRepository userRepository;
+    ReturnRequestRepository returnRequestRepository;
     OrderMapper orderMapper;
     ShippingFeeService shippingFeeService;
     VoucherRepository voucherRepository;
@@ -71,11 +81,14 @@ public class OrderServiceImpl implements OrderService {
     CheckoutBatchRepository checkoutBatchRepository;
     SavedAddressRepository savedAddressRepository;
     GoogleMapService googleMapService;
-    com.sang.be_capnong.service.CartService cartService;
-    com.sang.be_capnong.service.WalletService walletService;
-    com.sang.be_capnong.service.PaymentService paymentService;
-    com.sang.be_capnong.service.DispatchService dispatchService;
-    com.sang.be_capnong.service.ShipperService shipperService;
+    CartService cartService;
+    WalletService walletService;
+    PaymentService paymentService;
+    DispatchService dispatchService;
+    ShipperService shipperService;
+    ReferralService referralService;
+    UserService userService;
+    NotificationService notificationService;
 
     /** Bán kính tối đa (km) để shipper thấy đơn READY trong danh sách */
     static final double READY_LIST_MAX_KM = 15.0;
@@ -102,8 +115,13 @@ public class OrderServiceImpl implements OrderService {
             throw new AppException(ErrorCode.INVALID_ORDER_STATE);
         }
 
+        // Chống bom hàng: Kiểm tra xem khách có bị tước quyền thanh toán COD không
+        if ("COD".equalsIgnoreCase(request.getPaymentMethod())) {
+            userService.checkCodAllowed(buyer);
+        }
+
         // 1. Nhóm items và validate (trừ tồn kho)
-        java.util.Map<User, List<OrderDetail>> mapShopToDetails = groupItemsByShop(request.getItems(), true);
+        Map<User, List<OrderDetail>> mapShopToDetails = groupItemsByShop(request.getItems(), true);
 
         // 2. Tính toán tiền và Voucher giống như Preview
         CheckoutPreviewResponse previewRes = buildCheckoutPreview(buyer, request.getShippingAddress(), request.getVoucherCodes(), mapShopToDetails);
@@ -153,6 +171,9 @@ public class OrderServiceImpl implements OrderService {
                 d.setOrder(savedOrder);
             }
             orderDetailRepository.saveAll(details);
+
+            // Ghi nhận hoa hồng tiếp thị liên kết (nếu có attribution hợp lệ)
+            referralService.processOrderReferral(savedOrder, details, sp.getVoucherDiscount());
         }
 
         // 3b. Trả bằng ví: trừ ví lần lượt từng đơn, phần còn lại trả bằng COD / PayOS
@@ -297,6 +318,30 @@ public class OrderServiceImpl implements OrderService {
 
             if (!itemsToDelete.isEmpty()) {
                 cartItemRepository.deleteAll(itemsToDelete);
+            }
+        }
+
+        // 6. Gửi thông báo cho Shop và Buyer
+        for (Order savedOrder : savedOrders) {
+            try {
+                if (savedOrder.getShop() != null) {
+                    notificationService.sendNotificationToUser(
+                            savedOrder.getShop(),
+                            "Bạn có đơn hàng mới!",
+                            "Đơn hàng #" + savedOrder.getOrderId() + " đã được đặt và đang chờ xác nhận.",
+                            "NEW_ORDER",
+                            savedOrder.getOrderId()
+                    );
+                }
+                notificationService.sendNotificationToUser(
+                        buyer,
+                        "Đặt hàng thành công",
+                        "Đơn hàng #" + savedOrder.getOrderId() + " đã được tạo thành công.",
+                        "ORDER_STATUS",
+                        savedOrder.getOrderId()
+                );
+            } catch (Exception e) {
+                log.warn("[Order] Failed to send order creation notification for order #{}: {}", savedOrder.getOrderId(), e.getMessage());
             }
         }
 
@@ -679,12 +724,17 @@ public class OrderServiceImpl implements OrderService {
         BigDecimal effectiveTotalDiscount = totalGoodsAmount.add(totalShippingFee).subtract(finalTotalAmount).setScale(0, java.math.RoundingMode.HALF_UP);
         if (effectiveTotalDiscount.compareTo(BigDecimal.ZERO) < 0) effectiveTotalDiscount = BigDecimal.ZERO;
 
+        boolean isCodAllowed = buyer == null || !userService.isCodBlocked(buyer.getId());
+        String codRestrictionReason = isCodAllowed ? null : "Tài khoản của bạn đã bị tước quyền thanh toán COD do có từ 3 lần giao hàng thất bại (bom hàng).";
+
         return CheckoutPreviewResponse.builder()
                 .shopOrders(shopOrderPreviews)
                 .totalGoodsAmount(totalGoodsAmount)
                 .totalShippingFee(totalShippingFee)
                 .totalVoucherDiscount(effectiveTotalDiscount)
                 .finalTotalAmount(finalTotalAmount)
+                .codAllowed(isCodAllowed)
+                .codRestrictionReason(codRestrictionReason)
                 .build();
     }
 
@@ -1025,6 +1075,21 @@ public class OrderServiceImpl implements OrderService {
         }
         order.setStatus(OrderStatus.CONFIRMED);
         Order saved = orderRepository.save(order);
+        try {
+            if (saved.getBuyer() != null) {
+                String shopName = saved.getShop() != null && saved.getShop().getFullName() != null
+                        ? saved.getShop().getFullName() : "Nhà vườn";
+                notificationService.sendNotificationToUser(
+                        saved.getBuyer(),
+                        "Nhà vườn đã xác nhận đơn hàng",
+                        shopName + " đã xác nhận đơn hàng #" + saved.getOrderId() + " và đang chuẩn bị hàng.",
+                        "ORDER_STATUS",
+                        saved.getOrderId()
+                );
+            }
+        } catch (Exception e) {
+            log.warn("[Order] Failed to send order confirmed notification: {}", e.getMessage());
+        }
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
         return buildOrderResponse(saved, details);
     }
@@ -1074,13 +1139,17 @@ public class OrderServiceImpl implements OrderService {
             throw new AppException(ErrorCode.SHIPPER_NOT_ONLINE);
         }
 
-        // Bắt buộc 1 đơn tại 1 thời điểm: Kiểm tra xem shipper đã có đơn đang giao hoặc đang lấy hàng chưa
+        // Bắt buộc 1 đơn tại 1 thời điểm: Kiểm tra xem shipper đã có đơn đang giao hoặc đang lấy hàng chưa (cả đơn xuôi và đơn hoàn)
         boolean hasActiveShipping = orderRepository.existsByShipper_IdAndStatusIn(
                 currentUser.getId(), 
                 List.of(OrderStatus.SHIPPING, OrderStatus.PICKED_UP)
         );
-        if (hasActiveShipping) {
-            log.warn("Shipper id {} already has an active shipping order", currentUser.getId());
+        boolean hasActiveReturn = returnRequestRepository.existsByShipper_IdAndStatusIn(
+                currentUser.getId(),
+                List.of(ReturnStatus.RETURN_SHIPPING, ReturnStatus.RETURN_PICKED_UP)
+        );
+        if (hasActiveShipping || hasActiveReturn) {
+            log.warn("Shipper id {} already has an active order (forward: {}, return: {})", currentUser.getId(), hasActiveShipping, hasActiveReturn);
             throw new AppException(ErrorCode.SHIPPER_HAS_ACTIVE_ORDER);
         }
 
@@ -1166,6 +1235,9 @@ public class OrderServiceImpl implements OrderService {
             // Tiền mặt đã vào hệ thống -> Shop và Sàn thấy phần của mình ở mục "tạm giữ"
             walletService.holdShopAndPlatformIncome(saved.getOrderId());
         }
+
+        // Cước giao hàng của Shipper được giải phóng và cộng thẳng vào số dư khả dụng ngay khi giao thành công
+        walletService.releaseShipperFeeOnDelivered(saved.getOrderId());
         dispatchService.notifyStatusChangedAfterCommit(saved.getOrderId());
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
         return buildOrderResponse(saved, details);
@@ -1272,8 +1344,40 @@ public class OrderServiceImpl implements OrderService {
         walletService.cancelHolds(order.getOrderId(), "đơn bị huỷ");
         // Phần đã trả bằng ví hoàn ngay về ví người mua
         walletService.refundOrderWalletPayment(order.getOrderId(), "đơn bị huỷ");
+        referralService.handleOrderCancelled(order.getOrderId());
         order.setStatus(OrderStatus.CANCELLED);
         Order saved = orderRepository.save(order);
+        try {
+            String canceller = isBuyer ? "Người mua" : "Nhà vườn";
+            if (isBuyer && saved.getShop() != null) {
+                notificationService.sendNotificationToUser(
+                        saved.getShop(),
+                        "Đơn hàng đã bị hủy",
+                        "Người mua đã hủy đơn hàng #" + saved.getOrderId() + ".",
+                        "ORDER_STATUS",
+                        saved.getOrderId()
+                );
+            } else if (!isBuyer && saved.getBuyer() != null) {
+                notificationService.sendNotificationToUser(
+                        saved.getBuyer(),
+                        "Đơn hàng đã bị hủy",
+                        "Nhà vườn đã hủy đơn hàng #" + saved.getOrderId() + ".",
+                        "ORDER_STATUS",
+                        saved.getOrderId()
+                );
+            }
+            if (saved.getShipper() != null) {
+                notificationService.sendNotificationToUser(
+                        saved.getShipper(),
+                        "Đơn hàng đã bị hủy",
+                        "Đơn hàng #" + saved.getOrderId() + " đã bị hủy bởi " + canceller + ".",
+                        "ORDER_STATUS",
+                        saved.getOrderId()
+                );
+            }
+        } catch (Exception e) {
+            log.warn("[Order] Failed to send order cancelled notification: {}", e.getMessage());
+        }
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
         return buildOrderResponse(saved, details);
     }
@@ -1328,8 +1432,11 @@ public class OrderServiceImpl implements OrderService {
         walletService.refundOrderWalletPayment(order.getOrderId(), "giao hàng thất bại");
         // Đơn COD: trả lại tiền ký quỹ cho Shipper
         walletService.releaseCodReserve(order.getOrderId(), "giao hàng thất bại");
+        referralService.handleOrderCancelled(order.getOrderId());
         order.setStatus(OrderStatus.FAILED);
         Order saved = orderRepository.save(order);
+        // Xử lý phạt khách hàng nếu giao thất bại do lỗi chủ quan (Chống bom hàng)
+        userService.handleDeliveryFailed(saved, request.getReason());
         shipperService.detachOrderFromShipperLocation(saved.getOrderId());
         dispatchService.notifyStatusChangedAfterCommit(saved.getOrderId());
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
@@ -1363,6 +1470,28 @@ public class OrderServiceImpl implements OrderService {
         order.setCompletedAt(LocalDateTime.now());
         Order saved = orderRepository.saveAndFlush(order);
         walletService.settleOrder(saved.getOrderId());
+        try {
+            if (saved.getShop() != null) {
+                notificationService.sendNotificationToUser(
+                        saved.getShop(),
+                        "Đơn hàng hoàn tất",
+                        "Đơn hàng #" + saved.getOrderId() + " đã hoàn tất. Tiền bán hàng đã được cộng vào ví của bạn.",
+                        "ORDER_STATUS",
+                        saved.getOrderId()
+                );
+            }
+            if (saved.getBuyer() != null) {
+                notificationService.sendNotificationToUser(
+                        saved.getBuyer(),
+                        "Đơn hàng hoàn tất",
+                        "Đơn hàng #" + saved.getOrderId() + " đã hoàn tất. Cảm ơn bạn đã mua sắm nông sản!",
+                        "ORDER_STATUS",
+                        saved.getOrderId()
+                );
+            }
+        } catch (Exception e) {
+            log.warn("[Order] Failed to send order completed notification: {}", e.getMessage());
+        }
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
         return buildOrderResponse(saved, details);
     }

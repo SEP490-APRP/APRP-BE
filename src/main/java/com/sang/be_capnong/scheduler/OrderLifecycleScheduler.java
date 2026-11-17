@@ -33,6 +33,7 @@ public class OrderLifecycleScheduler {
     private final com.sang.be_capnong.service.ReturnRequestService returnRequestService;
     private final com.sang.be_capnong.service.DispatchService dispatchService;
     private final com.sang.be_capnong.service.ShipperService shipperService;
+    private final com.sang.be_capnong.service.UserService userService;
 
     /** Điều phối đơn READY: mở rộng bán kính quét shipper, quét lại, cảnh báo chưa có tài xế */
     @Scheduled(fixedDelayString = "${capnong.scheduler.dispatch-delay-ms:20000}", initialDelay = 30000)
@@ -89,7 +90,7 @@ public class OrderLifecycleScheduler {
         LocalDateTime twentyFourHoursAgo = LocalDateTime.now().minusHours(autoCompleteHours > 0 ? autoCompleteHours : 24);
         for (Order o : orderRepository.findTop200ByStatusInAndSettledAtIsNull(java.util.List.of(OrderStatus.COMPLETED, OrderStatus.REFUNDED))) {
             try {
-                if (o.getStatus() == OrderStatus.COMPLETED && o.getDeliveredAt() != null && o.getDeliveredAt().isAfter(twentyFourHoursAgo)) {
+                if (o.getCompletedAt() == null && o.getStatus() == OrderStatus.COMPLETED && o.getDeliveredAt() != null && o.getDeliveredAt().isAfter(twentyFourHoursAgo)) {
                     log.debug("[Scheduler] Order #{} within 24h return window, defer settlement", o.getOrderId());
                     continue;
                 }
@@ -133,6 +134,16 @@ public class OrderLifecycleScheduler {
                     log.error("[Scheduler] Failed auto-resolve return #{}: {}", r.getReturnId(), e.getMessage(), e);
                 }
             }
+        }
+    }
+
+    /** Tự động mở khóa các tài khoản khách hàng đã hết thời hạn tạm khóa 7 ngày do bom hàng */
+    @Scheduled(fixedDelayString = "${capnong.scheduler.unsuspend-delay-ms:600000}", initialDelay = 60000)
+    public void autoUnsuspendCustomerAccounts() {
+        try {
+            userService.autoUnsuspendAccounts();
+        } catch (Exception e) {
+            log.error("[Scheduler] Auto-unsuspend customer accounts failed: {}", e.getMessage(), e);
         }
     }
 

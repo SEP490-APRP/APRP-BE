@@ -38,7 +38,15 @@ public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, In
 
     Page<ReturnRequest> findByStatusAndShipperIsNull(ReturnStatus status, Pageable pageable);
 
+    boolean existsByShipper_IdAndStatusIn(int shipperId, Collection<ReturnStatus> statuses);
+
     long countByStatus(ReturnStatus status);
 
     long countByShop_IdAndStatus(int shopId, ReturnStatus status);
+
+    /** Đếm số cờ rủi ro (khiếu nại hàng hỏng được Admin xác nhận) của shop */
+    long countByShop_IdAndStatusInAndAdminRemarkIsNotNull(int shopId, Collection<ReturnStatus> statuses);
+
+    /** Danh sách các khiếu nại được Admin duyệt cấu thành cờ rủi ro của shop */
+    List<ReturnRequest> findByShop_IdAndStatusInAndAdminRemarkIsNotNullOrderByUpdatedAtDesc(int shopId, Collection<ReturnStatus> statuses);
 }

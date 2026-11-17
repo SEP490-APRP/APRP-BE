@@ -64,6 +64,7 @@ public class PaymentServiceImpl implements PaymentService {
     final WalletService walletService;
     final com.sang.be_capnong.service.CampaignService campaignService;
     final com.sang.be_capnong.repository.WalletTopupRepository walletTopupRepository;
+    final com.sang.be_capnong.service.ReferralService referralService;
 
     /** Số phút giữ đơn chờ thanh toán PayOS. 0 = không tự huỷ */
     @Value("${capnong.payment.expire-minutes:30}")
@@ -702,6 +703,7 @@ public class PaymentServiceImpl implements PaymentService {
         cancelOpenPayosLinksForOrder(order);
         restoreOrderStockAndVouchers(order);
         cartService.restoreOrderItemsToCart(order);
+        referralService.handleOrderCancelled(order.getOrderId());
         order.setStatus(OrderStatus.CANCELLED);
         orderRepository.save(order);
         walletService.refundOrderWalletPayment(order.getOrderId(), "quá hạn thanh toán");

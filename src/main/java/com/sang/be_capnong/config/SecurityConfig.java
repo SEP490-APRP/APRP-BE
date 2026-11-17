@@ -69,7 +69,13 @@ public class SecurityConfig {
 
             // AI Chatbot message (hỗ trợ cả khách vãng lai và người dùng đã đăng nhập)
             "/chatbot/message",
-            "/api/v1/chatbot/message"
+            "/api/v1/chatbot/message",
+
+            // Tìm kiếm sản phẩm bằng hình ảnh (hỗ trợ cả khách vãng lai và người dùng đã đăng nhập)
+            "/products/search-by-image",
+
+            // Ghi nhận lượt nhấp tiếp thị liên kết (Referral Click Tracking)
+            "/referrals/clicks"
     };
 
     /**
@@ -104,7 +110,10 @@ public class SecurityConfig {
             "/reviews/mystery-box/**",
             "/campaigns",
             "/campaigns/{id:[0-9]+}",
-            "/campaigns/{id:[0-9]+}/shipping-quote"
+            "/campaigns/{id:[0-9]+}/shipping-quote",
+
+            // Phân giải link tiếp thị liên kết (Referral Link Resolve)
+            "/referrals/resolve/**"
     };
 
     @Autowired

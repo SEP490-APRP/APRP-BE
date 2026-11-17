@@ -24,6 +24,8 @@ public class ModerationResult {
     int id;
 
     Boolean isFlagged;
+    @Column(length = 500)
+    String flagReason;
     BigDecimal overallConfidence;
     LocalDateTime checkedAt;
 

@@ -50,6 +50,13 @@ public class UserResponse {
     BigDecimal loyaltyPoints;
     BigDecimal totalRescuedWeight;
 
+    // ===== PENALTY & RISK FIELDS =====
+    Integer failedDeliveryCount;
+    Boolean codBlocked;
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss")
+    LocalDateTime suspendedUntil;
+    Integer activeRiskFlags;
+
     @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss")
     LocalDateTime createAt;
 

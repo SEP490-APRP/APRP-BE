@@ -92,5 +92,9 @@ public enum WalletTransactionType {
     /** Ví Sàn: chi tiền bồi thường phần hàng hư cho người mua (âm) */
     CAMPAIGN_DAMAGE_COMPENSATION,
     /** Ví người mua: nhận tiền phần hàng hư (dương) */
-    CAMPAIGN_DAMAGE_REFUND
+    CAMPAIGN_DAMAGE_REFUND,
+
+    // ── Tiếp thị liên kết (Referral / Affiliate) ──
+    /** Cộng hoa hồng tiếp thị liên kết vào ví Buyer (dương = cộng ví Buyer) */
+    REFERRAL_COMMISSION
 }
