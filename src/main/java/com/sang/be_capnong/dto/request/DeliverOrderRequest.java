@@ -17,4 +17,7 @@ import java.util.List;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class DeliverOrderRequest {
     List<String> proofImageUrls;
+    /** Toạ độ GPS thực tế của Shipper khi bấm xác nhận giao hàng */
+    Double latitude;
+    Double longitude;
 }

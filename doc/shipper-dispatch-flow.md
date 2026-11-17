@@ -72,11 +72,30 @@ Nhận đơn: khả dụng 285.000đ. Giao xong: ví 285.000đ + 215.000đ tiề
 
 Webhook PayOS dùng chung `/payments/payos/webhook`: nếu `orderCode` thuộc `wallet_topups` thì cộng ví (`TOP_UP`), không thì xử lý như thanh toán đơn.
 
-## 5. Bằng chứng giao hàng
+## 5. Bằng chứng giao hàng và Kiểm tra Geofence (Scenario DS-04b)
 
 Ảnh upload trước qua `POST /upload/image` (folder `delivery-proofs`), gửi URL.
 
-- `PUT /orders/{id}/deliver { proofImageUrls }`: ít nhất 1 ảnh (7007).
+- `PUT /orders/{id}/deliver { proofImageUrls, latitude, longitude }`:
+  - Yêu cầu ít nhất 1 ảnh bằng chứng PoD (7007: `DELIVERY_PROOF_REQUIRED`).
+  - **Kiểm tra bán kính Geofence GPS (Scenario DS-04b - Mandatory Exception Scenario)**:
+    - Bán kính cấu hình: `capnong.order.geofence-radius-meters: 500` (mặc định 500m).
+    - Toạ độ điểm giao hàng: lấy từ `shippingLatitude`, `shippingLongitude` (nếu thiếu, tự động geocode từ `shippingAddress`).
+    - Toạ độ Shipper: lấy từ body `latitude`, `longitude` gửi lên, fallback toạ độ GPS gần nhất từ heartbeat/tracker (`shipper_locations`).
+    - Nếu không xác định được GPS: chặn với lỗi `7012` (`DELIVERY_LOCATION_REQUIRED`).
+    - Nếu khoảng cách tính theo Haversine > `500m`: chặn xác nhận giao hàng với lỗi `7011` (`DELIVERY_GEOFENCE_EXCEEDED`), kèm payload:
+      ```json
+      {
+        "code": 7011,
+        "message": "Bạn đang ở ngoài bán kính giao hàng cho phép",
+        "result": {
+          "currentDistanceMeters": 1500,
+          "allowedRadiusMeters": 500,
+          "destinationAddress": "..."
+        }
+      }
+      ```
+    - Mobile hiển thị cảnh báo GPS Error Alert và hướng dẫn tài xế di chuyển vào phạm vi cho phép trước khi xác nhận.
 - `PUT /orders/{id}/fail { reason, note, callAttempts, proofImageUrls }`:
   - `reason`: `KHONG_LIEN_LAC_DUOC | SAI_DIA_CHI | KHACH_TU_CHOI | KHAC` (thiếu: 7008);
   - `KHONG_LIEN_LAC_DUOC` cần `callAttempts ≥ 3` (7009); `KHAC` cần `note` (7010); ít nhất 1 ảnh (7007).
@@ -344,6 +363,8 @@ Phần kiểm tra ở mức API và công thức đã có unit test (BE: `Wallet
 | UI-DL-07 | M | Đơn #1 chặng 2, B bấm **"Giao thành công"** | Tấm **"Xác nhận đã giao · #1"**, khung **"Thu đủ 215.000đ tiền mặt của khách..."**, nút **"Chụp ảnh"** và **"Chọn ảnh"** |
 | UI-DL-08 | M | Không chụp ảnh, bấm **"Đã giao"** | Toast **"Kiểm tra lại các mục được đánh dấu đỏ nhé."**, dòng đỏ **"Chụp ít nhất 1 ảnh bằng chứng."** |
 | UI-DL-09 | M | Chụp 1 ảnh, bấm **"Đã giao"** | Toast **"Giao thành công! Cước giao vào ví khi khách xác nhận đã nhận hàng."**, đơn rời tab Đang giao |
+| UI-DL-10 (DS-04b) | M | Shipper đứng cách địa chỉ giao hàng > 500m (ví dụ: 1.5 km), chụp ảnh rồi bấm **"Đã giao"** | Toast / Hộp thoại cảnh báo GPS: **"Bạn đang cách điểm giao hàng ~1.5 km (ngoài bán kính cho phép 500m). Vui lòng đến gần vị trí người nhận để xác nhận."**. Đơn không chuyển trạng thái |
+| UI-DL-11 (DS-04b) | M | Điện thoại tắt GPS hoặc không xác định được vị trí, chụp ảnh rồi bấm **"Đã giao"** | Cảnh báo: **"Không xác định được vị trí GPS của bạn. Vui lòng bật định vị trên điện thoại."** |
 | UI-FL-01 | W | Chặng 2, bấm **"Giao thất bại"** | Hộp **"Báo giao thất bại · Đơn #1"** với 4 lựa chọn lý do: **Không liên lạc được**, **Sai địa chỉ**, **Khách từ chối nhận**, **Lý do khác**; bộ đếm **"Số cuộc đã gọi khách"** |
 | UI-FL-02 | W | Có ảnh nhưng chưa chọn lý do, bấm **"Báo thất bại"** | Dòng đỏ **"Chọn lý do giao thất bại."** |
 | UI-FL-03 | W | Chọn **Không liên lạc được**, bấm **+** 2 lần (số cuộc = 2), bấm **"Báo thất bại"** | Dòng đỏ **"Cần gọi khách tối thiểu 3 cuộc."** |

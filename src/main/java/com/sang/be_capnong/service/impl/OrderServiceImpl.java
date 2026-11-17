@@ -77,6 +77,10 @@ public class OrderServiceImpl implements OrderService {
     com.sang.be_capnong.service.DispatchService dispatchService;
     com.sang.be_capnong.service.ShipperService shipperService;
 
+    @org.springframework.beans.factory.annotation.Value("${capnong.order.geofence-radius-meters:500}")
+    @lombok.experimental.NonFinal
+    double geofenceRadiusMeters = 500;
+
     /** Bán kính tối đa (km) để shipper thấy đơn READY trong danh sách */
     static final double READY_LIST_MAX_KM = 15.0;
 
@@ -1084,6 +1088,56 @@ public class OrderServiceImpl implements OrderService {
         if (proofs.isEmpty()) {
             throw new AppException(ErrorCode.DELIVERY_PROOF_REQUIRED);
         }
+
+        // === KIỂM TRA BÁN KÍNH GEOFENCE GPS (Scenario DS-04b) ===
+        // 1. Toạ độ điểm giao hàng (đích)
+        Double destLat = order.getShippingLatitude();
+        Double destLng = order.getShippingLongitude();
+        if ((destLat == null || destLng == null) && order.getShippingAddress() != null && !order.getShippingAddress().isBlank()) {
+            try {
+                double[] coords = googleMapService.geocodeAddress(order.getShippingAddress());
+                if (coords != null && coords.length == 2) {
+                    destLat = coords[0];
+                    destLng = coords[1];
+                    order.setShippingLatitude(destLat);
+                    order.setShippingLongitude(destLng);
+                }
+            } catch (Exception e) {
+                log.warn("[Geofence] Cannot geocode shipping address '{}': {}", order.getShippingAddress(), e.getMessage());
+            }
+        }
+
+        // 2. Toạ độ thực tế của Shipper (ưu tiên toạ độ gửi kèm request, fallback toạ độ GPS gần nhất từ heartbeat/tracker)
+        Double shipperLat = request != null ? request.getLatitude() : null;
+        Double shipperLng = request != null ? request.getLongitude() : null;
+        if (shipperLat == null || shipperLng == null) {
+            double[] lastPos = shipperService.getLastPosition(currentUser.getId());
+            if (lastPos != null && lastPos.length == 2) {
+                shipperLat = lastPos[0];
+                shipperLng = lastPos[1];
+            }
+        }
+
+        // 3. Nếu cấu hình geofenceRadiusMeters > 0 và có toạ độ đích
+        if (destLat != null && destLng != null && geofenceRadiusMeters > 0) {
+            if (shipperLat == null || shipperLng == null) {
+                log.warn("[Geofence] Delivery blocked for order #{}: Shipper #{} location unknown", orderId, currentUser.getId());
+                throw new AppException(ErrorCode.DELIVERY_LOCATION_REQUIRED);
+            }
+            double distanceMeters = com.sang.be_capnong.util.GeoUtils.haversineMeters(shipperLat, shipperLng, destLat, destLng);
+            if (distanceMeters > geofenceRadiusMeters) {
+                log.warn("[Geofence] Delivery blocked for order #{}: Shipper #{} is {}m away from destination (allowed: {}m)",
+                        orderId, currentUser.getId(), Math.round(distanceMeters), Math.round(geofenceRadiusMeters));
+                throw new AppException(ErrorCode.DELIVERY_GEOFENCE_EXCEEDED,
+                        ErrorCode.DELIVERY_GEOFENCE_EXCEEDED.getMessage(),
+                        Map.of(
+                                "currentDistanceMeters", Math.round(distanceMeters),
+                                "allowedRadiusMeters", Math.round(geofenceRadiusMeters),
+                                "destinationAddress", order.getShippingAddress() != null ? order.getShippingAddress() : ""
+                        ));
+            }
+        }
+
         order.setDeliveryProofUrls(String.join("\n", proofs));
         order.setStatus(OrderStatus.DELIVERED);
         order.setDeliveredAt(LocalDateTime.now());

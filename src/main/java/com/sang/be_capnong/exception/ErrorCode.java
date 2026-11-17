@@ -142,6 +142,8 @@ public enum ErrorCode {
     FAIL_REASON_REQUIRED(7008, "Vui lòng chọn lý do giao thất bại", HttpStatus.BAD_REQUEST),
     FAIL_CALL_ATTEMPTS_REQUIRED(7009, "Cần gọi khách tối thiểu 3 cuộc trước khi báo không liên lạc được", HttpStatus.BAD_REQUEST),
     FAIL_NOTE_REQUIRED(7010, "Vui lòng ghi rõ lý do giao thất bại", HttpStatus.BAD_REQUEST),
+    DELIVERY_GEOFENCE_EXCEEDED(7011, "Bạn đang ở ngoài bán kính giao hàng cho phép", HttpStatus.BAD_REQUEST),
+    DELIVERY_LOCATION_REQUIRED(7012, "Không xác định được vị trí GPS để đối soát giao hàng", HttpStatus.BAD_REQUEST),
 
     // Cart Errors (Series 8000)
     CART_ITEM_NOT_FOUND(8001, "Cart item not found", HttpStatus.NOT_FOUND),
