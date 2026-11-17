@@ -9,6 +9,15 @@ import java.util.List;
 
 public interface WalletService {
 
+    /** Số dư ví người mua có thể dùng để thanh toán */
+    java.math.BigDecimal getBuyerWalletBalance(com.sang.be_capnong.entity.User buyer);
+
+    /** Trừ ví người mua để trả một phần / toàn bộ đơn; ghi order.walletPaidAmount */
+    void payOrderFromWallet(com.sang.be_capnong.entity.Order order, java.math.BigDecimal amount);
+
+    /** Hoàn phần đã trả bằng ví về ví người mua (idempotent) */
+    void refundOrderWalletPayment(int orderId, String reason);
+
     /** Chia tiền đơn COMPLETED vào ví Shop / Shipper / Sàn. Gọi lại nhiều lần vẫn chỉ chia 1 lần. */
     OrderSettlementResponse settleOrder(int orderId);
 

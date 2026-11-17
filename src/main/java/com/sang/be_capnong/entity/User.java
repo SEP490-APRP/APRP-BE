@@ -70,6 +70,10 @@ public class User {
     String license;
     String licenseImageUrl;
 
+    /** Toạ độ nhà vườn / shop: dùng để tìm shop lân cận khi đề xuất chiến dịch */
+    Double shopLatitude;
+    Double shopLongitude;
+
     // ===== SHIPPER FIELDS =====
     String vehicleNumber;
     String vehicleDocImageUrl;
