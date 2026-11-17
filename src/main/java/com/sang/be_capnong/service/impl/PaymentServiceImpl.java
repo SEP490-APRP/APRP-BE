@@ -62,6 +62,7 @@ public class PaymentServiceImpl implements PaymentService {
     final VoucherUsageRepository voucherUsageRepository;
     final UserRepository userRepository;
     final WalletService walletService;
+    final com.sang.be_capnong.service.CampaignService campaignService;
     final com.sang.be_capnong.repository.WalletTopupRepository walletTopupRepository;
     final com.sang.be_capnong.service.ReferralService referralService;
 
@@ -110,7 +111,7 @@ public class PaymentServiceImpl implements PaymentService {
             }
 
             BigDecimal remainingTotal = unpaid.stream()
-                    .map(Order::getTotalAmount)
+                    .map(PaymentServiceImpl::amountDue)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
             long orderCode = nextOrderCode();
@@ -173,7 +174,8 @@ public class PaymentServiceImpl implements PaymentService {
             cancelOpenSingleOrderLinks(order, "Tao link thanh toan moi");
 
             long orderCode = nextOrderCode();
-            long amount = order.getTotalAmount().setScale(0, java.math.RoundingMode.HALF_UP).longValue();
+            BigDecimal due = amountDue(order);
+            long amount = due.setScale(0, java.math.RoundingMode.HALF_UP).longValue();
             String desc = truncateDescription("Don " + order.getOrderId());
 
             try {
@@ -181,7 +183,7 @@ public class PaymentServiceImpl implements PaymentService {
 
                 Payment payment = Payment.builder()
                         .order(order)
-                        .amount(order.getTotalAmount())
+                        .amount(due)
                         .paymentGateway("PAYOS")
                         .status(PaymentStatus.PENDING)
                         .payosOrderCode(String.valueOf(orderCode))
@@ -196,7 +198,7 @@ public class PaymentServiceImpl implements PaymentService {
                 return PaymentResponse.builder()
                         .paymentId(savedPayment.getPaymentId())
                         .orderId(order.getOrderId())
-                        .amount(order.getTotalAmount())
+                        .amount(due)
                         .paymentGateway("PAYOS")
                         .status(PaymentStatus.PENDING)
                         .payosOrderCode(String.valueOf(orderCode))
@@ -215,6 +217,13 @@ public class PaymentServiceImpl implements PaymentService {
     }
 
     private record CheckoutData(String checkoutUrl, String qrCode) {
+    }
+
+    /** Số còn phải trả qua PayOS sau khi trừ phần đã trả bằng ví */
+    private static BigDecimal amountDue(Order o) {
+        BigDecimal total = o.getTotalAmount() != null ? o.getTotalAmount() : BigDecimal.ZERO;
+        BigDecimal wallet = o.getWalletPaidAmount() != null ? o.getWalletPaidAmount() : BigDecimal.ZERO;
+        return total.subtract(wallet).max(BigDecimal.ZERO);
     }
 
     private CheckoutData createLink(long orderCode, long amount, String desc, String returnUrl, String cancelUrl) {
@@ -310,7 +319,7 @@ public class PaymentServiceImpl implements PaymentService {
                     .toList();
 
             BigDecimal remainingTotal = unpaid.stream()
-                    .map(Order::getTotalAmount)
+                    .map(PaymentServiceImpl::amountDue)
                     .reduce(BigDecimal.ZERO, BigDecimal::add);
 
             List<ResumePaymentOrderOption> unpaidOptions = unpaid.stream()
@@ -318,7 +327,7 @@ public class PaymentServiceImpl implements PaymentService {
                             .orderId(o.getOrderId())
                             .shopId(o.getShop() != null ? o.getShop().getId() : 0)
                             .shopName(o.getShop() != null ? (o.getShop().getShopName() != null ? o.getShop().getShopName() : o.getShop().getFullName()) : "Shop")
-                            .amount(o.getTotalAmount())
+                            .amount(amountDue(o))
                             .status(o.getStatus() != null ? o.getStatus().name() : null)
                             .build())
                     .toList();
@@ -348,7 +357,7 @@ public class PaymentServiceImpl implements PaymentService {
                 .isBatch(false)
                 .batchId(null)
                 .triggerOrderId(orderId)
-                .totalAmount(order.getTotalAmount())
+                .totalAmount(amountDue(order))
                 .payosOrderCode(null)
                 .checkoutUrl(null)
                 .qrCodeUrl(null)
@@ -356,7 +365,7 @@ public class PaymentServiceImpl implements PaymentService {
                         .orderId(order.getOrderId())
                         .shopId(order.getShop() != null ? order.getShop().getId() : 0)
                         .shopName(order.getShop() != null ? (order.getShop().getShopName() != null ? order.getShop().getShopName() : order.getShop().getFullName()) : "Shop")
-                        .amount(order.getTotalAmount())
+                        .amount(amountDue(order))
                         .status(order.getStatus() != null ? order.getStatus().name() : null)
                         .build()))
                 .build();
@@ -444,8 +453,10 @@ public class PaymentServiceImpl implements PaymentService {
                 String orderCode = String.valueOf(webhookData.getOrderCode());
                 log.info("[PayOS Webhook] Verified webhook for orderCode: {}, code: {}", orderCode, webhookData.getCode());
                 if ("00".equals(webhookData.getCode())) {
-                    // Mã PayOS có thể là lệnh nạp ví (WalletTopup) hoặc thanh toán đơn
-                    if (!walletService.settleTopupIfExists(orderCode)) {
+                    // Mã PayOS dùng chung webhook: tiền cọc chiến dịch giải cứu (WF-01),
+                    // lệnh nạp ví (WalletTopup), hoặc thanh toán đơn hàng
+                    if (!campaignService.handlePaidOrderCode(orderCode)
+                            && !walletService.settleTopupIfExists(orderCode)) {
                         settlePaidOrderCode(orderCode);
                     }
                 }
@@ -509,7 +520,7 @@ public class PaymentServiceImpl implements PaymentService {
                     // Tiền đã vào sàn -> Shop và Sàn thấy phần của mình ở mục "tạm giữ"
                     walletService.holdShopAndPlatformIncome(o.getOrderId());
                     newlyPaidOrders.add(o);
-                    appliedAmount = appliedAmount.add(o.getTotalAmount() != null ? o.getTotalAmount() : BigDecimal.ZERO);
+                    appliedAmount = appliedAmount.add(amountDue(o));
                     if (buyer == null) buyer = o.getBuyer();
                     log.info("[PaymentSettle] Order #{} updated to PAID by orderCode {}", o.getOrderId(), orderCode);
                 } else {
@@ -613,6 +624,7 @@ public class PaymentServiceImpl implements PaymentService {
                     cartService.restoreOrderItemsToCart(o);
                     o.setStatus(OrderStatus.CANCELLED);
                     orderRepository.save(o);
+                    walletService.refundOrderWalletPayment(o.getOrderId(), "khách huỷ thanh toán");
                     log.info("[PaymentCancel] Restored items to cart and marked Order #{} as CANCELLED", o.getOrderId());
                 }
             }
@@ -643,6 +655,7 @@ public class PaymentServiceImpl implements PaymentService {
                 cartService.restoreOrderItemsToCart(order);
                 order.setStatus(OrderStatus.CANCELLED);
                 orderRepository.save(order);
+                walletService.refundOrderWalletPayment(order.getOrderId(), "khách huỷ thanh toán");
                 log.info("[PaymentCancel] Restored items to cart and marked Order #{} as CANCELLED", order.getOrderId());
 
                 if (order.getCheckoutBatch() != null) {
@@ -693,6 +706,7 @@ public class PaymentServiceImpl implements PaymentService {
         referralService.handleOrderCancelled(order.getOrderId());
         order.setStatus(OrderStatus.CANCELLED);
         orderRepository.save(order);
+        walletService.refundOrderWalletPayment(order.getOrderId(), "quá hạn thanh toán");
 
         CheckoutBatch b = order.getCheckoutBatch();
         if (b != null && orderRepository.findByCheckoutBatch_Id(b.getId()).stream()
