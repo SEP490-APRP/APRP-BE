@@ -281,7 +281,8 @@ Nhằm giải quyết triệt để vấn đề "không biết khi nào shipper 
   * Shipper rời shop và bắt đầu di chuyển về nhà của Buyer.
   * **Trải nghiệm trên Map:** Buyer lập tức thấy xe của shipper xuất hiện trên bản đồ và di chuyển về nhà mình (*"🚀 Tài xế đã lấy món và đang trên đường giao đến bạn"*). Shop thấy thông báo xe đã rời quán.
   * **Giao diện tác vụ của Shipper:**
-    * `[ ✅ Giao thành công ]` *(Nền xanh lá)*: Mở popup xác nhận thành công $\rightarrow$ Chuyển trạng thái đơn sang **`DELIVERED`**.
+    * `[ ✅ Giao thành công ]` *(Nền xanh lá)*: Mở popup/sheet xác nhận thành công (bắt buộc chụp ảnh PoD, hiển thị rõ số tiền COD cần thu hoặc banner 0đ nếu đã trả online) $\rightarrow$ Chuyển trạng thái đơn sang **`DELIVERED`**. Cước giao hàng của Shipper được giải phóng và cộng ngay lập tức vào số dư khả dụng của Shipper.
+    * Đơn hàng sau đó ở trạng thái `DELIVERED` để Buyer kiểm tra hàng trong 24h. Khi Buyer bấm `[ Đã nhận được hàng ]` hoặc sau 24h đối soát tự động, đơn sang **`COMPLETED`** (hệ thống giải phóng tiền hàng cho Shop và hoa hồng giới thiệu cho Buyer Affiliate).
     * `[ ❌ Giao thất bại ]` *(Nền đỏ)*: Mở popup nhập lý do (Khách không nhận, sai địa chỉ, không liên lạc được...) $\rightarrow$ Chuyển trạng thái sang **`FAILED`** và hoàn kho.
 
 * **2 Nút tiện ích phụ trợ:**
@@ -381,7 +382,8 @@ stateDiagram-v2
     READY --> SHIPPING: Shipper bấm Nhận đơn (Chặng 1: Đến Shop)
     SHIPPING --> PICKED_UP: Shipper xác nhận đã lấy hàng tại Shop (Chặng 2: Đến Buyer)
     SHIPPING --> FAILED: Không thể lấy hàng (Shop đóng cửa / hư hỏng)
-    PICKED_UP --> DELIVERED: Shipper giao thành công (Tắt GPS)
+    PICKED_UP --> DELIVERED: Shipper giao thành công (Tắt GPS, cước giao cộng ngay vào ví Shipper)
+    DELIVERED --> COMPLETED: Buyer bấm Đã nhận hàng HOẶC sau 24h đối soát (Quyết toán tiền hàng cho Shop & hoa hồng Affiliate)
     PICKED_UP --> FAILED: Shipper báo giao thất bại (Nhập lý do)
 ```
 

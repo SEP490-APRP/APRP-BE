@@ -17,6 +17,7 @@ public interface ProductService {
             Integer categoryId,
             String keyword,
             String status,
+            Integer shopId,
             int page,
             int size,
             String sortBy,

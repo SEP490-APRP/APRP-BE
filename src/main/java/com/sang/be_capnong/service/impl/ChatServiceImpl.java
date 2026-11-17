@@ -15,6 +15,7 @@ import com.sang.be_capnong.repository.ConversationRepository;
 import com.sang.be_capnong.repository.UserRepository;
 import com.sang.be_capnong.service.ChatService;
 import com.sang.be_capnong.service.CloudinaryService;
+import com.sang.be_capnong.service.ExpoPushService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -41,6 +42,7 @@ public class ChatServiceImpl implements ChatService {
     private final UserRepository userRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final CloudinaryService cloudinaryService;
+    private final ExpoPushService expoPushService;
 
     @Override
     @Transactional
@@ -126,17 +128,17 @@ public class ChatServiceImpl implements ChatService {
                 ? sender.getFullName()
                 : (sender.getEmail() != null ? sender.getEmail() : "Người dùng");
 
-        String notifContent = message.getContent();
-        if (notifContent == null || notifContent.isBlank()) {
-            notifContent = "VIDEO".equalsIgnoreCase(message.getType()) ? "[Video]" : "[Hình ảnh]";
-        }
+        String rawContent = message.getContent();
+        final String finalContent = (rawContent != null && !rawContent.isBlank())
+                ? rawContent
+                : ("VIDEO".equalsIgnoreCase(message.getType()) ? "[Video]" : "[Hình ảnh]");
 
         Map<String, Object> notificationPayload = Map.of(
                 "type", "NEW_MESSAGE",
                 "conversationId", conversation.getId(),
                 "senderId", senderId,
                 "senderName", senderDisplayName,
-                "content", notifContent,
+                "content", finalContent,
                 "unreadCount", unreadCount
         );
 
@@ -156,12 +158,29 @@ public class ChatServiceImpl implements ChatService {
                         response
                 );
 
-                // 3. Bắn push notification cho người nhận kèm tổng số tin chưa đọc
+                // 3. Bắn push notification cho người nhận kèm tổng số tin chưa đọc qua WebSocket
                 messagingTemplate.convertAndSendToUser(
                         String.valueOf(request.getReceiverId()),
                         "/queue/notifications",
                         notificationPayload
                 );
+
+                // 4. Bắn Push Notification ra ngoài điện thoại người nhận (khi app tắt/ẩn)
+                try {
+                    Map<String, Object> pushData = new java.util.HashMap<>();
+                    pushData.put("type", "CHAT_MESSAGE");
+                    pushData.put("senderId", senderId);
+                    pushData.put("conversationId", conversation.getId());
+                    expoPushService.sendPushToUserAsync(
+                            request.getReceiverId(),
+                            senderDisplayName,
+                            finalContent,
+                            pushData,
+                            "chat_messages"
+                    );
+                } catch (Exception pushEx) {
+                    log.warn("[Chat Push] Failed to trigger mobile push: {}", pushEx.getMessage());
+                }
             } catch (Exception e) {
                 log.error("Failed to deliver WebSocket message for conv {}: {}", conversation.getId(), e.getMessage());
             }

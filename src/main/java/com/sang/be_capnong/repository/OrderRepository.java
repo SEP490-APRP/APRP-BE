@@ -63,4 +63,11 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
 
     /** Đơn đã chia tiền vào ví kể từ {from} (dòng tiền của màn Ví Sàn) */
     java.util.List<Order> findBySettledAtGreaterThanEqual(java.time.LocalDateTime from);
+
+    /** Đếm số đơn giao hàng thất bại do lỗi chủ quan của khách (không nghe máy hoặc từ chối nhận) */
+    long countByBuyer_IdAndStatusAndFailReasonIn(
+            int buyerId,
+            OrderStatus status,
+            java.util.Collection<com.sang.be_capnong.enums.DeliveryFailReason> failReasons
+    );
 }
