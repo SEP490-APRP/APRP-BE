@@ -907,7 +907,7 @@ ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description);
 INSERT INTO users (id, email, password, role_id, status, full_name, phone_number, address, shop_name, shop_active, bank_name, bank_account, bank_account_holder, rating_average, description, logo_url, achievement, license, vehicle_number, diet_preference, create_at) VALUES
 (1, 'admin@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 4, 'ACTIVE', 'Quản Trị Viên Hệ Thống', '0900000000', '1 Công Xã Paris, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh', NULL, 0, 'Vietcombank', '0011001234567', 'CAPNONG ADMIN', 5.0, 'Quản trị viên toàn hệ thống CapNong', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252968/brands/vxm3b2gvixlqzf7xocoy.jpg', 'SuperAdmin', NULL, NULL, NULL, NOW()),
 
-(2, 'buyer1@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 1, 'ACTIVE', 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', NULL, 0, 'VietinBank', '101888888888', 'NGO GIA SANG', 5.0, 'Khách hàng thân thiết', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252968/brands/vxm3b2gvixlqzf7xocoy.jpg', NULL, NULL, NULL, 'VEGETARIAN', NOW()),
+(2, 'buyer1@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 1, 'ACTIVE', 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', NULL, 0, 'VietinBank', '101888888888', 'NGO GIA SANG', 5.0, 'Khách hàng thân thiết', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252968/brands/vxm3b2gvixlqzf7xocoy.jpg', NULL, NULL, NULL, 'VEGETARIAN', NOW()),
 
 (3, 'buyer2@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 1, 'ACTIVE', 'Trần Thị Mai', '0911111112', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', NULL, 0, 'MBBank', '970422888888', 'TRAN THI MAI', 5.0, 'Khách hàng', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252968/brands/vxm3b2gvixlqzf7xocoy.jpg', NULL, NULL, NULL, 'VEGAN', NOW()),
 
@@ -1169,31 +1169,31 @@ ON DUPLICATE KEY UPDATE payos_order_code=VALUES(payos_order_code);
 -- 3.11 ORDERS (ĐA DẠNG TRẠNG THÁI ĐỂ TEST CẢ 3 ROLES: BUYER, SHOP, SHIPPER)
 INSERT INTO orders (order_id, buyer_id, shop_id, shipper_id, checkout_batch_id, shipping_fee, recipient_name, recipient_phone, shipping_address, note, status, total_amount, payment_method, shipping_discount_amount, batch_discount_amount, shipping_latitude, shipping_longitude, shop_latitude, shop_longitude, created_at) VALUES
 -- Đơn 101: Trong Batch 1, trạng thái AWAITING_PAYMENT (Shop Đà Lạt) -> Test Resume Payment / Split Payment
-(101, 2, 4, NULL, 1, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao rau củ tươi trong giờ hành chính', 'AWAITING_PAYMENT', 100000, 'PAYOS', 0, 10000, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 2 HOUR)),
+(101, 2, 4, NULL, 1, 15000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao rau củ tươi trong giờ hành chính', 'AWAITING_PAYMENT', 100000, 'PAYOS', 0, 10000, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 2 HOUR)),
 
 -- Đơn 102: Trong Batch 1, trạng thái AWAITING_PAYMENT (Shop Miền Tây)
-(102, 2, 5, NULL, 1, 22000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao nhẹ tay giúp mình', 'AWAITING_PAYMENT', 97000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.8700, 106.8030, DATE_SUB(NOW(), INTERVAL 2 HOUR)),
+(102, 2, 5, NULL, 1, 22000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao nhẹ tay giúp mình', 'AWAITING_PAYMENT', 97000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.8700, 106.8030, DATE_SUB(NOW(), INTERVAL 2 HOUR)),
 
 -- Đơn 103: Đơn COD mới tạo (PENDING) -> Test Shop xác nhận đơn
-(103, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao buổi sáng', 'PENDING', 85000, 'COD', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 1 HOUR)),
+(103, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao buổi sáng', 'PENDING', 85000, 'COD', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 1 HOUR)),
 
 -- Đơn 104: Đơn đã xác nhận (CONFIRMED) -> Test Shop chuẩn bị hàng
-(104, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Đóng gói kỹ', 'CONFIRMED', 120000, 'COD', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
+(104, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Đóng gói kỹ', 'CONFIRMED', 120000, 'COD', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
 
 -- Đơn 105: Đang giao hàng (SHIPPING) đã gán Shipper Hoàng (id: 6) -> TEST GOOGLE MAPS REALTIME TRACKING
-(105, 2, 4, 6, 2, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Gọi trước khi đến 10 phút', 'SHIPPING', 95000, 'PAYOS', 15000, 10000, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 30 MINUTE)),
+(105, 2, 4, 6, 2, 15000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Gọi trước khi đến 10 phút', 'SHIPPING', 95000, 'PAYOS', 15000, 10000, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 30 MINUTE)),
 
 -- Đơn 106: Đã giao thành công (DELIVERED) - Shop 2 -> Đã đánh giá (Bưởi da xanh)
-(106, 2, 5, 6, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao hàng thành công', 'DELIVERED', 135000, 'COD', 0, 15000, 10.7725, 106.6579, 10.8700, 106.8030, DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(106, 2, 5, 6, NULL, 15000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao hàng thành công', 'DELIVERED', 135000, 'COD', 0, 15000, 10.7725, 106.6579, 10.8700, 106.8030, DATE_SUB(NOW(), INTERVAL 1 DAY)),
 
 -- Đơn 107: Đã hủy (CANCELLED)
-(107, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Khách đổi ý', 'CANCELLED', 50000, 'COD', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 2 DAY)),
+(107, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Khách đổi ý', 'CANCELLED', 50000, 'COD', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 2 DAY)),
 
 -- Đơn 108: Đã giao thành công (DELIVERED) - Shop 1 -> 1 món ĐÃ đánh giá & 1 món CHƯA đánh giá để test nút Đánh giá
-(108, 2, 4, 6, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao trước 11h', 'DELIVERED', 62000, 'COD', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 2 DAY)),
+(108, 2, 4, 6, NULL, 15000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao trước 11h', 'DELIVERED', 62000, 'COD', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 2 DAY)),
 
 -- Đơn 109: Hoàn tất (COMPLETED) - Shop 1 -> Đã đánh giá, CHƯA có phản hồi từ shop (để Farmer test form reply)
-(109, 2, 4, 6, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Để ở bàn lễ tân', 'COMPLETED', 50000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 4 DAY)),
+(109, 2, 4, 6, NULL, 15000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Để ở bàn lễ tân', 'COMPLETED', 50000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 4 DAY)),
 
 -- Đơn 110: Đã giao (DELIVERED) - Shop 2 của Buyer 2 (Trần Thị Mai) -> Đã đánh giá 5 sao (Cam sành)
 (110, 3, 5, 6, NULL, 15000, 'Trần Thị Mai', '0911111112', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', 'Giao giờ hành chính', 'DELIVERED', 120000, 'PAYOS', 0, 0, 10.7721, 106.6983, 10.8700, 106.8030, DATE_SUB(NOW(), INTERVAL 3 DAY)),
@@ -1202,7 +1202,7 @@ INSERT INTO orders (order_id, buyer_id, shop_id, shipper_id, checkout_batch_id, 
 (111, 3, 4, 6, NULL, 15000, 'Trần Thị Mai', '0911111112', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', 'Giao cẩn thận', 'DELIVERED', 75000, 'COD', 0, 0, 10.7721, 106.6983, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 5 DAY)),
 
 -- Đơn 112: Đã giao (DELIVERED) - Shop 2 của Buyer 1 -> CHƯA đánh giá (Xoài cát Hòa Lộc để test đánh giá Shop 2)
-(112, 2, 5, 6, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao buổi chiều', 'DELIVERED', 185000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.8700, 106.8030, DATE_SUB(NOW(), INTERVAL 1 DAY))
+(112, 2, 5, 6, NULL, 15000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao buổi chiều', 'DELIVERED', 185000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.8700, 106.8030, DATE_SUB(NOW(), INTERVAL 1 DAY))
 ON DUPLICATE KEY UPDATE status=VALUES(status);
 
 -- 3.12 ORDER DETAILS (CHI TIẾT MẶT HÀNG TỪNG ĐƠN: SẢN PHẨM, TÚI MÙ, COMBO)
@@ -1418,8 +1418,8 @@ ON DUPLICATE KEY UPDATE title=VALUES(title), content=VALUES(content), keywords=V
 
 -- 3.12 SAVED ADDRESSES (SỔ ĐỊA CHỈ NHẬN HÀNG)
 INSERT INTO saved_addresses (id, user_id, label, recipient_name, phone, address, latitude, longitude, is_default, is_active) VALUES
-(1, 2, 'Nhà', 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 10.7725, 106.6579, 1, 1),
-(2, 2, 'Văn phòng', 'Ngô Gia Sang (Khách mua)', '0911111111', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', 10.7721, 106.6983, 0, 1),
+(1, 2, 'Nhà', 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 10.7725, 106.6579, 1, 1),
+(2, 2, 'Văn phòng', 'Ngô Gia Sang', '0911111111', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', 10.7721, 106.6983, 0, 1),
 (3, 3, 'Nhà', 'Trần Thị Mai', '0911111112', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', 10.7721, 106.6983, 1, 1)
 ON DUPLICATE KEY UPDATE address=VALUES(address), recipient_name=VALUES(recipient_name);
 
