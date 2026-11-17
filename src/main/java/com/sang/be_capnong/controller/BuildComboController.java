@@ -37,6 +37,7 @@ public class BuildComboController {
 
     @GetMapping
     public ApiResponse<PageResponse<BuildComboResponse>> getCombos(
+            @RequestParam(value = "shopId", required = false) Integer shopId,
             @RequestParam(value = "status", required = false) String status,
             @RequestParam(value = "mealType", required = false) MealType mealType,
             @RequestParam(value = "region", required = false) String region,
@@ -49,7 +50,7 @@ public class BuildComboController {
     ) {
         log.info("REST request to get build combos list");
         return ApiResponse.<PageResponse<BuildComboResponse>>builder()
-                .result(buildComboService.getCombos(status, mealType, region, type, keyword, page, size, sortBy, sortDirection))
+                .result(buildComboService.getCombos(shopId, status, mealType, region, type, keyword, page, size, sortBy, sortDirection))
                 .build();
     }
 

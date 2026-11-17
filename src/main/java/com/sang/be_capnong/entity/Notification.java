@@ -41,6 +41,13 @@ public class Notification {
     @Column(length = 100)
     String receiverType;
 
+    /** Loại thông báo để client điều hướng: NEW_ORDER_OFFER, ORDER_STATUS, DISPATCH_TIMEOUT... NULL = thông báo chung */
+    @Column(length = 40)
+    String type;
+
+    /** Id đối tượng liên quan (vd. orderId) */
+    Integer referenceId;
+
     @OneToMany(mappedBy = "notification", cascade = CascadeType.ALL, orphanRemoval = true)
     @JsonIgnore
     List<UserNotification> userNotifications;

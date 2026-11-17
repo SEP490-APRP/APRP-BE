@@ -35,5 +35,8 @@ public interface NotificationService {
 
     void sendNotificationToUser(User user, String title, String message, String evidence);
 
+    /** Thông báo có loại + id đối tượng để client điều hướng (vd. NEW_ORDER_OFFER + orderId) */
+    void sendNotificationToUser(User user, String title, String message, String type, Integer referenceId);
+
     void sendNotificationWebsocket(User user, Notification notification);
 }

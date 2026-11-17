@@ -2,6 +2,7 @@ package com.sang.be_capnong.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.sang.be_capnong.enums.CodPaymentOption;
+import com.sang.be_capnong.enums.DeliveryFailReason;
 import com.sang.be_capnong.enums.CodPaymentStatus;
 import com.sang.be_capnong.enums.OrderStatus;
 import jakarta.persistence.*;
@@ -105,6 +106,36 @@ public class Order {
     LocalDateTime settledAt;
 
     BigDecimal rescuedWeight;
+
+    // ── Ký quỹ COD: số tiền đã giữ chỗ trong ví Shipper khi nhận đơn. NULL = đơn nhận theo luồng cũ (ghi nợ) ──
+    BigDecimal codReservedAmount;
+
+    // ── Điều phối: đợt quét shipper gần nhất (1 = bán kính nhỏ nhất) ──
+    /** Thời điểm Shop báo READY (mốc để cảnh báo chưa có tài xế) */
+    LocalDateTime readyAt;
+    Integer dispatchWave;
+    LocalDateTime lastDispatchedAt;
+    /** Đã báo Shop/Admin "chưa có tài xế nhận" */
+    LocalDateTime dispatchAlertedAt;
+
+    // ── Bằng chứng giao hàng ──
+    /** Danh sách URL ảnh, ngăn cách bởi dấu xuống dòng */
+    @Column(columnDefinition = "TEXT")
+    String deliveryProofUrls;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 32)
+    DeliveryFailReason failReason;
+
+    @Column(length = 500)
+    String failNote;
+
+    Integer failCallAttempts;
+
+    @Column(columnDefinition = "TEXT")
+    String failProofUrls;
+
+    LocalDateTime failedAt;
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     List<OrderDetail> orderDetails;

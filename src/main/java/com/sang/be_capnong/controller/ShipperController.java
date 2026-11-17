@@ -20,8 +20,9 @@ public class ShipperController {
 
     ShipperService shipperService;
 
-    @Operation(summary = "Shipper bật trực tuyến (nhận đơn)",
-            description = "[SHIPPER only] Shipper bật trạng thái Online kèm tọa độ GPS để sẵn sàng quét và nhận đơn hàng.")
+    @Operation(summary = "Shipper bật trực tuyến / heartbeat",
+            description = "[SHIPPER only] Bật Online kèm tọa độ GPS. App gọi lại mỗi ~60s khi đang online (heartbeat); "
+                    + "quá capnong.dispatch.heartbeat-timeout-seconds không gọi thì tự chuyển offline.")
     @PostMapping("/status/online")
     @PreAuthorize("hasRole('SHIPPER')")
     public ApiResponse<Void> goOnlineSelf(@RequestBody @Valid ShipperStatusRequest request) {
@@ -59,16 +60,5 @@ public class ShipperController {
                 .build();
     }
 
-    // Backward compatibility endpoints with path variable
-    @PostMapping("/{shipperId}/status/online")
-    public ApiResponse<Void> goOnline(@PathVariable Integer shipperId, @RequestBody @Valid ShipperStatusRequest request) {
-        shipperService.goOnline(shipperId, request);
-        return ApiResponse.<Void>builder().message("Shipper went online successfully").build();
-    }
-
-    @PostMapping("/{shipperId}/status/offline")
-    public ApiResponse<Void> goOffline(@PathVariable Integer shipperId) {
-        shipperService.goOffline(shipperId);
-        return ApiResponse.<Void>builder().message("Shipper went offline successfully").build();
-    }
+    // Đã bỏ POST /shippers/{shipperId}/status/online|offline: không phân quyền, ai cũng bật/tắt hộ shipper khác được.
 }

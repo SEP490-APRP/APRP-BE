@@ -26,6 +26,12 @@ public class ShipperWebSocketController {
             log.warn("[WS] Missing orderId, skipping");
             return;
         }
+        // Chỉ shipper được gán và đơn đang SHIPPING / PICKED_UP mới được phát vị trí (chống giả mạo GPS)
+        if (!shipperService.canPublishLocation(request.getOrderId(), principal)) {
+            log.warn("[WS] Rejected location for order {} from {}", request.getOrderId(),
+                    principal != null ? principal.getName() : "anonymous");
+            return;
+        }
 
         // Shipper tắt GPS -> broadcast gpsOff
         if (Boolean.TRUE.equals(request.getGpsOff())) {

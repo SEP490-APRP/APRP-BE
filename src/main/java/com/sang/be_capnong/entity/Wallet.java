@@ -45,6 +45,10 @@ public class Wallet {
     @Builder.Default
     BigDecimal commissionWallet = BigDecimal.ZERO;
 
+    /** Shipper: tổng tiền COD đang giữ chỗ cho các đơn đang giao. Số dư khả dụng = totalBalance - codReserved */
+    @Builder.Default
+    BigDecimal codReserved = BigDecimal.ZERO;
+
     LocalDateTime createAt;
     LocalDateTime updateAt;
 

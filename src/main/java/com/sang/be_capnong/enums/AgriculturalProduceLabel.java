@@ -70,6 +70,17 @@ public enum AgriculturalProduceLabel {
     ORANGE("ORANGE", "Cam"),
     MANGO("MANGO", "Xoài"),
     WATERMELON("WATERMELON", "Dưa hấu"),
+    MELON("MELON", "Dưa lưới / Dưa gang"),
+    MUSKMELON("MUSKMELON", "Dưa lưới"),
+    CANTALOUPE("CANTALOUPE", "Dưa lưới ruột cam"),
+    HONEYDEW("HONEYDEW", "Dưa lê / Dưa bở"),
+    GALIA_MELON("GALIA MELON", "Dưa lưới Galia"),
+    CUCUMIS("CUCUMIS", "Chi Dưa (Cucumis)"),
+    WINTER_MELON("WINTER MELON", "Bí đao / Bí xanh"),
+    BITTER_MELON("BITTER MELON", "Khổ qua / Mướp đắng"),
+    BITTER_GOURD("BITTER GOURD", "Khổ qua / Mướp đắng"),
+    EGGPLANT("EGGPLANT", "Cà tím"),
+    AUBERGINE("AUBERGINE", "Cà tím"),
     PINEAPPLE("PINEAPPLE", "Dứa / Thơm"),
     DRAGON_FRUIT("DRAGON FRUIT", "Thanh long"),
     DURIAN("DURIAN", "Sầu riêng"),
@@ -87,17 +98,14 @@ public enum AgriculturalProduceLabel {
     STRAWBERRY("STRAWBERRY", "Dâu tây"),
     PEACH("PEACH", "Đào"),
     PLUM("PLUM", "Mận"),
+    PASSION_FRUIT("PASSION FRUIT", "Chanh dây / Chanh leo"),
 
     // === NÔNG SẢN PHỔ BIẾN BỔ SUNG ===
-    BITTER_MELON("BITTER MELON", "Khổ qua"),
     WATER_SPINACH("WATER SPINACH", "Rau muống"),
-    CANTALOUPE("CANTALOUPE", "Dưa lưới"),
-    EGGPLANT("EGGPLANT", "Cà tím"),
     BELL_PEPPER("BELL PEPPER", "Ớt chuông"),
     ASPARAGUS("ASPARAGUS", "Măng tây"),
     CUSTARD_APPLE("CUSTARD APPLE", "Mãng cầu"),
     SAPODILLA("SAPODILLA", "Hồng xiêm"),
-    PASSION_FRUIT("PASSION FRUIT", "Chanh dây"),
     MANGOSTEEN("MANGOSTEEN", "Măng cụt"),
     COCONUT("COCONUT", "Dừa"),
     GINGER("GINGER", "Gừng"),
@@ -182,6 +190,8 @@ public enum AgriculturalProduceLabel {
         // Thứ tự ưu tiên từ dài đến ngắn để tránh nhận diện nhầm từ con (Hỗ trợ cả tiếng Việt và tiếng Anh)
         if (lower.contains("quả nhàu") || lower.contains("trái nhàu") || lower.contains("cây nhàu") || lower.contains("noni") || lower.contains("morinda")) return Optional.of(NONI);
         if (lower.contains("dưa hấu") || lower.contains("watermelon") || lower.contains("citrullus")) return Optional.of(WATERMELON);
+        if (lower.contains("dưa lưới") || lower.contains("dưa vàng") || lower.contains("dưa gang") || lower.contains("dưa lê") || lower.contains("dưa bở") || lower.contains("cantaloupe") || lower.contains("muskmelon") || lower.contains("honeydew")) return Optional.of(CANTALOUPE);
+        if (lower.contains("bí đao") || lower.contains("bí xanh") || lower.contains("winter melon")) return Optional.of(WINTER_MELON);
         if (lower.contains("thanh long") || lower.contains("dragon fruit") || lower.contains("pitaya")) return Optional.of(DRAGON_FRUIT);
         if (lower.contains("sầu riêng") || lower.contains("durian")) return Optional.of(DURIAN);
         if (lower.contains("khoai lang") || lower.contains("sweet potato")) return Optional.of(SWEET_POTATO);
@@ -193,7 +203,6 @@ public enum AgriculturalProduceLabel {
         if (lower.contains("chôm chôm") || lower.contains("rambutan")) return Optional.of(RAMBUTAN);
         if (lower.contains("dâu tây") || lower.contains("strawberry")) return Optional.of(STRAWBERRY);
         if (lower.contains("dưa leo") || lower.contains("dưa chuột") || lower.contains("cucumber")) return Optional.of(CUCUMBER);
-        if (lower.contains("dưa lưới") || lower.contains("cantaloupe") || lower.contains("muskmelon")) return Optional.of(CANTALOUPE);
         if (lower.contains("khổ qua") || lower.contains("mướp đắng") || lower.contains("bitter melon") || lower.contains("bitter gourd")) return Optional.of(BITTER_MELON);
         if (lower.contains("cà chua") || lower.contains("tomato")) return Optional.of(TOMATO);
         if (lower.contains("cà rốt") || lower.contains("carrot")) return Optional.of(CARROT);
@@ -212,7 +221,7 @@ public enum AgriculturalProduceLabel {
         if (lower.contains("bí đỏ") || lower.contains("pumpkin") || lower.contains("squash")) return Optional.of(PUMPKIN);
         if (lower.contains("xà lách") || lower.contains("lettuce") || lower.contains("salad greens")) return Optional.of(LETTUCE);
         if (lower.contains("rau chân vịt") || lower.contains("cải bó xôi") || lower.contains("spinach")) return Optional.of(SPINACH);
-        if (lower.contains("bơ sáp") || lower.contains("quả bơ") || lower.contains("trái bơ") || lower.contains("avocado")) return Optional.of(AVOCADO);
+        if (lower.contains("bơ sáp") || lower.contains("quả bơ") || lower.contains("trái bơ") || lower.contains("bơ") || lower.contains("avocado")) return Optional.of(AVOCADO);
         if (lower.contains("chuối") || lower.contains("banana")) return Optional.of(BANANA);
         if (lower.contains("xoài") || lower.contains("mango")) return Optional.of(MANGO);
         if (lower.contains("dứa") || lower.contains("thơm") || lower.contains("khóm") || lower.contains("pineapple")) return Optional.of(PINEAPPLE);
@@ -227,13 +236,14 @@ public enum AgriculturalProduceLabel {
         if (lower.contains("bạc hà") || lower.contains("húng lủi") || lower.contains("peppermint") || lower.contains("spearmint") || lower.contains("mint")) return Optional.of(MINT);
         if (lower.contains("ngò rí") || lower.contains("rau mùi") || lower.contains("ngò gai") || lower.contains("rau ngò") || lower.contains("coriander") || lower.contains("cilantro")) return Optional.of(CORIANDER);
         if (lower.contains("tía tô") || lower.contains("perilla") || lower.contains("shiso")) return Optional.of(PERILLA);
-        if (lower.contains("chanh") || lower.contains("lime") || lower.contains("lemon")) return Optional.of(LIME);
+        if (lower.contains("chanh vàng") || lower.contains("lemon")) return Optional.of(LEMON);
+        if (lower.contains("chanh xanh") || lower.contains("chanh") || lower.contains("lime")) return Optional.of(LIME);
         if (lower.contains("táo") || lower.contains("apple")) return Optional.of(APPLE);
         if (lower.contains("cam") || lower.contains("orange")) return Optional.of(ORANGE);
         if (lower.contains("nho") || lower.contains("grape")) return Optional.of(GRAPE);
         if (lower.contains("mận") || lower.contains("plum")) return Optional.of(PLUM);
         if (lower.contains("đào") || lower.contains("peach")) return Optional.of(PEACH);
-        if (lower.contains("hành tây") || lower.contains("onion")) return Optional.of(ONION);
+        if (lower.contains("hành tây") || lower.contains("hành lá") || lower.contains("hành củ") || lower.contains("onion")) return Optional.of(ONION);
         if (lower.contains("tỏi") || lower.contains("garlic")) return Optional.of(GARLIC);
         if (lower.contains("ớt") || lower.contains("chili") || lower.contains("pepper")) return Optional.of(CHILI);
         if (lower.contains("bắp") || lower.contains("ngô") || lower.contains("corn") || lower.contains("maize")) return Optional.of(CORN);
@@ -251,7 +261,13 @@ public enum AgriculturalProduceLabel {
         if (!detected.isSpecificProduce()) return true; // Nhãn nhóm chung luôn tương thích
 
         // Các nhóm họ hàng gần gũi
-        if ((this == WATERMELON && detected == CUCUMBER) || (this == CUCUMBER && detected == WATERMELON)) return true; // Cùng họ bầu bí Cucurbitaceae
+        // Nhóm dưa lưới / dưa gang / dưa lê (Cucumis melo & các phân loài)
+        boolean isThisMelon = (this == MELON || this == MUSKMELON || this == CANTALOUPE || this == HONEYDEW || this == GALIA_MELON || this == CUCUMIS);
+        boolean isDetectedMelon = (detected == MELON || detected == MUSKMELON || detected == CANTALOUPE || detected == HONEYDEW || detected == GALIA_MELON || detected == CUCUMIS);
+        if (isThisMelon && isDetectedMelon) return true;
+
+        if ((this == BITTER_MELON && detected == BITTER_GOURD) || (this == BITTER_GOURD && detected == BITTER_MELON)) return true;
+        if ((this == EGGPLANT && detected == AUBERGINE) || (this == AUBERGINE && detected == EGGPLANT)) return true;
         if ((this == CORN && detected == MAIZE) || (this == MAIZE && detected == CORN)) return true;
         if ((this == LIME && detected == LEMON) || (this == LEMON && detected == LIME)) return true;
         if ((this == POTATO && detected == SWEET_POTATO) || (this == SWEET_POTATO && detected == POTATO)) return true;

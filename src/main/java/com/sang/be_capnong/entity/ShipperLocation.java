@@ -25,6 +25,12 @@ public class ShipperLocation {
     LocalDateTime updatedAt;
     String deliveryPhase;
 
+    /** Shipper đang bật nhận đơn. Tắt online không xoá dòng để vẫn theo dõi được đơn đang giao */
+    Boolean online;
+
+    /** Lần cuối app báo còn hoạt động (heartbeat). Quá hạn thì scheduler tự chuyển offline */
+    LocalDateTime lastSeenAt;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "order_id")
     Order order;

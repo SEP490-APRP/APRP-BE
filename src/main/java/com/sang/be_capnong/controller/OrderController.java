@@ -111,15 +111,18 @@ public class OrderController {
 
     // ── SHIPPER: Vận chuyển & Giao hàng ──────────────────────────────────
     @Operation(summary = "Shipper fetches ready orders",
-            description = "[SHIPPER only] Lấy danh sách các đơn READY để shipper nhận đơn.")
+            description = "[SHIPPER only] Đơn READY chưa có người nhận trong bán kính 15 km quanh vị trí gửi lên "
+                    + "(hoặc vị trí gần nhất), sắp gần nhất trước, kèm distanceToShopKm. Bắt buộc đang trực tuyến (7006).")
     @GetMapping("/ready")
     @PreAuthorize("hasRole('SHIPPER')")
     public ApiResponse<org.springframework.data.domain.Page<OrderResponse>> getReadyOrders(
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "10") int size
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) Double lat,
+            @RequestParam(required = false) Double lng
     ) {
         return ApiResponse.<org.springframework.data.domain.Page<OrderResponse>>builder()
-                .result(orderService.getReadyOrders(page, size))
+                .result(orderService.getReadyOrders(page, size, lat, lng))
                 .message("Ready orders retrieved.")
                 .build();
     }
@@ -140,7 +143,8 @@ public class OrderController {
     }
 
     @Operation(summary = "Shipper accepts and heads to shop",
-            description = "[SHIPPER only] Shipper accepts the order and moves to shop. Transitions: READY → SHIPPING.")
+            description = "[SHIPPER only] READY → SHIPPING. Bắt buộc đang trực tuyến (7006), không có đơn đang giao (7004), "
+                    + "đơn chưa có người nhận (7005), ví không âm (16014). Đơn COD giữ chỗ đủ totalAmount trong ví (16013, result có required/available/missing).")
     @PutMapping("/{id}/ship")
     @PreAuthorize("hasRole('SHIPPER')")
     public ApiResponse<OrderResponse> markOrderAsShipping(@PathVariable("id") int orderId) {
@@ -162,23 +166,27 @@ public class OrderController {
     }
 
     @Operation(summary = "Shipper confirms delivery",
-            description = "[SHIPPER only] Order delivered successfully. Transitions: PICKED_UP (or SHIPPING) → DELIVERED.")
+            description = "[SHIPPER only] PICKED_UP (hoặc SHIPPING) → DELIVERED. Body { proofImageUrls: [...] } bắt buộc >= 1 ảnh (7007). "
+                    + "Đơn COD: gỡ ký quỹ và trừ ví đúng số tiền mặt vừa thu.")
     @PutMapping("/{id}/deliver")
     @PreAuthorize("hasRole('SHIPPER')")
-    public ApiResponse<OrderResponse> markOrderAsDelivered(@PathVariable("id") int orderId) {
+    public ApiResponse<OrderResponse> markOrderAsDelivered(@PathVariable("id") int orderId,
+                                                          @RequestBody(required = false) com.sang.be_capnong.dto.request.DeliverOrderRequest request) {
         return ApiResponse.<OrderResponse>builder()
-                .result(orderService.markOrderAsDelivered(orderId))
+                .result(orderService.markOrderAsDelivered(orderId, request))
                 .message("Order has been delivered.")
                 .build();
     }
 
     @Operation(summary = "Shipper reports failed delivery",
-            description = "[SHIPPER only] Delivery failed (no recipient, wrong address, etc.). Transitions: SHIPPING → FAILED. Stock is restored.")
+            description = "[SHIPPER only] SHIPPING / PICKED_UP → FAILED. Body { reason: KHONG_LIEN_LAC_DUOC|SAI_DIA_CHI|KHACH_TU_CHOI|KHAC, "
+                    + "note, callAttempts, proofImageUrls }. Hoàn kho, gỡ ký quỹ COD, ghi hoàn tiền nếu đã trả online.")
     @PutMapping("/{id}/fail")
     @PreAuthorize("hasRole('SHIPPER')")
-    public ApiResponse<OrderResponse> markOrderAsFailed(@PathVariable("id") int orderId) {
+    public ApiResponse<OrderResponse> markOrderAsFailed(@PathVariable("id") int orderId,
+                                                       @RequestBody(required = false) com.sang.be_capnong.dto.request.FailOrderRequest request) {
         return ApiResponse.<OrderResponse>builder()
-                .result(orderService.markOrderAsFailed(orderId))
+                .result(orderService.markOrderAsFailed(orderId, request))
                 .message("Order delivery failed.")
                 .build();
     }

@@ -4,6 +4,8 @@ import com.sang.be_capnong.dto.response.wallet.OrderSettlementResponse;
 import com.sang.be_capnong.dto.response.wallet.RefundDueResponse;
 import com.sang.be_capnong.dto.response.wallet.WalletResponse;
 import com.sang.be_capnong.dto.response.wallet.WalletTransactionResponse;
+import com.sang.be_capnong.dto.request.wallet.WalletTopupCreateRequest;
+import com.sang.be_capnong.dto.response.wallet.WalletTopupResponse;
 import com.sang.be_capnong.entity.*;
 import com.sang.be_capnong.enums.*;
 import com.sang.be_capnong.exception.AppException;
@@ -23,6 +25,12 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.*;
+
+import vn.payos.PayOS;
+import vn.payos.model.v2.paymentRequests.CreatePaymentLinkRequest;
+import vn.payos.model.v2.paymentRequests.CreatePaymentLinkResponse;
+import vn.payos.model.v2.paymentRequests.PaymentLink;
+import vn.payos.model.v2.paymentRequests.PaymentLinkStatus;
 
 /**
  * Quyết toán ví theo đặc tả CapNong:
@@ -56,6 +64,23 @@ public class WalletServiceImpl implements WalletService {
     private final UserRepository userRepository;
     private final WithdrawRequestRepository withdrawRequestRepository;
     private final ReturnRequestRepository returnRequestRepository;
+    private final WalletTopupRepository walletTopupRepository;
+    private final PaymentRepository paymentRepository;
+    private final CheckoutBatchRepository checkoutBatchRepository;
+    private final PayOS payOS;
+    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
+
+    @Value("${capnong.wallet.min-topup:10000}")
+    private BigDecimal minTopup;
+
+    @Value("${capnong.wallet.max-topup:20000000}")
+    private BigDecimal maxTopup;
+
+    @Value("${payos.return-url:http://localhost:3000/payment/result}")
+    private String defaultReturnUrl;
+
+    @Value("${payos.cancel-url:http://localhost:3000/payment/result}")
+    private String defaultCancelUrl;
 
     /** Số tiền rút tối thiểu mỗi lệnh */
     @Value("${capnong.wallet.min-withdraw:50000}")
@@ -84,8 +109,19 @@ public class WalletServiceImpl implements WalletService {
         }
 
         // 1. Quy tắc giữ tiền shop 24h: Người mua có 24h sau khi nhận hàng để hoàn hàng
-        // Tiền của shop phải tiếp tục giữ ở frozenBalance cho đến khi hết 24h kể từ deliveredAt
-        if (order.getStatus() == OrderStatus.COMPLETED && order.getDeliveredAt() != null && LocalDateTime.now().isBefore(order.getDeliveredAt().plusHours(24))) {
+        // Tiền của shop phải tiếp tục giữ ở frozenBalance cho đến khi hết 24h kể từ deliveredAt.
+        // Cho phép giải phóng quyết toán ngay nếu:
+        // - Admin chủ động gọi quyết toán
+        // - Người mua đã chủ động bấm "Đã nhận hàng" xác nhận hài lòng (completedAt != null) và không có khiếu nại
+        boolean isExplicitAdmin = false;
+        try {
+            User me = currentUser();
+            isExplicitAdmin = hasRole(me, "ADMIN");
+        } catch (Exception ignored) {}
+
+        boolean buyerConfirmed = order.getCompletedAt() != null;
+        if (!isExplicitAdmin && !buyerConfirmed && order.getStatus() == OrderStatus.COMPLETED
+                && order.getDeliveredAt() != null && LocalDateTime.now().isBefore(order.getDeliveredAt().plusHours(24))) {
             log.info("[Wallet] Order #{} delivered at {}. 24h return hold active until {}. Settle deferred.",
                     orderId, order.getDeliveredAt(), order.getDeliveredAt().plusHours(24));
             return buildSettlement(order);
@@ -113,10 +149,11 @@ public class WalletServiceImpl implements WalletService {
                         + " - voucher shop " + vnd(s.shopVoucher)
                         + " - phí dịch vụ " + pct(farmerFeeRate) + " " + vnd(s.farmerFee));
 
-        if (order.getShipper() != null && s.shipperReceive.signum() != 0) {
+        if (order.getShipper() != null && s.shipperReceive.signum() != 0 && order.getShipperPaidAt() == null) {
             Wallet shipperWallet = getOrCreateWallet(order.getShipper(), TYPE_SHIPPER);
             credit(shipperWallet, order, WalletTransactionType.SHIPPER_INCOME, s.shipperReceive,
                     ref + ": cước giao " + vnd(s.shippingFee) + " - phí dịch vụ " + pct(shipperFeeRate) + " " + vnd(s.shipperFee));
+            order.setShipperPaidAt(LocalDateTime.now());
         }
 
         Wallet platform = getPlatformWalletEntity();
@@ -133,10 +170,13 @@ public class WalletServiceImpl implements WalletService {
         if ("COD".equalsIgnoreCase(order.getPaymentMethod()) && order.getCodPaymentStatus() == null) {
             order.setCodPaymentStatus(CodPaymentStatus.CONFIRMED);
         }
-        if (order.getShipper() != null) {
+        if (order.getShipper() != null && order.getShipperPaidAt() == null) {
             order.setShipperPaidAt(order.getSettledAt());
         }
         orderRepository.save(order);
+
+        // Bắn sự kiện quyết toán đơn hàng để lắng nghe AFTER_COMMIT chia hoa hồng tiếp thị liên kết
+        eventPublisher.publishEvent(new com.sang.be_capnong.event.OrderSettledEvent(order.getOrderId()));
 
         log.info("[Wallet] Settled order #{}: buyerPaid={}, shop={}, shipper={}, platform={}, refundAmount={}",
                 orderId, s.buyerPaid, s.shopReceive, s.shipperReceive, s.platformReceive, order.getRefundAmount());
@@ -439,15 +479,284 @@ public class WalletServiceImpl implements WalletService {
             return; // đã ghi nhận
         }
         BigDecimal cash = nz(order.getTotalAmount());
+        Wallet shipperWallet = getOrCreateWallet(order.getShipper(), TYPE_SHIPPER);
         order.setCodAmount(cash);
         order.setCodCashConfirmedAt(LocalDateTime.now());
+
+        if (nz(order.getCodReservedAmount()).signum() > 0) {
+            // Ký quỹ: tiền mặt thu của khách chính là tiền Shipper đã ứng -> trừ ví, không còn nợ sàn
+            releaseCodReserveInternal(order, "giao thành công");
+            credit(shipperWallet, order, WalletTransactionType.COD_CASH_COLLECTED, cash.negate(),
+                    "Đơn #" + orderId + ": thu tiền mặt COD " + vnd(cash) + " của khách, trừ vào tiền ký quỹ");
+            order.setCodSettled(true);
+            order.setCodSettledAt(LocalDateTime.now());
+            order.setCodPaymentStatus(CodPaymentStatus.SETTLED);
+            orderRepository.save(order);
+            return;
+        }
+
+        // Đơn nhận theo luồng cũ (chưa ký quỹ): ghi nợ, chờ Admin xác nhận nộp tiền
         order.setCodSettled(false);
         order.setCodPaymentStatus(CodPaymentStatus.CONFIRMED);
         orderRepository.save(order);
-
-        Wallet shipperWallet = getOrCreateWallet(order.getShipper(), TYPE_SHIPPER);
         credit(shipperWallet, order, WalletTransactionType.COD_CASH_COLLECTED, cash.negate(),
                 "Đơn #" + orderId + ": giữ tiền mặt COD " + vnd(cash) + " của khách, cần nộp về sàn");
+    }
+
+    @Override
+    @Transactional
+    public void releaseShipperFeeOnDelivered(int orderId) {
+        Order order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
+
+        if (order.getShipper() == null || order.getShipperPaidAt() != null) {
+            return;
+        }
+
+        Split s = computeSplit(order);
+        if (s.shipperReceive.signum() <= 0) {
+            return;
+        }
+
+        Wallet shipperWallet = getOrCreateWallet(order.getShipper(), TYPE_SHIPPER);
+        String ref = "Đơn #" + orderId;
+
+        // 1. Gỡ tạm giữ cước giao của Shipper (SHIPPER_INCOME_HOLD -> HOLD_RELEASED)
+        hold(shipperWallet, order, WalletTransactionType.HOLD_RELEASED, s.shipperReceive.negate(),
+                ref + ": giao thành công, chuyển cước giao tạm giữ sang số dư");
+
+        // 2. Cộng cước giao vào số dư khả dụng của Shipper
+        credit(shipperWallet, order, WalletTransactionType.SHIPPER_INCOME, s.shipperReceive,
+                ref + ": cước giao " + vnd(s.shippingFee) + " - phí dịch vụ " + pct(shipperFeeRate) + " " + vnd(s.shipperFee));
+
+        order.setShipperPaidAt(LocalDateTime.now());
+        orderRepository.save(order);
+
+        log.info("[Wallet] Released shipper fee {} to shipper #{} upon delivery for order #{}",
+                s.shipperReceive, order.getShipper().getId(), orderId);
+    }
+
+    // ───────────────────────────── Ký quỹ COD ─────────────────────────────
+
+    @Override
+    @Transactional
+    public void reserveForShipperAccept(int orderId) {
+        Order order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
+        if (order.getShipper() == null) {
+            return;
+        }
+        Wallet wallet = getOrCreateWallet(order.getShipper(), TYPE_SHIPPER);
+        Wallet locked = walletRepository.findByIdForUpdate(wallet.getWalletId())
+                .orElseThrow(() -> new AppException(ErrorCode.WALLET_NOT_FOUND));
+
+        // Ví âm = còn nợ tiền COD của luồng cũ -> không cho nhận thêm đơn nào
+        if (nz(locked.getTotalBalance()).signum() < 0) {
+            throw new AppException(ErrorCode.WALLET_HAS_DEBT, null,
+                    Map.of("balance", nz(locked.getTotalBalance())));
+        }
+        if (!"COD".equalsIgnoreCase(order.getPaymentMethod())) {
+            return;
+        }
+        BigDecimal required = money(order.getTotalAmount());
+        BigDecimal available = nz(locked.getTotalBalance()).subtract(nz(locked.getCodReserved())).max(BigDecimal.ZERO);
+        if (available.compareTo(required) < 0) {
+            throw new AppException(ErrorCode.SHIPPER_COD_BALANCE_INSUFFICIENT, null, Map.of(
+                    "required", required,
+                    "available", available,
+                    "missing", required.subtract(available)));
+        }
+        order.setCodReservedAmount(required);
+        order.setCodPaymentStatus(CodPaymentStatus.PENDING);
+        orderRepository.save(order);
+        reserve(locked, order, WalletTransactionType.COD_RESERVED, required,
+                "Đơn #" + orderId + ": ký quỹ " + vnd(required) + " tiền COD, trả lại khi giao xong hoặc đơn không giao được");
+    }
+
+    @Override
+    @Transactional
+    public void releaseCodReserve(int orderId, String reason) {
+        Order order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
+        releaseCodReserveInternal(order, reason);
+    }
+
+    private void releaseCodReserveInternal(Order order, String reason) {
+        BigDecimal amount = nz(order.getCodReservedAmount());
+        if (amount.signum() <= 0 || order.getShipper() == null) {
+            return;
+        }
+        Wallet wallet = getOrCreateWallet(order.getShipper(), TYPE_SHIPPER);
+        if (!walletTransactionRepository.existsByWallet_WalletIdAndOrder_OrderIdAndType(
+                wallet.getWalletId(), order.getOrderId(), WalletTransactionType.COD_RESERVED)) {
+            return;
+        }
+        reserve(wallet, order, WalletTransactionType.COD_RESERVE_RELEASED, amount.negate(),
+                "Đơn #" + order.getOrderId() + ": " + reason + ", gỡ ký quỹ " + vnd(amount));
+    }
+
+    /**
+     * Cộng (delta > 0) / trừ (delta < 0) tiền giữ chỗ COD. Số dư không đổi.
+     * Sổ cái ghi amount = -delta (âm = số dư khả dụng giảm). Mỗi (ví, đơn, loại) chỉ 1 lần.
+     */
+    private void reserve(Wallet wallet, Order order, WalletTransactionType type, BigDecimal delta, String description) {
+        if (delta == null || delta.signum() == 0) {
+            return;
+        }
+        if (walletTransactionRepository.existsByWallet_WalletIdAndOrder_OrderIdAndType(wallet.getWalletId(), order.getOrderId(), type)) {
+            return;
+        }
+        Wallet locked = walletRepository.findByIdForUpdate(wallet.getWalletId())
+                .orElseThrow(() -> new AppException(ErrorCode.WALLET_NOT_FOUND));
+        locked.setCodReserved(nz(locked.getCodReserved()).add(delta).max(BigDecimal.ZERO));
+        locked.setUpdateAt(LocalDateTime.now());
+        walletRepository.save(locked);
+
+        walletTransactionRepository.save(WalletTransaction.builder()
+                .wallet(locked)
+                .order(order)
+                .type(type)
+                .amount(delta.negate())
+                .balanceAfter(nz(locked.getTotalBalance()))
+                .frozenAfter(nz(locked.getFrozenBalance()))
+                .description(description)
+                .createdAt(LocalDateTime.now())
+                .build());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public BigDecimal getShipperAvailableBalance(int shipperId) {
+        return walletRepository.findFirstByUser_IdAndType(shipperId, TYPE_SHIPPER)
+                .map(w -> nz(w.getTotalBalance()).subtract(nz(w.getCodReserved())))
+                .orElse(BigDecimal.ZERO);
+    }
+
+    // ───────────────────────────── Nạp ví (PayOS) ─────────────────────────────
+
+    @Override
+    @Transactional
+    public WalletTopupResponse createTopup(WalletTopupCreateRequest req) {
+        BigDecimal amount = req == null ? null : req.getAmount();
+        if (amount == null || amount.stripTrailingZeros().scale() > 0
+                || amount.compareTo(minTopup) < 0 || amount.compareTo(maxTopup) > 0) {
+            throw new AppException(ErrorCode.TOPUP_AMOUNT_INVALID,
+                    "Số tiền nạp phải là số nguyên từ " + vnd(minTopup) + " đến " + vnd(maxTopup));
+        }
+        amount = money(amount);
+        User me = currentUser();
+        if (!hasRole(me, "SHIPPER") && !hasRole(me, "SHOP")) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
+        Wallet wallet = walletRepository.findById(getMyWallet().getWalletId())
+                .orElseThrow(() -> new AppException(ErrorCode.WALLET_NOT_FOUND));
+
+        long code = nextTopupCode();
+        String returnUrl = req.getReturnUrl() != null && !req.getReturnUrl().isBlank() ? req.getReturnUrl() : defaultReturnUrl;
+        String cancelUrl = req.getCancelUrl() != null && !req.getCancelUrl().isBlank() ? req.getCancelUrl() : defaultCancelUrl;
+        String checkoutUrl;
+        try {
+            CreatePaymentLinkResponse res = payOS.paymentRequests().create(CreatePaymentLinkRequest.builder()
+                    .orderCode(code)
+                    .amount(amount.longValueExact())
+                    .description("Nap vi CapNong")
+                    .returnUrl(returnUrl)
+                    .cancelUrl(cancelUrl)
+                    .expiredAt(java.time.Instant.now().plusSeconds(30 * 60L).getEpochSecond())
+                    .build());
+            checkoutUrl = res.getCheckoutUrl();
+        } catch (Exception e) {
+            log.error("[Topup] Cannot create PayOS link for wallet {}: {}", wallet.getWalletId(), e.getMessage(), e);
+            throw new AppException(ErrorCode.PAYMENT_FAILED);
+        }
+        WalletTopup t = walletTopupRepository.save(WalletTopup.builder()
+                .wallet(wallet)
+                .amount(amount)
+                .payosOrderCode(String.valueOf(code))
+                .checkoutUrl(checkoutUrl)
+                .status(WalletTopupStatus.PENDING)
+                .createdAt(LocalDateTime.now())
+                .build());
+        log.info("[Topup] #{} created: wallet {} amount {} code {}", t.getId(), wallet.getWalletId(), amount, code);
+        return toTopupResponse(t);
+    }
+
+    @Override
+    @Transactional
+    public List<WalletTopupResponse> getMyTopups() {
+        return walletTopupRepository.findTop20ByWallet_WalletIdOrderByCreatedAtDesc(getMyWallet().getWalletId())
+                .stream().map(this::toTopupResponse).toList();
+    }
+
+    @Override
+    @Transactional
+    public WalletTopupResponse confirmTopup(String orderCode) {
+        WalletTopup t = walletTopupRepository.findByPayosOrderCode(orderCode)
+                .orElseThrow(() -> new AppException(ErrorCode.TOPUP_NOT_FOUND));
+        User me = currentUser();
+        if (t.getWallet().getUser().getId() != me.getId() && !hasRole(me, "ADMIN")) {
+            throw new AppException(ErrorCode.FORBIDDEN);
+        }
+        if (t.getStatus() == WalletTopupStatus.PENDING) {
+            try {
+                PaymentLink link = payOS.paymentRequests().get(Long.parseLong(orderCode));
+                if (link != null && PaymentLinkStatus.PAID.equals(link.getStatus())) {
+                    settleTopupIfExists(orderCode);
+                } else if (link != null && (PaymentLinkStatus.CANCELLED.equals(link.getStatus())
+                        || PaymentLinkStatus.EXPIRED.equals(link.getStatus()))) {
+                    t.setStatus(WalletTopupStatus.CANCELLED);
+                    walletTopupRepository.save(t);
+                }
+            } catch (Exception e) {
+                log.warn("[Topup] Cannot check PayOS link {}: {}", orderCode, e.getMessage());
+            }
+        }
+        return toTopupResponse(t);
+    }
+
+    @Override
+    @Transactional
+    public boolean settleTopupIfExists(String orderCode) {
+        if (orderCode == null || !walletTopupRepository.existsByPayosOrderCode(orderCode)) {
+            return false;
+        }
+        WalletTopup t = walletTopupRepository.findByPayosOrderCodeForUpdate(orderCode).orElseThrow();
+        if (t.getStatus() == WalletTopupStatus.PAID) {
+            return true;
+        }
+        // Kể cả lệnh đã bị đánh dấu huỷ: tiền đã vào sàn thì vẫn cộng ví
+        credit(t.getWallet(), null, WalletTransactionType.TOP_UP, t.getAmount(),
+                "Nạp ví #" + t.getId() + ": " + vnd(t.getAmount()) + " qua PayOS");
+        t.setStatus(WalletTopupStatus.PAID);
+        t.setPaidAt(LocalDateTime.now());
+        walletTopupRepository.save(t);
+        log.info("[Topup] #{} PAID: +{} to wallet {}", t.getId(), t.getAmount(), t.getWallet().getWalletId());
+        return true;
+    }
+
+    private long nextTopupCode() {
+        for (int i = 0; i < 5; i++) {
+            long code = System.currentTimeMillis() * 1000L + java.util.concurrent.ThreadLocalRandom.current().nextInt(1000);
+            String c = String.valueOf(code);
+            if (!walletTopupRepository.existsByPayosOrderCode(c)
+                    && paymentRepository.findByPayosOrderCode(c).isEmpty()
+                    && checkoutBatchRepository.findByPayosOrderCode(c).isEmpty()) {
+                return code;
+            }
+        }
+        throw new AppException(ErrorCode.PAYMENT_FAILED);
+    }
+
+    private WalletTopupResponse toTopupResponse(WalletTopup t) {
+        return WalletTopupResponse.builder()
+                .id(t.getId())
+                .amount(t.getAmount())
+                .status(t.getStatus() != null ? t.getStatus().name() : null)
+                .orderCode(t.getPayosOrderCode())
+                .checkoutUrl(t.getStatus() == WalletTopupStatus.PENDING ? t.getCheckoutUrl() : null)
+                .createdAt(t.getCreatedAt())
+                .paidAt(t.getPaidAt())
+                .build();
     }
 
     @Override
@@ -522,7 +831,8 @@ public class WalletServiceImpl implements WalletService {
         WalletResponse mine = getMyWallet();
         Wallet locked = walletRepository.findByIdForUpdate(mine.getWalletId())
                 .orElseThrow(() -> new AppException(ErrorCode.WALLET_NOT_FOUND));
-        if (nz(locked.getTotalBalance()).compareTo(amount) < 0) {
+        // Tiền đang ký quỹ COD không được rút
+        if (nz(locked.getTotalBalance()).subtract(nz(locked.getCodReserved())).compareTo(amount) < 0) {
             throw new AppException(ErrorCode.WITHDRAW_INSUFFICIENT_BALANCE);
         }
 
@@ -545,7 +855,7 @@ public class WalletServiceImpl implements WalletService {
     }
 
     @Override
-    @Transactional(readOnly = true)
+    @Transactional
     public List<com.sang.be_capnong.dto.response.wallet.WithdrawResponse> getMyWithdrawals() {
         WalletResponse mine = getMyWallet();
         return withdrawRequestRepository.findByWallet_WalletIdOrderByCreatedAtDesc(mine.getWalletId())
@@ -981,6 +1291,38 @@ public class WalletServiceImpl implements WalletService {
                 .build());
     }
 
+    @Override
+    @Transactional
+    public void creditReferralCommission(User referrer, Order order, Long referralCommissionId, BigDecimal amount, String description) {
+        if (amount == null || amount.signum() <= 0) {
+            return;
+        }
+        Wallet buyerWallet = getOrCreateWallet(referrer, TYPE_BUYER);
+        Wallet locked = walletRepository.findByIdForUpdate(buyerWallet.getWalletId())
+                .orElseThrow(() -> new AppException(ErrorCode.WALLET_NOT_FOUND));
+
+        BigDecimal newBalance = money(nz(locked.getTotalBalance()).add(amount));
+        locked.setTotalBalance(newBalance);
+        locked.setTotalRevenueAllTime(money(nz(locked.getTotalRevenueAllTime()).add(amount)));
+        locked.setUpdateAt(LocalDateTime.now());
+        walletRepository.save(locked);
+
+        walletTransactionRepository.save(WalletTransaction.builder()
+                .wallet(locked)
+                .order(order)
+                .referralCommissionId(referralCommissionId)
+                .type(WalletTransactionType.REFERRAL_COMMISSION)
+                .amount(amount)
+                .balanceAfter(newBalance)
+                .frozenAfter(nz(locked.getFrozenBalance()))
+                .description(description)
+                .createdAt(LocalDateTime.now())
+                .build());
+
+        log.info("[Wallet] Credited referral commission {} to referrer #{} (buyer wallet #{}). New balance={}",
+                amount, referrer.getId(), locked.getWalletId(), newBalance);
+    }
+
     private WalletResponse toResponse(Wallet w) {
         BigDecimal codHolding = null;
         if (TYPE_SHIPPER.equals(w.getType())) {
@@ -1003,6 +1345,8 @@ public class WalletServiceImpl implements WalletService {
                 .totalWithdrawn(nz(w.getTotalWithdrawn()))
                 .commissionEarned(TYPE_PLATFORM.equals(w.getType()) ? nz(w.getCommissionWallet()) : null)
                 .codCashHolding(codHolding)
+                .codReserved(nz(w.getCodReserved()))
+                .availableBalance(nz(w.getTotalBalance()).subtract(nz(w.getCodReserved())))
                 .updatedAt(w.getUpdateAt())
                 .build();
     }
@@ -1018,6 +1362,8 @@ public class WalletServiceImpl implements WalletService {
                 .balanceAfter(t.getBalanceAfter())
                 .frozenAfter(t.getFrozenAfter())
                 .hold(HOLD_TYPES.contains(t.getType()))
+                .reserve(t.getType() == WalletTransactionType.COD_RESERVED
+                        || t.getType() == WalletTransactionType.COD_RESERVE_RELEASED)
                 .description(t.getDescription())
                 .createdAt(t.getCreatedAt())
                 .build();

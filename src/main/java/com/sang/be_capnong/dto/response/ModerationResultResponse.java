@@ -15,6 +15,7 @@ import java.util.List;
 public class ModerationResultResponse {
     int id;
     Boolean isFlagged;
+    String flagReason;
     BigDecimal overallConfidence;
     LocalDateTime checkedAt;
     String rawResponse;

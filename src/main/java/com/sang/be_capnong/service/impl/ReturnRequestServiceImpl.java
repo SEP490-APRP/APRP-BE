@@ -61,6 +61,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
     NotificationService notificationService;
     WalletService walletService;
     WalletRepository walletRepository;
+    UserService userService;
 
     public static final Set<ReturnStatus> TERMINAL_STATUSES = Set.of(
             ReturnStatus.COMPLETED,
@@ -319,6 +320,11 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 returnRequest.setRefundAmount(request.getRefundAmount());
             }
 
+            returnRequest = returnRequestRepository.save(returnRequest);
+
+            // Gắn 1 Risk Flag cho Shop khi Admin xác nhận khiếu nại giao hàng hỏng
+            userService.addRiskFlagForAdminApprovedReturn(returnRequest, request.getAdminRemark());
+
             // Cách 1: Chuyển quyền cho Shop vào chọn phương án lấy lại hàng hoặc hoàn tiền ngay trong vòng 24h
             if (shop != null) {
                 notificationService.sendNotificationToUser(
@@ -379,6 +385,19 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         if (returnRequest.getShipper() != null && !Objects.equals(returnRequest.getShipper().getId(), currentUserId)) {
             throw new AppException(ErrorCode.INVALID_RETURN_STATUS);
+        }
+
+        // Bắt buộc 1 đơn tại 1 thời điểm: Shipper không được nhận đơn hoàn nếu đang có đơn giao xuôi hoặc đơn hoàn khác đang chạy
+        boolean hasActiveForward = orderRepository.existsByShipper_IdAndStatusIn(
+                currentUserId, List.of(OrderStatus.SHIPPING, OrderStatus.PICKED_UP)
+        );
+        boolean hasActiveReturn = returnRequestRepository.existsByShipper_IdAndStatusIn(
+                currentUserId, List.of(ReturnStatus.RETURN_SHIPPING, ReturnStatus.RETURN_PICKED_UP)
+        );
+        if (hasActiveForward || hasActiveReturn) {
+            log.warn("[ReturnRequest] Shipper #{} already has an active order (forward: {}, return: {})",
+                    currentUserId, hasActiveForward, hasActiveReturn);
+            throw new AppException(ErrorCode.SHIPPER_HAS_ACTIVE_ORDER);
         }
 
         // Kiểm tra số dư ví khả dụng của Shipper nếu đơn hoàn trả bằng hình thức COD

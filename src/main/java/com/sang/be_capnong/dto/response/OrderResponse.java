@@ -45,5 +45,16 @@ public class OrderResponse {
     Double distanceKm;
     BigDecimal rescuedWeight;
     BigDecimal refundAmount;
+    /** Số tiền COD đang/đã ký quỹ trong ví Shipper */
+    BigDecimal codReservedAmount;
+    /** Khoảng cách từ Shipper (vị trí gửi lên) tới nhà vườn, chỉ có ở GET /orders/ready */
+    Double distanceToShopKm;
+    LocalDateTime deliveredAt;
+    List<String> deliveryProofUrls;
+    String failReason;
+    String failNote;
+    Integer failCallAttempts;
+    List<String> failProofUrls;
+    LocalDateTime failedAt;
     List<OrderDetailResponse> items;
 }

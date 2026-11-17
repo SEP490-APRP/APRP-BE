@@ -31,6 +31,13 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
     boolean existsByShipper_IdAndStatus(int shipperId, OrderStatus status);
     boolean existsByShipper_IdAndStatusIn(int shipperId, List<OrderStatus> statuses);
 
+    /** Đơn READY chưa có shipper, dùng cho điều phối theo đợt */
+    List<Order> findByStatusAndShipperIsNull(OrderStatus status);
+
+    /** Shipper đang có đơn chưa giao xong (để loại khỏi danh sách mời) */
+    @Query("select distinct o.shipper.id from Order o where o.shipper is not null and o.status in :statuses")
+    List<Integer> findShipperIdsWithStatusIn(@Param("statuses") List<OrderStatus> statuses);
+
     /** Khoá dòng đơn khi quyết toán ví để chống chia tiền 2 lần */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select o from Order o where o.orderId = :id")
@@ -56,4 +63,11 @@ public interface OrderRepository extends JpaRepository<Order, Integer> {
 
     /** Đơn đã chia tiền vào ví kể từ {from} (dòng tiền của màn Ví Sàn) */
     java.util.List<Order> findBySettledAtGreaterThanEqual(java.time.LocalDateTime from);
+
+    /** Đếm số đơn giao hàng thất bại do lỗi chủ quan của khách (không nghe máy hoặc từ chối nhận) */
+    long countByBuyer_IdAndStatusAndFailReasonIn(
+            int buyerId,
+            OrderStatus status,
+            java.util.Collection<com.sang.be_capnong.enums.DeliveryFailReason> failReasons
+    );
 }

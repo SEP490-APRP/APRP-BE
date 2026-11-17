@@ -62,11 +62,17 @@ capnong:
     expire-minutes: 30       # CAPNONG_PAYMENT_EXPIRE_MINUTES, 0 = tắt
 ```
 
-## 3. COD
+## 3. COD: ký quỹ bằng ví (từ 2026-11-06)
 
-1. Shipper bấm giao thành công (DELIVERED): ghi `orders.cod_amount`, `cod_cash_confirmed_at`, ví Shipper bị trừ số tiền mặt đang giữ (`COD_CASH_COLLECTED`, số dư có thể âm = đang nợ sàn).
-2. Đơn COMPLETED: chia tiền như đơn online.
-3. Admin xác nhận Shipper đã nộp tiền: `POST /wallets/cod/{orderId}/settle` → ví Shipper được cộng lại (`COD_CASH_REMITTED`), `cod_settled = true`.
+Chi tiết: [`shipper-dispatch-flow.md`](shipper-dispatch-flow.md) mục 4.
+
+1. Shipper nhận đơn COD: số dư khả dụng (`total_balance − cod_reserved`) phải ≥ `totalAmount`, nếu thiếu thì lỗi 16013. Tiền được giữ chỗ (`COD_RESERVED`, `wallets.cod_reserved`).
+2. Giao thành công: gỡ giữ chỗ (`COD_RESERVE_RELEASED`) và trừ ví `COD_CASH_COLLECTED −totalAmount`. Số dư không bao giờ âm, `cod_settled = true` ngay.
+3. Giao thất bại: gỡ giữ chỗ, ví như cũ.
+4. Đơn COMPLETED: chia tiền như đơn online.
+5. Nạp ví qua PayOS: `POST /wallets/topups` → `TOP_UP`.
+
+**Đơn nhận theo luồng cũ** (`orders.cod_reserved_amount` NULL): vẫn ghi nợ khi giao, Admin xác nhận nộp tiền bằng `POST /wallets/cod/{orderId}/settle` (`COD_CASH_REMITTED`). Ví âm thì không nhận được đơn mới (16014).
 
 ## 4. Hoàn tiền
 
@@ -91,6 +97,9 @@ Admin xem danh sách tại `GET /wallets/refunds` và hoàn tiền thủ công.
 | GET | `/wallets/cod/pending` | ADMIN | Đơn COD Shipper chưa nộp tiền |
 | POST | `/wallets/cod/{orderId}/settle` | ADMIN | Xác nhận Shipper đã nộp tiền COD |
 | GET | `/wallets/refunds` | ADMIN | Đơn cần hoàn tiền cho Buyer |
+| POST | `/wallets/topups` | SHIPPER, SHOP | Tạo link PayOS nạp ví |
+| GET | `/wallets/topups/me` | SHIPPER, SHOP | Lịch sử nạp ví |
+| POST | `/wallets/topups/{orderCode}/confirm` | SHIPPER, SHOP, ADMIN | Xác nhận lệnh nạp sau khi quay lại từ PayOS |
 
 ## 6. Thay đổi ở luồng thanh toán PayOS
 

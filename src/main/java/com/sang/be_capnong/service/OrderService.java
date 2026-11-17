@@ -21,15 +21,18 @@ public interface OrderService {
     OrderResponse markOrderAsReady(int orderId);
     OrderResponse markOrderAsShipping(int orderId);
     OrderResponse markOrderAsPickedUp(int orderId);
-    OrderResponse markOrderAsDelivered(int orderId);
+    /** Shipper giao thành công, bắt buộc ảnh bằng chứng */
+    OrderResponse markOrderAsDelivered(int orderId, com.sang.be_capnong.dto.request.DeliverOrderRequest request);
     OrderResponse markOrderAsCancelled(int orderId);
-    OrderResponse markOrderAsFailed(int orderId);
+    /** Shipper báo giao thất bại: lý do, số cuộc gọi, ảnh bằng chứng */
+    OrderResponse markOrderAsFailed(int orderId, com.sang.be_capnong.dto.request.FailOrderRequest request);
     /** BUYER xác nhận đã nhận hàng: DELIVERED -> COMPLETED, sau đó chia tiền vào ví */
     OrderResponse markOrderAsCompleted(int orderId);
     /** Hệ thống tự hoàn tất đơn DELIVERED quá hạn (không kiểm tra người gọi) */
     OrderResponse autoCompleteOrder(int orderId);
 
     // === SHIPPER ===
-    org.springframework.data.domain.Page<OrderResponse> getReadyOrders(int page, int size);
+    /** Đơn READY chưa có người nhận trong bán kính quanh shipper, gần nhất trước. Bắt buộc đang trực tuyến */
+    org.springframework.data.domain.Page<OrderResponse> getReadyOrders(int page, int size, Double latitude, Double longitude);
     org.springframework.data.domain.Page<OrderResponse> getShipperOrders(int page, int size, java.util.List<com.sang.be_capnong.enums.OrderStatus> statuses);
 }

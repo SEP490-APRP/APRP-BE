@@ -52,6 +52,33 @@ public class WalletController {
                 .result(walletService.getOrderSettlement(orderId)).build();
     }
 
+    @Operation(summary = "Nạp tiền vào ví qua PayOS",
+            description = "[SHIPPER, SHOP] Tạo link PayOS. Shipper cần số dư khả dụng >= tiền COD mới nhận được đơn COD (ký quỹ).")
+    @PostMapping("/topups")
+    @PreAuthorize("hasAnyRole('SHIPPER', 'SHOP')")
+    public ApiResponse<com.sang.be_capnong.dto.response.wallet.WalletTopupResponse> createTopup(
+            @RequestBody com.sang.be_capnong.dto.request.wallet.WalletTopupCreateRequest request) {
+        return ApiResponse.<com.sang.be_capnong.dto.response.wallet.WalletTopupResponse>builder()
+                .result(walletService.createTopup(request)).build();
+    }
+
+    @Operation(summary = "Lịch sử nạp ví của tôi (20 lệnh gần nhất)")
+    @GetMapping("/topups/me")
+    @PreAuthorize("hasAnyRole('SHIPPER', 'SHOP')")
+    public ApiResponse<java.util.List<com.sang.be_capnong.dto.response.wallet.WalletTopupResponse>> getMyTopups() {
+        return ApiResponse.<java.util.List<com.sang.be_capnong.dto.response.wallet.WalletTopupResponse>>builder()
+                .result(walletService.getMyTopups()).build();
+    }
+
+    @Operation(summary = "Kiểm tra lệnh nạp sau khi quay lại từ PayOS",
+            description = "Hỏi PayOS; nếu đã trả thì cộng ví ngay (không cần chờ webhook). Gọi nhiều lần an toàn.")
+    @PostMapping("/topups/{orderCode}/confirm")
+    @PreAuthorize("hasAnyRole('SHIPPER', 'SHOP', 'ADMIN')")
+    public ApiResponse<com.sang.be_capnong.dto.response.wallet.WalletTopupResponse> confirmTopup(@PathVariable String orderCode) {
+        return ApiResponse.<com.sang.be_capnong.dto.response.wallet.WalletTopupResponse>builder()
+                .result(walletService.confirmTopup(orderCode)).build();
+    }
+
     @Operation(summary = "Tạo lệnh rút tiền về ngân hàng", description = "Shop / Shipper / Buyer. Tối thiểu capnong.wallet.min-withdraw (mặc định 50.000đ). Số dư bị trừ ngay, Admin chuyển khoản rồi xác nhận.")
     @PostMapping("/withdrawals")
     @PreAuthorize("hasAnyRole('SHOP', 'SHIPPER', 'BUYER')")

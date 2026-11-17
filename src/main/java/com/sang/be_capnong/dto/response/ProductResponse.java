@@ -1,5 +1,6 @@
 package com.sang.be_capnong.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.*;
 import lombok.experimental.FieldDefaults;
 
@@ -21,8 +22,13 @@ public class ProductResponse {
     Integer stockQuantity;
     String description;
     String status;
+
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd")
     LocalDate expiryDate;
+
     String rejectReason;
+
+    @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd'T'HH:mm:ss")
     LocalDateTime updatedAt;
     Integer discountPercent;
     LocalDateTime discountStartDate;

@@ -9,22 +9,25 @@ import com.sang.be_capnong.dto.request.UserCreationRequest;
 import com.sang.be_capnong.dto.request.UserUpdateRequest;
 import com.sang.be_capnong.dto.request.VerifyOtpRequest;
 import com.sang.be_capnong.dto.response.PageResponse;
+import com.sang.be_capnong.dto.response.ShopRiskFlagResponse;
 import com.sang.be_capnong.dto.response.UserResponse;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
-import java.util.HashSet;
-import java.util.Set;
+import com.sang.be_capnong.entity.Order;
+import com.sang.be_capnong.entity.ReturnRequest;
 import com.sang.be_capnong.entity.Role;
 import com.sang.be_capnong.entity.User;
+import com.sang.be_capnong.enums.DeliveryFailReason;
+import com.sang.be_capnong.enums.ReturnStatus;
 import com.sang.be_capnong.enums.UserStatus;
 import com.sang.be_capnong.exception.AppException;
 import com.sang.be_capnong.exception.ErrorCode;
 import com.sang.be_capnong.mapper.UserMapper;
+import com.sang.be_capnong.repository.OrderRepository;
+import com.sang.be_capnong.repository.ReturnRequestRepository;
+import com.sang.be_capnong.repository.ReviewRepository;
 import com.sang.be_capnong.repository.RoleRepository;
 import com.sang.be_capnong.repository.UserRepository;
 import com.sang.be_capnong.service.CloudinaryService;
+import com.sang.be_capnong.service.NotificationService;
 import com.sang.be_capnong.service.OtpService;
 import com.sang.be_capnong.service.UserService;
 import com.sang.be_capnong.util.SecurityUtils;
@@ -32,6 +35,10 @@ import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,7 +46,11 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -49,10 +60,29 @@ public class UserServiceImpl implements UserService {
 
     UserRepository userRepository;
     RoleRepository roleRepository;
+    OrderRepository orderRepository;
+    ReturnRequestRepository returnRequestRepository;
+    ReviewRepository reviewRepository;
+    NotificationService notificationService;
     UserMapper userMapper;
     PasswordEncoder passwordEncoder;
     OtpService otpService;
     CloudinaryService cloudinaryService;
+
+    static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("HH:mm dd/MM/yyyy");
+
+    static final List<DeliveryFailReason> SUBJECTIVE_FAIL_REASONS = List.of(
+            DeliveryFailReason.KHONG_LIEN_LAC_DUOC,
+            DeliveryFailReason.KHACH_TU_CHOI
+    );
+
+    static final List<ReturnStatus> ACTIVE_RISK_STATUSES = List.of(
+            ReturnStatus.ADMIN_APPROVED,
+            ReturnStatus.RETURN_SHIPPING,
+            ReturnStatus.RETURN_PICKED_UP,
+            ReturnStatus.RETURN_DELIVERED,
+            ReturnStatus.COMPLETED
+    );
 
     @Override
     @Transactional
@@ -222,7 +252,8 @@ public class UserServiceImpl implements UserService {
         log.info("getMyInfo for user id: {}", currentUserId);
         User user = userRepository.findById(currentUserId)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
-        return userMapper.toUserResponse(user);
+        UserResponse response = userMapper.toUserResponse(user);
+        return enrichPenaltyAndRiskInfo(user, response);
     }
 
     @Override
@@ -389,6 +420,22 @@ public class UserServiceImpl implements UserService {
             response.setLicense(null);
             response.setLicenseImageUrl(null);
             response.setVehicleDocImageUrl(null);
+        } else {
+            enrichPenaltyAndRiskInfo(user, response);
+        }
+        return response;
+    }
+
+    private UserResponse enrichPenaltyAndRiskInfo(User user, UserResponse response) {
+        if (response == null || user == null) return response;
+        long fails = countDeliveryFailures(user.getId());
+        response.setFailedDeliveryCount((int) fails);
+        response.setCodBlocked(fails >= 3);
+        if (user.getLockedAt() != null) {
+            response.setSuspendedUntil(user.getLockedAt().plusDays(7));
+        }
+        if (user.getRole() != null && "SHOP".equalsIgnoreCase(user.getRole().getName())) {
+            response.setActiveRiskFlags((int) countActiveRiskFlags(user.getId()));
         }
         return response;
     }
@@ -496,5 +543,268 @@ public class UserServiceImpl implements UserService {
 
         Page<UserResponse> responsePage = userPage.map(userMapper::toUserResponse);
         return PageResponse.from(responsePage);
+    }
+
+    // =========================================================================
+    // ===== CUSTOMER PENALTY SYSTEM (CHỐNG BOM HÀNG) ==========================
+    // =========================================================================
+
+    public static boolean isCustomerFault(DeliveryFailReason reason) {
+        return reason == DeliveryFailReason.KHONG_LIEN_LAC_DUOC || reason == DeliveryFailReason.KHACH_TU_CHOI;
+    }
+
+    @Override
+    public long countDeliveryFailures(int buyerId) {
+        return orderRepository.countByBuyer_IdAndStatusAndFailReasonIn(
+                buyerId, com.sang.be_capnong.enums.OrderStatus.FAILED, SUBJECTIVE_FAIL_REASONS
+        );
+    }
+
+    @Override
+    public boolean isCodBlocked(int buyerId) {
+        return countDeliveryFailures(buyerId) >= 3;
+    }
+
+    @Override
+    @Transactional
+    public void handleDeliveryFailed(Order order, DeliveryFailReason reason) {
+        if (order == null || order.getBuyer() == null || !isCustomerFault(reason)) {
+            return;
+        }
+
+        User buyer = userRepository.findById(order.getBuyer().getId()).orElse(null);
+        if (buyer == null) {
+            return;
+        }
+
+        long currentFails = countDeliveryFailures(buyer.getId());
+        log.warn("[CustomerPenalty] Buyer id={}, orderId={}, reason={}, currentFails={}",
+                buyer.getId(), order.getOrderId(), reason, currentFails);
+
+        if (currentFails >= 5) {
+            // Ngưỡng 2: Khách bom hàng 5 lần -> Tự động tạm khóa tài khoản (suspended) trong 7 ngày
+            buyer.setStatus(UserStatus.LOCKED);
+            buyer.setLockedAt(LocalDateTime.now());
+            userRepository.save(buyer);
+
+            String untilStr = LocalDateTime.now().plusDays(7).format(DATE_FORMATTER);
+            notificationService.sendNotificationToUser(
+                    buyer,
+                    "Tài khoản bị tạm khóa 7 ngày do bom hàng",
+                    "Tài khoản của bạn đã tích lũy 5 lần giao hàng không thành công do lỗi chủ quan (bom hàng). "
+                            + "Hệ thống đã tự động tạm khóa tài khoản trong 7 ngày (đến " + untilStr + "). "
+                            + "Vui lòng liên hệ CSKH CapNong nếu bạn cần hỗ trợ khiếu nại.",
+                    "ACCOUNT_SUSPENDED",
+                    order.getOrderId()
+            );
+            log.warn("[CustomerPenalty] Buyer id={} SUSPENDED until {} due to {} failed deliveries",
+                    buyer.getId(), untilStr, currentFails);
+
+        } else if (currentFails >= 3) {
+            // Ngưỡng 1: Khách bị giao hàng thất bại 3 lần do lỗi chủ quan -> Cảnh báo tài khoản + Tước quyền thanh toán COD
+            if (currentFails == 3) {
+                notificationService.sendNotificationToUser(
+                        buyer,
+                        "Cảnh báo tài khoản: Tước quyền thanh toán COD",
+                        "Bạn đã có 3 lần giao hàng không thành công do lỗi chủ quan (từ chối nhận hoặc không nghe máy). "
+                                + "Tài khoản của bạn đã bị tước quyền thanh toán khi nhận hàng (COD). "
+                                + "Từ bây giờ, bạn chỉ có thể chọn hình thức thanh toán trực tuyến qua PayOS.",
+                        "ACCOUNT_PENALTY",
+                        order.getOrderId()
+                );
+                log.warn("[CustomerPenalty] Buyer id={} COD BLOCKED due to {} failed deliveries",
+                        buyer.getId(), currentFails);
+            } else if (currentFails == 4) {
+                notificationService.sendNotificationToUser(
+                        buyer,
+                        "Cảnh báo nghiêm trọng: Nguy cơ tạm khóa tài khoản",
+                        "Bạn đã có 4 lần giao hàng không thành công (bom hàng). "
+                                + "Nếu tiếp tục xảy ra lần thứ 5, tài khoản của bạn sẽ tự động bị tạm khóa 7 ngày.",
+                        "ACCOUNT_PENALTY",
+                        order.getOrderId()
+                );
+            }
+        } else {
+            // Lần 1 hoặc 2: Nhắc nhở tiến trình
+            notificationService.sendNotificationToUser(
+                    buyer,
+                    "Nhắc nhở nhận hàng (Vi phạm lần " + currentFails + "/3)",
+                    "Đơn hàng #" + order.getOrderId() + " đã giao thất bại do không liên lạc được hoặc bị từ chối nhận. "
+                            + "Nếu tích lũy đủ 3 lần vi phạm, tài khoản sẽ bị tước quyền thanh toán COD.",
+                    "ORDER_STATUS",
+                    order.getOrderId()
+            );
+        }
+    }
+
+    @Override
+    public void checkCodAllowed(User buyer) {
+        if (buyer != null && isCodBlocked(buyer.getId())) {
+            throw new AppException(ErrorCode.COD_NOT_ALLOWED,
+                    "Tài khoản của bạn đã bị tước quyền thanh toán khi nhận hàng (COD) do có từ 3 lần giao hàng thất bại (bom hàng). "
+                            + "Vui lòng chọn hình thức thanh toán trực tuyến qua PayOS.");
+        }
+    }
+
+    @Override
+    @Transactional
+    public void autoUnsuspendAccounts() {
+        LocalDateTime sevenDaysAgo = LocalDateTime.now().minusDays(7);
+        List<User> dueUsers = userRepository.findByStatusAndLockedAtBefore(UserStatus.LOCKED, sevenDaysAgo);
+        for (User u : dueUsers) {
+            u.setStatus(UserStatus.ACTIVE);
+            u.setLockedAt(null);
+            userRepository.save(u);
+            notificationService.sendNotificationToUser(
+                    u,
+                    "Tài khoản đã được mở khóa",
+                    "Thời hạn tạm khóa 7 ngày do bom hàng đã kết thúc. Tài khoản của bạn đã được mở khóa và có thể mua sắm trở lại. "
+                            + "Vui lòng lưu ý quy tắc nhận hàng để tránh bị khóa vĩnh viễn.",
+                    "ACCOUNT_UNLOCKED",
+                    u.getId()
+            );
+            log.info("[CustomerPenalty] Auto-unsuspended user id={}", u.getId());
+        }
+    }
+
+    @Override
+    @Transactional
+    public void resetCustomerPenalties(int userId) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+        user.setLockedAt(null);
+        if (user.getStatus() == UserStatus.LOCKED) {
+            user.setStatus(UserStatus.ACTIVE);
+        }
+        userRepository.save(user);
+        notificationService.sendNotificationToUser(
+                user,
+                "Khôi phục quyền tài khoản",
+                "Quản trị viên đã xem xét và gỡ bỏ các cảnh báo bom hàng cho tài khoản của bạn.",
+                "ACCOUNT_RESTORED",
+                user.getId()
+        );
+        log.info("[CustomerPenalty] Admin reset customer penalties for user id={}", userId);
+    }
+
+    // =========================================================================
+    // ===== SELLER RISK FLAGGING (CỜ RỦI RO SHOP) =============================
+    // =========================================================================
+
+    @Override
+    public long countActiveRiskFlags(int shopId) {
+        return returnRequestRepository.countByShop_IdAndStatusInAndAdminRemarkIsNotNull(shopId, ACTIVE_RISK_STATUSES);
+    }
+
+    @Override
+    @Transactional
+    public void addRiskFlagForAdminApprovedReturn(ReturnRequest returnRequest, String adminRemark) {
+        if (returnRequest == null || returnRequest.getShop() == null) {
+            return;
+        }
+
+        User shop = userRepository.findById(returnRequest.getShop().getId()).orElse(null);
+        if (shop == null) {
+            return;
+        }
+
+        Order order = returnRequest.getOrderDetail() != null ? returnRequest.getOrderDetail().getOrder() : null;
+        Integer orderId = order != null ? order.getOrderId() : null;
+
+        long activeFlags = countActiveRiskFlags(shop.getId());
+        log.warn("[ShopRiskFlag] Shop id={}, shopName={}, returnId={}, activeFlags={}",
+                shop.getId(), shop.getShopName(), returnRequest.getReturnId(), activeFlags);
+
+        if (activeFlags >= 3) {
+            Double rawAvg = reviewRepository.getAverageRatingByShopId(shop.getId());
+            double baseRating = (rawAvg != null && rawAvg > 0) ? Math.round(rawAvg * 10.0) / 10.0 : 5.0;
+            double penalizedRating = Math.max(1.0, Math.round((baseRating - 1.0) * 10.0) / 10.0);
+            shop.setRatingAverage(penalizedRating);
+            userRepository.save(shop);
+
+            notificationService.sendNotificationToUser(
+                    shop,
+                    "Cảnh báo chất lượng: Bị áp dụng hình phạt vi phạm",
+                    "Cửa hàng của bạn đã tích lũy " + activeFlags + " khiếu nại giao hàng hỏng được Admin xác nhận (>= 3 Risk Flags). "
+                            + "Hệ thống đã tự động trừ 1 sao trên điểm đánh giá công khai (còn " + penalizedRating + " sao) "
+                            + "và giảm độ ưu tiên hiển thị sản phẩm của shop trên sàn. Vui lòng cải thiện chất lượng đóng gói và nông sản.",
+                    "SHOP_PENALTY",
+                    returnRequest.getReturnId()
+            );
+            log.warn("[ShopRiskFlag] Shop id={} PENALIZED with -1.0 star rating (now {}) and deprioritized listing",
+                    shop.getId(), penalizedRating);
+
+        } else {
+            notificationService.sendNotificationToUser(
+                    shop,
+                    "Cảnh báo vi phạm giao hàng hỏng (Cờ " + activeFlags + "/3)",
+                    "Khiếu nại giao hàng hỏng cho đơn hàng " + (orderId != null ? "#" + orderId : "")
+                            + " đã được Admin chấp thuận (Gắn 1 Risk Flag). "
+                            + "Nếu tích lũy đủ 3 Risk Flags, shop sẽ bị tự động trừ 1 sao đánh giá công khai và giảm độ ưu tiên hiển thị sản phẩm trên sàn.",
+                    "SHOP_RISK_FLAG",
+                    returnRequest.getReturnId()
+            );
+        }
+    }
+
+    @Override
+    public List<ShopRiskFlagResponse> getMyRiskFlags() {
+        Integer currentUserId = SecurityUtils.getCurrentUserId();
+        return getShopRiskFlags(currentUserId);
+    }
+
+    @Override
+    public List<ShopRiskFlagResponse> getShopRiskFlags(int shopId) {
+        List<ReturnRequest> requests = returnRequestRepository
+                .findByShop_IdAndStatusInAndAdminRemarkIsNotNullOrderByUpdatedAtDesc(shopId, ACTIVE_RISK_STATUSES);
+        return requests.stream()
+                .map(r -> {
+                    Order order = r.getOrderDetail() != null ? r.getOrderDetail().getOrder() : null;
+                    return ShopRiskFlagResponse.builder()
+                            .id(r.getReturnId())
+                            .shopId(r.getShop().getId())
+                            .shopName(r.getShop().getShopName())
+                            .returnId(r.getReturnId())
+                            .orderId(order != null ? order.getOrderId() : null)
+                            .reason(r.getReason())
+                            .isActive(true)
+                            .createdAt(r.getCreatedAt())
+                            .resolvedAt(null)
+                            .build();
+                })
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
+    public void resolveRiskFlag(int flagId, String resolutionNote) {
+        ReturnRequest request = returnRequestRepository.findById(flagId)
+                .orElseThrow(() -> new AppException(ErrorCode.RISK_FLAG_NOT_FOUND));
+
+        User shop = request.getShop();
+        request.setAdminRemark("Đã giải quyết cờ rủi ro: " + (resolutionNote != null ? resolutionNote : "Khắc phục vi phạm"));
+        request.setStatus(ReturnStatus.REJECTED);
+        returnRequestRepository.save(request);
+
+        if (shop != null) {
+            long remaining = countActiveRiskFlags(shop.getId());
+            if (remaining < 3) {
+                Double rawAvg = reviewRepository.getAverageRatingByShopId(shop.getId());
+                double baseRating = (rawAvg != null && rawAvg > 0) ? Math.round(rawAvg * 10.0) / 10.0 : 5.0;
+                shop.setRatingAverage(baseRating);
+                userRepository.save(shop);
+
+                notificationService.sendNotificationToUser(
+                        shop,
+                        "Khôi phục điểm đánh giá Shop",
+                        "Quản trị viên đã giải quyết cờ rủi ro #" + flagId + ". "
+                                + "Số cờ rủi ro hiện tại còn " + remaining + "/3. Điểm đánh giá công khai của shop đã được khôi phục về "
+                                + baseRating + " sao.",
+                        "SHOP_RESTORED",
+                        flagId
+                );
+            }
+        }
+        log.info("[ShopRiskFlag] Resolved risk flag/return #{} with note: {}", flagId, resolutionNote);
     }
 }
