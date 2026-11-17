@@ -214,4 +214,57 @@ public class OrderController {
                 .message("Order has been cancelled.")
                 .build();
     }
+
+    // ── REPORT & ADMIN ENDPOINTS ─────────────────────────────────────
+    @Operation(summary = "Admin Order Report", description = "[ADMIN only] Thống kê tổng quan đơn hàng và doanh thu")
+    @GetMapping("/report")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<com.sang.be_capnong.dto.response.AdminOrderReportResponse> getAdminOrderReport(
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to
+    ) {
+        return ApiResponse.<com.sang.be_capnong.dto.response.AdminOrderReportResponse>builder()
+                .result(orderService.getAdminOrderReport(type, from, to))
+                .message("Admin order report retrieved.")
+                .build();
+    }
+
+    @Operation(summary = "Shop Revenue Report", description = "[SHOP only] Báo cáo doanh thu & đơn hàng của gian hàng")
+    @GetMapping("/shop/revenue-report")
+    @PreAuthorize("hasRole('SHOP')")
+    public ApiResponse<com.sang.be_capnong.dto.response.ShopRevenueReportResponse> getShopRevenueReport(
+            @RequestParam(required = false) String type,
+            @RequestParam(required = false) String from,
+            @RequestParam(required = false) String to
+    ) {
+        return ApiResponse.<com.sang.be_capnong.dto.response.ShopRevenueReportResponse>builder()
+                .result(orderService.getShopRevenueReport(type, from, to))
+                .message("Shop revenue report retrieved.")
+                .build();
+    }
+
+    @Operation(summary = "Admin Get All Orders", description = "[ADMIN only] Danh sách toàn bộ đơn hàng trong hệ thống")
+    @GetMapping("/admin/all")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<List<OrderResponse>> getAllOrdersAdmin() {
+        return ApiResponse.<List<OrderResponse>>builder()
+                .result(orderService.getAllOrdersAdmin())
+                .message("All orders retrieved.")
+                .build();
+    }
+
+    @Operation(summary = "Admin Get Orders Paged", description = "[ADMIN only] Phân trang đơn hàng")
+    @GetMapping("/admin/paged")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<org.springframework.data.domain.Page<OrderResponse>> getAllOrdersAdminPaged(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) List<com.sang.be_capnong.enums.OrderStatus> statuses
+    ) {
+        return ApiResponse.<org.springframework.data.domain.Page<OrderResponse>>builder()
+                .result(orderService.getAllOrdersAdminPaged(page, size, statuses))
+                .message("Admin paged orders retrieved.")
+                .build();
+    }
 }
