@@ -86,9 +86,9 @@ jwt:
 # CLOUDINARY CONFIG
 # ===============================
 cloudinary:
-  cloud-name: ${CLOUDINARY_CLOUD_NAME:}
-  api-key: ${CLOUDINARY_API_KEY:}
-  api-secret: ${CLOUDINARY_API_SECRET:}
+  cloud-name: ${CLOUDINARY_CLOUD_NAME:dkfolzb8m}
+  api-key: ${CLOUDINARY_API_KEY:336641818692124}
+  api-secret: ${CLOUDINARY_API_SECRET:rTM22iLVUkrYqTHcb-G_hOGqunU}
 
 # ===============================
 # PAYOS CONFIGURATION

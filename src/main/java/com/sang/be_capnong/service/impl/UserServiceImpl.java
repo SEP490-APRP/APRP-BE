@@ -8,6 +8,8 @@ import com.sang.be_capnong.dto.request.ShopCreationRequest;
 import com.sang.be_capnong.dto.request.UserCreationRequest;
 import com.sang.be_capnong.dto.request.UserUpdateRequest;
 import com.sang.be_capnong.dto.request.VerifyOtpRequest;
+import com.sang.be_capnong.dto.response.AdminUserReportItemResponse;
+import com.sang.be_capnong.dto.response.AdminUserReportResponse;
 import com.sang.be_capnong.dto.response.PageResponse;
 import com.sang.be_capnong.dto.response.ShopRiskFlagResponse;
 import com.sang.be_capnong.dto.response.UserResponse;
@@ -45,8 +47,13 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.math.BigDecimal;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -822,5 +829,156 @@ public class UserServiceImpl implements UserService {
             }
         }
         log.info("[ShopRiskFlag] Resolved risk flag/return #{} with note: {}", flagId, resolutionNote);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public AdminUserReportResponse getUserReport(String type, String from, String to) {
+        long totalUsers = userRepository.count();
+        long totalBuyers = userRepository.countByRole_Name("BUYER");
+        long totalShops = userRepository.countByRole_Name("SHOP");
+        long totalShipper = userRepository.countByRole_Name("SHIPPER");
+        long totalActiveUsers = userRepository.countByStatus(UserStatus.ACTIVE);
+        long totalInactiveUsers = userRepository.countByStatus(UserStatus.INACTIVE);
+        long totalPending = userRepository.countByStatus(UserStatus.PENDING);
+        long totalShopSelling = userRepository.countByRole_NameAndShopActive("SHOP", true);
+        long totalShopNotSelling = Math.max(0, totalShops - totalShopSelling);
+        long totalUserLock = userRepository.countByStatus(UserStatus.LOCKED);
+
+        List<AdminUserReportItemResponse> items = new ArrayList<>();
+        LocalDate today = LocalDate.now();
+        LocalDateTime rangeEnd = today.atTime(LocalTime.MAX);
+
+        if (from != null && !from.isBlank() && to != null && !to.isBlank()) {
+            LocalDate fromDate = LocalDate.parse(from);
+            LocalDate toDate = LocalDate.parse(to);
+            rangeEnd = toDate.atTime(LocalTime.MAX);
+
+            long daysDiff = ChronoUnit.DAYS.between(fromDate, toDate);
+            if (daysDiff <= 31) {
+                LocalDate curr = fromDate;
+                while (!curr.isAfter(toDate)) {
+                    LocalDateTime bStart = curr.atStartOfDay();
+                    LocalDateTime bEnd = curr.atTime(LocalTime.MAX);
+                    String dayLabel = formatDayOfWeek(curr.getDayOfWeek()) + " (" + curr.format(DateTimeFormatter.ofPattern("dd/MM")) + ")";
+                    items.add(buildUserReportItem(bStart, bEnd, curr.toString(), formatDayOfWeek(curr.getDayOfWeek()), dayLabel));
+                    curr = curr.plusDays(1);
+                }
+            } else {
+                LocalDate curr = fromDate.withDayOfMonth(1);
+                while (!curr.isAfter(toDate)) {
+                    LocalDateTime bStart = curr.atStartOfDay();
+                    LocalDate nextMonth = curr.plusMonths(1).withDayOfMonth(1);
+                    LocalDateTime bEnd = nextMonth.minusDays(1).atTime(LocalTime.MAX);
+                    if (bEnd.isAfter(rangeEnd)) bEnd = rangeEnd;
+                    String monthLabel = "Thg " + curr.getMonthValue() + "/" + curr.getYear();
+                    items.add(buildUserReportItem(bStart, bEnd, curr.toString(), "T" + curr.getMonthValue(), monthLabel));
+                    curr = nextMonth;
+                }
+            }
+        } else if ("year".equalsIgnoreCase(type)) {
+            int currentYear = today.getYear();
+            for (int m = 1; m <= 12; m++) {
+                LocalDate mStart = LocalDate.of(currentYear, m, 1);
+                LocalDate mEnd = mStart.plusMonths(1).minusDays(1);
+                LocalDateTime bStart = mStart.atStartOfDay();
+                LocalDateTime bEnd = mEnd.atTime(LocalTime.MAX);
+                String monthLabel = "Thg " + m;
+                items.add(buildUserReportItem(bStart, bEnd, mStart.toString(), "T" + m, monthLabel));
+            }
+        } else if ("all".equalsIgnoreCase(type)) {
+            LocalDate startMonth = today.minusMonths(11).withDayOfMonth(1);
+            LocalDate curr = startMonth;
+            for (int i = 0; i < 12; i++) {
+                LocalDate mEnd = curr.plusMonths(1).minusDays(1);
+                LocalDateTime bStart = curr.atStartOfDay();
+                LocalDateTime bEnd = mEnd.atTime(LocalTime.MAX);
+                String monthLabel = curr.format(DateTimeFormatter.ofPattern("MM/yyyy"));
+                items.add(buildUserReportItem(bStart, bEnd, curr.toString(), "T" + curr.getMonthValue(), monthLabel));
+                curr = curr.plusMonths(1);
+            }
+        } else if ("month".equalsIgnoreCase(type)) {
+            for (int i = 29; i >= 0; i--) {
+                LocalDate d = today.minusDays(i);
+                LocalDateTime bStart = d.atStartOfDay();
+                LocalDateTime bEnd = d.atTime(LocalTime.MAX);
+                String label = d.format(DateTimeFormatter.ofPattern("dd/MM"));
+                items.add(buildUserReportItem(bStart, bEnd, d.toString(), formatDayOfWeek(d.getDayOfWeek()), label));
+            }
+        } else {
+            for (int i = 6; i >= 0; i--) {
+                LocalDate d = today.minusDays(i);
+                LocalDateTime bStart = d.atStartOfDay();
+                LocalDateTime bEnd = d.atTime(LocalTime.MAX);
+                String period = formatDayOfWeek(d.getDayOfWeek());
+                String label = period + " (" + d.format(DateTimeFormatter.ofPattern("dd/MM")) + ")";
+                items.add(buildUserReportItem(bStart, bEnd, d.toString(), period, label));
+            }
+        }
+
+        return AdminUserReportResponse.builder()
+                .totalUsers(totalUsers)
+                .totalBuyers(totalBuyers)
+                .totalShops(totalShops)
+                .totalShipper(totalShipper)
+                .totalActiveUsers(totalActiveUsers)
+                .totalInactiveUsers(totalInactiveUsers)
+                .totalShopPending(totalPending)
+                .totalShopSelling(totalShopSelling)
+                .totalShopNotSelling(totalShopNotSelling)
+                .totalUserLock(totalUserLock)
+                .userReports(items)
+                .build();
+    }
+
+    private AdminUserReportItemResponse buildUserReportItem(LocalDateTime bStart, LocalDateTime bEnd, String dateStr, String periodStr, String labelStr) {
+        List<User> createdUsers = userRepository.findByCreateAtBetween(bStart, bEnd);
+        List<User> lockedUsers = userRepository.findByLockedAtBetween(bStart, bEnd);
+
+        long buyers = 0;
+        long shops = 0;
+        long shippers = 0;
+
+        for (User u : createdUsers) {
+            if (u.getRole() != null) {
+                String roleName = u.getRole().getName();
+                if ("BUYER".equalsIgnoreCase(roleName)) buyers++;
+                else if ("SHOP".equalsIgnoreCase(roleName)) shops++;
+                else if ("SHIPPER".equalsIgnoreCase(roleName)) shippers++;
+            }
+        }
+
+        long locked = lockedUsers != null ? lockedUsers.size() : 0;
+        long total = buyers + shops + shippers;
+
+        return AdminUserReportItemResponse.builder()
+                .date(dateStr)
+                .period(periodStr)
+                .label(labelStr)
+                .buyers(buyers)
+                .shops(shops)
+                .shippers(shippers)
+                .locked(locked)
+                .total(total)
+                .newUsers(total)
+                .activeUsers(total)
+                .totalBuyers(buyers)
+                .totalShops(shops)
+                .totalShipper(shippers)
+                .totalUserLock(locked)
+                .build();
+    }
+
+    private String formatDayOfWeek(DayOfWeek dow) {
+        switch (dow) {
+            case MONDAY: return "T2";
+            case TUESDAY: return "T3";
+            case WEDNESDAY: return "T4";
+            case THURSDAY: return "T5";
+            case FRIDAY: return "T6";
+            case SATURDAY: return "T7";
+            case SUNDAY: return "CN";
+            default: return "";
+        }
     }
 }
