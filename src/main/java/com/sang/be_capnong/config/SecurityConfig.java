@@ -104,6 +104,7 @@ public class SecurityConfig {
             "/swagger-ui/**",
             "/swagger-ui.html",
             "/reviews/{id:[0-9]+}",
+            "/reviews/featured",
             "/reviews/product/**",
             "/reviews/shop/{id:[0-9]+}",
             "/reviews/shop/{id:[0-9]+}/**",

@@ -28,6 +28,8 @@ capnong:
   order:
     # Đơn DELIVERED quá số ngày này mà Buyer chưa bấm "Đã nhận hàng" sẽ tự COMPLETED và chia tiền (0 = tắt)
     auto-complete-days: ${CAPNONG_AUTO_COMPLETE_DAYS:3}
+    # Bán kính Geofence tối đa cho phép Shipper bấm xác nhận giao hàng (mét)
+    geofence-radius-meters: ${CAPNONG_DELIVERY_GEOFENCE_METERS:500}
   payment:
     # Đơn PayOS chờ thanh toán quá số phút này sẽ tự huỷ, trả kho (0 = tắt). Link PayOS cũng hết hạn cùng lúc.
     expire-minutes: ${CAPNONG_PAYMENT_EXPIRE_MINUTES:30}
