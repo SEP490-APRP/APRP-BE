@@ -55,6 +55,8 @@ public interface UserService {
 
     PageResponse<UserResponse> getUsersByRolePaged(List<String> roles, String status, int page, int size);
 
+    com.sang.be_capnong.dto.response.AdminUserReportResponse getUserReport(String type, String from, String to);
+
     // ===== CUSTOMER PENALTY SYSTEM (CHỐNG BOM HÀNG) =====
     long countDeliveryFailures(int buyerId);
 

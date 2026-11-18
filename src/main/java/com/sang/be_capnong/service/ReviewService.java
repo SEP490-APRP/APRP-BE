@@ -4,6 +4,7 @@ import com.sang.be_capnong.dto.request.ReviewCreateRequest;
 import com.sang.be_capnong.dto.request.ReviewReactionRequest;
 import com.sang.be_capnong.dto.request.ReviewReplyRequest;
 import com.sang.be_capnong.dto.response.PageResponse;
+import com.sang.be_capnong.dto.response.ReviewFeaturedResponse;
 import com.sang.be_capnong.dto.response.ReviewResponse;
 import com.sang.be_capnong.dto.response.ReviewShopReport;
 
@@ -30,6 +31,8 @@ public interface ReviewService {
 
     List<ReviewResponse> getReviewsByMysteryBox(int mysteryId);
 
+    List<ReviewResponse> getReviewsByCombo(int comboId);
+
     List<ReviewResponse> getMyReviews();
 
     PageResponse<ReviewResponse> getMyReviewsPaged(int page, int size);
@@ -39,4 +42,6 @@ public interface ReviewService {
     ReviewShopReport getMyShopReport();
 
     PageResponse<ReviewResponse> getAllReviewsAdmin(int page, int size);
+
+    ReviewFeaturedResponse getFeaturedReviews(int limit);
 }

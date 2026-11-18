@@ -23,6 +23,11 @@ public final class GeoUtils {
         return r * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }
 
+    /** Khoảng cách đường chim bay theo mét giữa 2 toạ độ GPS */
+    public static double haversineMeters(double lat1, double lng1, double lat2, double lng2) {
+        return haversineKm(lat1, lng1, lat2, lng2) * 1000.0;
+    }
+
     /** Quãng đường ước tính (km, làm tròn 1 chữ số) */
     public static double roadKm(double lat1, double lng1, double lat2, double lng2) {
         return Math.round(haversineKm(lat1, lng1, lat2, lng2) * ROAD_FACTOR * 10.0) / 10.0;

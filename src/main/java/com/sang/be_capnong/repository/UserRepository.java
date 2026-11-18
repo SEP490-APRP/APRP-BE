@@ -28,6 +28,13 @@ public interface UserRepository extends JpaRepository<User, Integer> {
     Page<User> findByRole_NameIn(Collection<String> roleNames, Pageable pageable);
     Page<User> findByStatus(UserStatus status, Pageable pageable);
     long countByRole_NameInAndStatus(Collection<String> roleNames, UserStatus status);
+    long countByRole_Name(String roleName);
+    long countByStatus(UserStatus status);
+    long countByRole_NameAndStatus(String roleName, UserStatus status);
+    long countByRole_NameAndShopActive(String roleName, Boolean shopActive);
+    List<User> findByCreateAtBetween(java.time.LocalDateTime start, java.time.LocalDateTime end);
+    List<User> findByLockedAtBetween(java.time.LocalDateTime start, java.time.LocalDateTime end);
+
     /** Shop có toạ độ nằm trong khung (lọc thô trước khi tính Haversine) */
     @Query("select u from User u where u.role.name = 'SHOP' and u.status = com.sang.be_capnong.enums.UserStatus.ACTIVE "
             + "and u.shopLatitude between :minLat and :maxLat and u.shopLongitude between :minLng and :maxLng")

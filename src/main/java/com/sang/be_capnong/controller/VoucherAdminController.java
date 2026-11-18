@@ -1,6 +1,7 @@
 package com.sang.be_capnong.controller;
 
 import com.sang.be_capnong.dto.request.VoucherCreateRequest;
+import com.sang.be_capnong.dto.request.VoucherUpdateRequest;
 import com.sang.be_capnong.dto.response.ApiResponse;
 import com.sang.be_capnong.dto.response.PageResponse;
 import com.sang.be_capnong.dto.response.VoucherResponse;
@@ -46,6 +47,17 @@ public class VoucherAdminController {
     public ApiResponse<VoucherResponse> toggleStatus(@PathVariable int voucherId) {
         return ApiResponse.<VoucherResponse>builder()
                 .result(voucherService.toggleVoucherStatus(voucherId))
+                .build();
+    }
+
+    @PutMapping("/{voucherId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<VoucherResponse> updateVoucher(
+            @PathVariable int voucherId,
+            @Valid @RequestBody VoucherUpdateRequest request
+    ) {
+        return ApiResponse.<VoucherResponse>builder()
+                .result(voucherService.updateVoucher(voucherId, request))
                 .build();
     }
 

@@ -5,6 +5,7 @@ import com.sang.be_capnong.dto.request.ReviewCreateRequest;
 import com.sang.be_capnong.dto.request.ReviewReactionRequest;
 import com.sang.be_capnong.dto.request.ReviewReplyRequest;
 import com.sang.be_capnong.dto.response.PageResponse;
+import com.sang.be_capnong.dto.response.ReviewFeaturedResponse;
 import com.sang.be_capnong.dto.response.ReviewResponse;
 import com.sang.be_capnong.dto.response.ReviewShopReport;
 import com.sang.be_capnong.entity.*;
@@ -16,6 +17,7 @@ import com.sang.be_capnong.exception.ErrorCode;
 import com.sang.be_capnong.mapper.ReviewMapper;
 import com.sang.be_capnong.repository.*;
 import com.sang.be_capnong.service.ReviewService;
+import com.sang.be_capnong.service.UserService;
 import com.sang.be_capnong.util.SecurityUtils;
 import lombok.AccessLevel;
 import lombok.RequiredArgsConstructor;
@@ -27,7 +29,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import com.sang.be_capnong.service.UserService;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -300,6 +302,15 @@ public class ReviewServiceImpl implements ReviewService {
     }
 
     @Override
+    public List<ReviewResponse> getReviewsByCombo(int comboId) {
+        Integer currentUserId = SecurityUtils.getCurrentUserIdOrNull();
+        return reviewRepository.findByBuildCombo_ComboId(comboId)
+                .stream()
+                .map(r -> toReviewResponseWithReactions(r, currentUserId))
+                .toList();
+    }
+
+    @Override
     public List<ReviewResponse> getMyReviews() {
         Integer currentUserId = SecurityUtils.getCurrentUserId();
         return reviewRepository.findByBuyer_Id(currentUserId)
@@ -357,6 +368,33 @@ public class ReviewServiceImpl implements ReviewService {
                 .map(r -> toReviewResponseWithReactions(r, currentUserId))
                 .toList();
         return PageResponse.from(pageResult, dtoList);
+    }
+
+    @Override
+    public ReviewFeaturedResponse getFeaturedReviews(int limit) {
+        int safeLimit = Math.max(1, Math.min(limit, 50));
+        Pageable pageable = PageRequest.of(0, safeLimit);
+        List<Review> featuredList = reviewRepository.findFeaturedReviews(pageable);
+
+        if (featuredList.size() < safeLimit) {
+            Pageable fallbackPageable = PageRequest.of(0, safeLimit, Sort.by("reviewId").descending());
+            featuredList = reviewRepository.findAll(fallbackPageable).getContent();
+        }
+
+        Integer currentUserId = SecurityUtils.getCurrentUserIdOrNull();
+        List<ReviewResponse> dtoList = featuredList.stream()
+                .map(r -> toReviewResponseWithReactions(r, currentUserId))
+                .toList();
+
+        Double avg = reviewRepository.getPlatformAverageRating();
+        double roundedAvg = (avg != null && avg > 0) ? Math.round(avg * 10.0) / 10.0 : 5.0;
+        long total = reviewRepository.countTotalReviews();
+
+        return ReviewFeaturedResponse.builder()
+                .platformAverageRating(roundedAvg)
+                .platformTotalReviews(total)
+                .reviews(dtoList)
+                .build();
     }
 
     private ReviewResponse toReviewResponseWithReactions(Review review, Integer currentUserId) {
