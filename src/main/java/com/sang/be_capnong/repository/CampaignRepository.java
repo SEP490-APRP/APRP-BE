@@ -40,5 +40,14 @@ public interface CampaignRepository extends JpaRepository<Campaign, Integer> {
 
     List<Campaign> findTop100ByStatusAndCutoffAtBefore(CampaignStatus status, LocalDateTime before);
 
+    /** Chiến dịch nháp đã tới giờ đăng bài admin hẹn, chưa từng tự đăng thất bại */
+    List<Campaign> findTop100ByStatusAndPublishAtLessThanEqualAndAutoPublishFailedAtIsNull(CampaignStatus status, LocalDateTime now);
+
+    /** Chiến dịch nháp tới giờ đăng bài nhưng chưa gửi lời kêu gọi nhà vườn */
+    List<Campaign> findTop100ByStatusAndPublishAtLessThanEqualAndAutoPublishFailedAtIsNullAndCallPostedAtIsNull(CampaignStatus status, LocalDateTime now);
+
+    /** Chiến dịch đã tới hạn chốt góp hàng nhà vườn nhưng chưa kiểm tra đủ ngưỡng */
+    List<Campaign> findTop100ByStatusInAndFarmCutoffAtLessThanEqualAndFarmCutoffCheckedAtIsNull(java.util.Collection<CampaignStatus> statuses, LocalDateTime now);
+
     boolean existsByCode(String code);
 }

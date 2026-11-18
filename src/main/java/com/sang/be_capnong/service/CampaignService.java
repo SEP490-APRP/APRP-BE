@@ -35,6 +35,12 @@ public interface CampaignService {
     /** DRAFT -> ACTIVE */
     CampaignResponse publishCampaign(int campaignId);
 
+    /** Tự mở bán chiến dịch nháp khi tới publishAt; lỗi thì ghi lại và báo admin 1 lần. Trả true nếu đã đăng */
+    boolean autoPublishCampaign(int campaignId);
+
+    /** Tới hạn chốt góp hàng: nhà vườn góp (chờ duyệt + đã duyệt) chưa đủ ngưỡng tối thiểu thì tự huỷ chiến dịch. Trả true nếu đã huỷ */
+    boolean evaluateFarmCutoff(int campaignId);
+
     /** Huỷ thủ công (DRAFT / ACTIVE / THRESHOLD_MET) và hoàn toàn bộ cọc đã giữ */
     CampaignResponse cancelCampaign(int campaignId, CampaignNoteRequest request);
 
