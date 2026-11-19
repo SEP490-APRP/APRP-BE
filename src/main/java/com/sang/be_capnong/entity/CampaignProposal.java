@@ -57,6 +57,10 @@ public class CampaignProposal {
     LocalDate harvestFrom;
     LocalDate harvestTo;
 
+    /** Shop đề xuất ngày mở bán và ngày kết thúc (chốt) chiến dịch; admin dùng làm gợi ý khi tạo chiến dịch */
+    LocalDate proposedOpenDate;
+    LocalDate proposedCloseDate;
+
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.VARCHAR)
     @Column(length = 20)

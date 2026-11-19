@@ -449,6 +449,11 @@ public class WalletServiceImpl implements WalletService {
             WalletTransactionType.HOLD_CANCELLED,
             WalletTransactionType.SHOP_REFUND_DEDUCT, WalletTransactionType.PLATFORM_REFUND_DEDUCT);
 
+    /** Bút toán cọc chiến dịch ở ví Sàn chỉ đổi tiền tạm giữ (escrow): hiển thị như tạm giữ, không phải thu/chi */
+    private static final Set<WalletTransactionType> CAMPAIGN_ESCROW_TYPES = EnumSet.of(
+            WalletTransactionType.CAMPAIGN_DEPOSIT_HOLD, WalletTransactionType.CAMPAIGN_DEPOSIT_RELEASED,
+            WalletTransactionType.CAMPAIGN_DEPOSIT_REFUNDED);
+
     /** Gỡ phần tiền tạm giữ còn lại của đơn ở từng ví (mỗi ví 1 bút toán) */
     private void releaseHolds(Order order, WalletTransactionType type, String description) {
         Map<Integer, BigDecimal> netByWallet = new LinkedHashMap<>();
@@ -1412,7 +1417,8 @@ public class WalletServiceImpl implements WalletService {
                 .amount(t.getAmount())
                 .balanceAfter(t.getBalanceAfter())
                 .frozenAfter(t.getFrozenAfter())
-                .hold(HOLD_TYPES.contains(t.getType()))
+                .hold(HOLD_TYPES.contains(t.getType())
+                        || (CAMPAIGN_ESCROW_TYPES.contains(t.getType()) && TYPE_PLATFORM.equals(t.getWallet().getType())))
                 .reserve(t.getType() == WalletTransactionType.COD_RESERVED
                         || t.getType() == WalletTransactionType.COD_RESERVE_RELEASED)
                 .description(t.getDescription())

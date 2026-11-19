@@ -44,6 +44,36 @@ public class CampaignScheduler {
         }
     }
 
+    /** Tới hạn chốt góp hàng nhà vườn: tổng kg góp (chờ duyệt + đã duyệt) chưa đủ ngưỡng tối thiểu -> tự huỷ, báo nhà vườn */
+    @Scheduled(fixedDelayString = "${capnong.scheduler.campaign-farm-cutoff-delay-ms:60000}", initialDelay = 55000)
+    public void evaluateFarmCutoffs() {
+        for (Campaign c : campaignRepository.findTop100ByStatusInAndFarmCutoffAtLessThanEqualAndFarmCutoffCheckedAtIsNull(
+                java.util.List.of(CampaignStatus.DRAFT, CampaignStatus.ACTIVE), LocalDateTime.now())) {
+            try {
+                if (campaignService.evaluateFarmCutoff(c.getCampaignId())) {
+                    log.info("[CampaignScheduler] Campaign {} cancelled at farm cutoff (not enough farm supply)", c.getCode());
+                }
+            } catch (Exception e) {
+                log.error("[CampaignScheduler] Farm cutoff check for campaign {} failed: {}", c.getCode(), e.getMessage(), e);
+            }
+        }
+    }
+
+    /** Chiến dịch nháp tới đúng ngày giờ đăng bài admin chọn -> tự gửi lời kêu gọi nhà vườn góp hàng */
+    @Scheduled(fixedDelayString = "${capnong.scheduler.campaign-publish-delay-ms:30000}", initialDelay = 40000)
+    public void publishScheduledCampaigns() {
+        for (Campaign c : campaignRepository.findTop100ByStatusAndPublishAtLessThanEqualAndAutoPublishFailedAtIsNullAndCallPostedAtIsNull(
+                CampaignStatus.DRAFT, LocalDateTime.now())) {
+            try {
+                if (campaignService.autoPublishCampaign(c.getCampaignId())) {
+                    log.info("[CampaignScheduler] Auto-posted farm call for campaign {} at {}", c.getCode(), c.getPublishAt());
+                }
+            } catch (Exception e) {
+                log.error("[CampaignScheduler] Auto-publish campaign {} failed: {}", c.getCode(), e.getMessage(), e);
+            }
+        }
+    }
+
     /** Đơn đặt trước chờ cọc quá hạn -> huỷ, trả lại sản lượng cho người khác đặt */
     @Scheduled(fixedDelayString = "${capnong.scheduler.preorder-expire-delay-ms:60000}", initialDelay = 50000)
     public void expireStalePreOrders() {

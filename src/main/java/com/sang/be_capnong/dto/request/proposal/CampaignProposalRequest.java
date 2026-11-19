@@ -23,6 +23,9 @@ public class CampaignProposalRequest {
     BigDecimal estimatedKg;
     LocalDate harvestFrom;
     LocalDate harvestTo;
+    /** Ngày đề xuất mở bán / kết thúc chiến dịch */
+    LocalDate proposedOpenDate;
+    LocalDate proposedCloseDate;
     ShelfLifeTier shelfLifeTier;
     BigDecimal desiredPricePerKg;
     BigDecimal marketPricePerKg;
