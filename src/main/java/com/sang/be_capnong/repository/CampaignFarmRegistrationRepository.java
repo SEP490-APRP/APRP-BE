@@ -22,6 +22,10 @@ public interface CampaignFarmRegistrationRepository extends JpaRepository<Campai
 
     List<CampaignFarmRegistration> findByShop_IdOrderByCreatedAtDesc(int shopId);
 
+    // Inner join: bo qua cac lo dang ky ma chien dich da bi xoa khoi DB (tranh EntityNotFoundException)
+    @Query("select r from CampaignFarmRegistration r join fetch r.campaign c where r.shop.id = :shopId order by r.createdAt desc")
+    List<CampaignFarmRegistration> findMineWithExistingCampaign(@Param("shopId") int shopId);
+
     @Query("select coalesce(sum(r.surplusVolumeKg), 0) from CampaignFarmRegistration r "
             + "where r.campaign.campaignId = :campaignId and r.status = com.sang.be_capnong.enums.FarmRegistrationStatus.APPROVED")
     BigDecimal sumApprovedSurplus(@Param("campaignId") int campaignId);
@@ -32,6 +36,12 @@ public interface CampaignFarmRegistrationRepository extends JpaRepository<Campai
     BigDecimal sumApprovedSurplusForUpdate(@Param("campaignId") int campaignId);
 
     long countByCampaign_CampaignIdAndStatus(int campaignId, FarmRegistrationStatus status);
+
+    /** Tổng kg nhà vườn đã góp còn hiệu lực (chờ duyệt + đã duyệt), dùng lúc chốt góp hàng */
+    @Query("select coalesce(sum(r.surplusVolumeKg), 0) from CampaignFarmRegistration r "
+            + "where r.campaign.campaignId = :campaignId and r.status in (com.sang.be_capnong.enums.FarmRegistrationStatus.PENDING, "
+            + "com.sang.be_capnong.enums.FarmRegistrationStatus.APPROVED)")
+    BigDecimal sumActiveSurplus(@Param("campaignId") int campaignId);
 
     /** Số nhà vườn (shop khác nhau) theo trạng thái: một shop góp nhiều lô vẫn chỉ tính 1 */
     @Query("select count(distinct r.shop.id) from CampaignFarmRegistration r where r.campaign.campaignId = :campaignId and r.status = :status")

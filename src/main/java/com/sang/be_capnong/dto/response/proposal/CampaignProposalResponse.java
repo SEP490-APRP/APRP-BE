@@ -29,6 +29,8 @@ public class CampaignProposalResponse {
     String story;
     LocalDate harvestFrom;
     LocalDate harvestTo;
+    LocalDate proposedOpenDate;
+    LocalDate proposedCloseDate;
     String shelfLifeTier;
     BigDecimal desiredPricePerKg;
     BigDecimal marketPricePerKg;

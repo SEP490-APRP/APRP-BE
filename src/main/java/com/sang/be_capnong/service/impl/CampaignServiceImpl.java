@@ -202,7 +202,8 @@ public class CampaignServiceImpl implements CampaignService {
             for (User shop : userRepository.findByRole_NameInAndStatus(List.of("SHOP"), UserStatus.ACTIVE)) {
                 notify(shop, "Lời kêu gọi chiến dịch giải cứu mới",
                         "CapNong cần " + plain(c.getTargetVolumeKg()) + " kg cho chiến dịch \"" + c.getTitle()
-                                + "\". Bấm tham gia và khai số kg dư cùng ngày thu hoạch trước " + c.getCutoffAt().toLocalDate() + ".");
+                                + "\". Bấm tham gia và khai số kg dư cùng ngày thu hoạch trước "
+                                + (c.getFarmCutoffAt() != null ? c.getFarmCutoffAt() : c.getCutoffAt()).toLocalDate() + ".");
             }
             notifyProposalMembers(c);
         }
@@ -297,6 +298,61 @@ public class CampaignServiceImpl implements CampaignService {
         c.setPublishedAt(now);
         c.setUpdatedAt(now);
         return toCampaignResponse(campaignRepository.save(c));
+    }
+
+    @Override
+    @Transactional
+    public boolean autoPublishCampaign(int campaignId) {
+        Campaign c = lockCampaign(campaignId);
+        LocalDateTime now = LocalDateTime.now();
+        if (c.getStatus() != CampaignStatus.DRAFT || c.getPublishAt() == null || c.getPublishAt().isAfter(now)
+                || c.getAutoPublishFailedAt() != null || c.getCallPostedAt() != null) {
+            return false;
+        }
+        try {
+            // Ngày giờ đăng bài = lúc gửi lời kêu gọi nhà vườn góp hàng; mở bán đặt trước do admin bấm sau khi duyệt đủ hàng
+            postFarmCall(campaignId);
+            return true;
+        } catch (AppException e) {
+            // Không đăng được (vd chưa duyệt nhà vườn nào, đã qua hạn chốt): đánh dấu để không thử lại mỗi phút, báo admin
+            c.setAutoPublishFailedAt(now);
+            c.setUpdatedAt(now);
+            campaignRepository.save(c);
+            for (User admin : userRepository.findByRole_NameInAndStatus(List.of("ADMIN"), UserStatus.ACTIVE)) {
+                notify(admin, "Chưa tự đăng được chiến dịch " + c.getCode(),
+                        "Đến giờ đăng bài chiến dịch \"" + c.getTitle() + "\" nhưng chưa đăng được: "
+                                + e.getErrorCode().getMessage() + ". Hãy xử lý rồi bấm đăng lời kêu gọi thủ công.");
+            }
+            return false;
+        }
+    }
+
+    @Override
+    @Transactional
+    public boolean evaluateFarmCutoff(int campaignId) {
+        Campaign c = lockCampaign(campaignId);
+        LocalDateTime now = LocalDateTime.now();
+        if ((c.getStatus() != CampaignStatus.DRAFT && c.getStatus() != CampaignStatus.ACTIVE)
+                || c.getFarmCutoffAt() == null || c.getFarmCutoffAt().isAfter(now) || c.getFarmCutoffCheckedAt() != null) {
+            return false;
+        }
+        c.setFarmCutoffCheckedAt(now);
+        BigDecimal contributed = nz(registrationRepository.sumActiveSurplus(campaignId));
+        if (contributed.compareTo(c.getMinThresholdKg()) >= 0) {
+            c.setUpdatedAt(now);
+            campaignRepository.save(c);
+            return false;
+        }
+        String reason = "Nhà vườn chỉ góp " + plain(contributed) + " kg, chưa đủ ngưỡng tối thiểu "
+                + plain(c.getMinThresholdKg()) + " kg lúc chốt góp hàng";
+        log.info("[Campaign] {} farm cutoff unmet: contributed {} < min {}", c.getCode(), contributed, c.getMinThresholdKg());
+        // Huỷ: lô nhà vườn chuyển "Huỷ theo chiến dịch" + báo từng shop; đơn đặt trước (nếu đã mở bán) được hoàn cọc
+        cancelAndRefund(c, reason);
+        for (User admin : userRepository.findByRole_NameInAndStatus(List.of("ADMIN"), UserStatus.ACTIVE)) {
+            notify(admin, "Chiến dịch " + c.getCode() + " tự huỷ",
+                    "Chiến dịch \"" + c.getTitle() + "\" đã tự huỷ: " + reason + ".");
+        }
+        return true;
     }
 
     @Override
@@ -671,7 +727,10 @@ public class CampaignServiceImpl implements CampaignService {
             int oldQty = p.getCrateQuantity();
             BigDecimal newKg = crateKg.multiply(BigDecimal.valueOf(canServe));
             BigDecimal newTotal = p.getUnitPrice().multiply(newKg).setScale(0, RoundingMode.HALF_UP);
-            BigDecimal newDeposit = newTotal.multiply(c.getDepositPercent()).setScale(0, RoundingMode.HALF_UP);
+            // Cọc tính trên tiền hàng + phí giao: tính lại phí giao theo số kg mới trước
+            BigDecimal newShipFee = !isPickup(p) && p.getShippingDistanceKm() != null
+                    ? shippingCalculator.fee(c, newKg, p.getShippingDistanceKm()) : nz(p.getShippingFee());
+            BigDecimal newDeposit = depositOf(newTotal, newShipFee, c.getDepositPercent());
             BigDecimal refund = p.getDepositAmount().subtract(newDeposit).max(BigDecimal.ZERO);
             if (d != null && d.getStatus() == CampaignDepositStatus.HELD_IN_ESCROW && refund.signum() > 0) {
                 escrowService.refundDepositPart(d, refund);
@@ -766,12 +825,13 @@ public class CampaignServiceImpl implements CampaignService {
         }
 
         BigDecimal total = c.getRescuePricePerKg().multiply(totalKg).setScale(0, RoundingMode.HALF_UP);
-        BigDecimal deposit = total.multiply(c.getDepositPercent()).setScale(0, RoundingMode.HALF_UP);
-        // Phí giao biết trước: tính ở server theo khoảng cách + tổng kg, thu cùng phần còn lại khi nhận hàng
+        // Phí giao biết trước: tính ở server theo khoảng cách + tổng kg
         Double km = pickup ? null : shippingCalculator.distanceKm(c, request.getShippingLatitude(),
                 request.getShippingLongitude(), request.getShippingAddress());
         BigDecimal baseFee = km == null ? BigDecimal.ZERO : shippingCalculator.baseFee(km);
         BigDecimal shipFee = km == null ? BigDecimal.ZERO : shippingCalculator.fee(c, totalKg, km);
+        // Cọc = % x (tiền hàng + phí giao); phần còn lại trả khi nhận hàng
+        BigDecimal deposit = depositOf(total, shipFee, c.getDepositPercent());
         String address = pickup
                 ? "Nhận tại " + nvl(c.getCollectionSiteName(), "điểm tập kết") + (isBlank(c.getCollectionSiteAddress()) ? "" : ": " + c.getCollectionSiteAddress())
                 : request.getShippingAddress().trim();
@@ -947,10 +1007,17 @@ public class CampaignServiceImpl implements CampaignService {
             }
         } else if (!c.getCutoffAt().isAfter(LocalDateTime.now())) {
             throw new AppException(ErrorCode.CAMPAIGN_CUTOFF_PASSED);
+        } else if (c.getFarmCutoffAt() != null && !c.getFarmCutoffAt().isAfter(LocalDateTime.now())) {
+            // Nhà vườn chỉ góp hàng tới hạn chốt góp hàng (lô bổ sung không bị giới hạn này)
+            throw new AppException(ErrorCode.CAMPAIGN_FARM_CUTOFF_PASSED);
         }
-        // Ngày thu hoạch: ngày nào cũng được nhưng không sau ngày chốt (lô bổ sung: không sau 2 ngày tới)
-        LocalDate harvestLimit = topUp ? LocalDate.now().plusDays(2) : c.getCutoffAt().toLocalDate();
-        if (request.getHarvestDate().isAfter(harvestLimit)) {
+        // Ngày thu hoạch phải trước ngày bắt đầu chiến dịch (chiến dịch cũ chưa có ngày bắt đầu: không sau ngày chốt)
+        // Lô bổ sung: không sau 2 ngày tới
+        if (topUp) {
+            if (request.getHarvestDate().isAfter(LocalDate.now().plusDays(2))) throw new AppException(ErrorCode.CAMPAIGN_HARVEST_AFTER_CUTOFF);
+        } else if (c.getStartDate() != null) {
+            if (!request.getHarvestDate().isBefore(c.getStartDate())) throw new AppException(ErrorCode.CAMPAIGN_HARVEST_NOT_BEFORE_START);
+        } else if (request.getHarvestDate().isAfter(c.getCutoffAt().toLocalDate())) {
             throw new AppException(ErrorCode.CAMPAIGN_HARVEST_AFTER_CUTOFF);
         }
         // Nhà vườn được góp thêm lô mới cho cùng chiến dịch; mỗi lô là một đơn đăng ký riêng để duyệt / cân / chi trả
@@ -975,7 +1042,7 @@ public class CampaignServiceImpl implements CampaignService {
         // Hàng phải còn tươi tới ngày giao: thu hoạch không sau ngày giao và (ngày giao - ngày thu hoạch) <= số ngày bảo quản
         // Mức bảo quản tính từ ngày chốt: ngày giao phải nằm trong số ngày còn tươi sau ngày chốt
         // (lô bổ sung về sau ngày giao dự kiến nên tính từ ngày thu hoạch, giao sớm nhất ngày mai)
-        LocalDate anchor = freshAnchor(c.getCutoffAt().toLocalDate(), request.getHarvestDate());
+        LocalDate anchor = freshAnchor(freshBase(c), request.getHarvestDate());
         LocalDate deliverOn = c.getDeliveryDate();
         if (topUp && (deliverOn == null || deliverOn.isBefore(LocalDate.now().plusDays(1)))) {
             deliverOn = LocalDate.now().plusDays(1);
@@ -1006,7 +1073,7 @@ public class CampaignServiceImpl implements CampaignService {
     @Override
     @Transactional(readOnly = true)
     public List<FarmRegistrationResponse> getMyRegistrations() {
-        return registrationRepository.findByShop_IdOrderByCreatedAtDesc(currentUser().getId()).stream()
+        return registrationRepository.findMineWithExistingCampaign(currentUser().getId()).stream()
                 .map(this::toRegistrationResponse).toList();
     }
 
@@ -1040,13 +1107,18 @@ public class CampaignServiceImpl implements CampaignService {
      * Ưu tiên: còn dưới 48h, hoặc đơn giao lại sau khi thất bại.
      * Thường: còn lại.
      */
-    /** Mốc tính độ tươi = ngày chốt; lô thu hoạch sau ngày chốt (lô bổ sung) thì tính từ ngày thu hoạch */
-    private static LocalDate freshAnchor(LocalDate cutoffDate, LocalDate harvestDate) {
-        return harvestDate != null && harvestDate.isAfter(cutoffDate) ? harvestDate : cutoffDate;
+    /** Mốc tính độ tươi = mốc gốc; lô thu hoạch sau mốc đó (lô bổ sung) thì tính từ ngày thu hoạch */
+    private static LocalDate freshAnchor(LocalDate base, LocalDate harvestDate) {
+        return harvestDate != null && harvestDate.isAfter(base) ? harvestDate : base;
+    }
+
+    /** Mốc gốc tính độ bền = ngày kết thúc chiến dịch (chiến dịch cũ chưa có ngày kết thúc: ngày chốt) */
+    private static LocalDate freshBase(Campaign c) {
+        return c.getEndDate() != null ? c.getEndDate() : c.getCutoffAt().toLocalDate();
     }
 
     private static LocalDateTime lotAnchor(Campaign c, CampaignFarmRegistration r) {
-        return freshAnchor(c.getCutoffAt().toLocalDate(), r.getHarvestDate()).atStartOfDay();
+        return freshAnchor(freshBase(c), r.getHarvestDate()).atStartOfDay();
     }
 
     private PreOrderResponse withPriority(PreOrderResponse r, PreOrder p, Freshness campaignFresh) {
@@ -1070,7 +1142,7 @@ public class CampaignServiceImpl implements CampaignService {
         String reason;
         if (f.tier() == com.sang.be_capnong.enums.ShelfLifeTier.DAYS_2_3) {
             level = "URGENT";
-            reason = "Mức 1: chỉ giữ tươi 2–3 ngày sau ngày chốt";
+            reason = "Chỉ giữ tươi 2–3 ngày sau ngày kết thúc chiến dịch";
         } else if (hoursLeft <= 24) {
             level = "URGENT";
             reason = hoursLeft <= 0 ? "Đã quá hạn tươi, giao ngay" : "Còn " + Math.max(hoursLeft, 1) + "h tới hạn tươi";
@@ -1502,7 +1574,9 @@ public class CampaignServiceImpl implements CampaignService {
             }
             if (p.getStatus() == PreOrderStatus.CANCELLED) continue;
             CampaignDeposit d = depositRepository.findByPreOrderIdForUpdate(p.getPreOrderId()).orElse(null);
+            BigDecimal refunded = BigDecimal.ZERO;
             if (d != null && d.getStatus() == CampaignDepositStatus.HELD_IN_ESCROW) {
+                refunded = nz(d.getAmount());
                 escrowService.refundDeposit(d);
                 d.setStatus(CampaignDepositStatus.REFUNDED);
                 d.setRefundedAt(now);
@@ -1514,19 +1588,40 @@ public class CampaignServiceImpl implements CampaignService {
             p.setCancelledAt(now);
             p.setUpdatedAt(now);
             preOrderRepository.save(p);
-            notify(p.getBuyer(), "Chiến dịch bị huỷ - đã hoàn cọc", "Chiến dịch \"" + c.getTitle() + "\" bị huỷ (" + reason
-                    + "). Tiền cọc " + plain(p.getDepositAmount()) + "đ của đơn " + p.getCode() + " đã được hoàn vào ví CapNong.");
-        }
-        for (CampaignFarmRegistration r : registrationRepository.findByCampaign_CampaignIdOrderByCreatedAtAsc(c.getCampaignId())) {
-            if (r.getStatus() == FarmRegistrationStatus.APPROVED) {
-                notify(r.getShop(), "Chiến dịch bị huỷ", "Chiến dịch \"" + c.getTitle() + "\" bị huỷ: " + reason + ".");
+            // Báo đúng số tiền thực hoàn (cọc có thể đã giảm khi xử lý thiếu hàng); không có cọc đang giữ thì không nói đã hoàn
+            if (refunded.signum() > 0) {
+                notify(p.getBuyer(), "Chiến dịch bị huỷ - đã hoàn cọc", "Chiến dịch \"" + c.getTitle() + "\" bị huỷ (" + reason
+                        + "). Tiền cọc " + plain(refunded) + "đ của đơn " + p.getCode() + " đã được hoàn vào ví CapNong.");
+            } else {
+                notify(p.getBuyer(), "Chiến dịch bị huỷ", "Chiến dịch \"" + c.getTitle() + "\" bị huỷ (" + reason
+                        + "). Đơn " + p.getCode() + " đã được huỷ.");
+                log.warn("[Campaign] Cancel {}: pre-order {} had no held deposit (status {})", c.getCode(), p.getCode(),
+                        d == null ? "none" : d.getStatus());
             }
+        }
+        // Mọi lô đang chờ duyệt / đã duyệt chuyển sang "Đã huỷ theo chiến dịch" và báo cho shop
+        for (CampaignFarmRegistration r : registrationRepository.findByCampaign_CampaignIdOrderByCreatedAtAsc(c.getCampaignId())) {
+            if (r.getStatus() != FarmRegistrationStatus.APPROVED && r.getStatus() != FarmRegistrationStatus.PENDING) continue;
+            boolean wasApproved = r.getStatus() == FarmRegistrationStatus.APPROVED;
+            r.setStatus(FarmRegistrationStatus.CANCELLED);
+            r.setReviewNote("Chiến dịch bị huỷ: " + reason);
+            r.setUpdatedAt(now);
+            registrationRepository.save(r);
+            notify(r.getShop(), "Chiến dịch bị huỷ",
+                    "Chiến dịch \"" + c.getTitle() + "\" đã bị huỷ (" + reason + "). Lô "
+                            + (r.getProductName() != null ? r.getProductName() + " " : "") + plain(r.getSurplusVolumeKg()) + " kg bạn "
+                            + (wasApproved ? "đã được duyệt" : "đã đăng ký") + " cũng được huỷ, bạn không cần mang hàng tới điểm gom.");
         }
         c.setStatus(CampaignStatus.CANCELLED);
         c.setCancelReason(reason);
         c.setCancelledAt(now);
         c.setUpdatedAt(now);
         campaignRepository.save(c);
+    }
+
+    /** Tiền cọc = % cọc x (tiền hàng + phí giao), làm tròn tới đồng */
+    private static BigDecimal depositOf(BigDecimal goods, BigDecimal shipFee, BigDecimal percent) {
+        return nz(goods).add(nz(shipFee)).multiply(percent).setScale(0, RoundingMode.HALF_UP);
     }
 
     private void cancelUnpaidPreOrder(PreOrder p, String reason) {
@@ -1652,6 +1747,14 @@ public class CampaignServiceImpl implements CampaignService {
                 || r.getDepositPercent() == null || r.getDepositPercent().signum() <= 0
                 || r.getDepositPercent().compareTo(BigDecimal.ONE) > 0
                 || r.getCutoffAt() == null || !r.getCutoffAt().isAfter(LocalDateTime.now())
+                // Thứ tự: chốt đơn đặt trước < bắt đầu (ngày sau đó) <= kết thúc
+                || (r.getStartDate() != null && !r.getStartDate().isAfter(r.getCutoffAt().toLocalDate()))
+                || (r.getPublishAt() != null && !r.getPublishAt().isBefore(r.getCutoffAt()))
+                // Đăng bài < chốt góp hàng nhà vườn < chốt đơn đặt trước
+                || (r.getFarmCutoffAt() != null && !r.getFarmCutoffAt().isBefore(r.getCutoffAt()))
+                || (r.getFarmCutoffAt() != null && r.getPublishAt() != null && !r.getFarmCutoffAt().isAfter(r.getPublishAt()))
+                || (r.getEndDate() != null && !r.getEndDate().isAfter(r.getCutoffAt().toLocalDate()))
+                || (r.getEndDate() != null && r.getStartDate() != null && r.getEndDate().isBefore(r.getStartDate()))
                 || (r.getDeliveryDate() != null && r.getDeliveryDate().isBefore(r.getCutoffAt().toLocalDate()))) {
             throw new AppException(ErrorCode.CAMPAIGN_INVALID_DATA);
         }
@@ -1669,6 +1772,13 @@ public class CampaignServiceImpl implements CampaignService {
         c.setRescuePricePerKg(r.getRescuePricePerKg().setScale(2, RoundingMode.HALF_UP));
         c.setDepositPercent(r.getDepositPercent().setScale(4, RoundingMode.HALF_UP));
         c.setCutoffAt(r.getCutoffAt());
+        c.setStartDate(r.getStartDate());
+        c.setEndDate(r.getEndDate());
+        c.setPublishAt(r.getPublishAt());
+        // Đổi hạn chốt góp hàng thì kiểm tra lại đủ ngưỡng vào mốc mới
+        if (!java.util.Objects.equals(c.getFarmCutoffAt(), r.getFarmCutoffAt())) c.setFarmCutoffCheckedAt(null);
+        c.setFarmCutoffAt(r.getFarmCutoffAt());
+        c.setAutoPublishFailedAt(null);
         c.setDeliveryDate(r.getDeliveryDate());
         c.setCollectionSiteName(r.getCollectionSiteName());
         c.setCollectionSiteAddress(r.getCollectionSiteAddress());
@@ -1870,6 +1980,10 @@ public class CampaignServiceImpl implements CampaignService {
                 .rescuePricePerKg(c.getRescuePricePerKg())
                 .depositPercent(c.getDepositPercent())
                 .cutoffAt(c.getCutoffAt())
+                .startDate(c.getStartDate())
+                .endDate(c.getEndDate())
+                .publishAt(c.getPublishAt())
+                .farmCutoffAt(c.getFarmCutoffAt())
                 .deliveryDate(c.getDeliveryDate())
                 .collectionSiteName(c.getCollectionSiteName())
                 .collectionSiteAddress(c.getCollectionSiteAddress())

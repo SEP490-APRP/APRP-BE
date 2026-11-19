@@ -36,6 +36,10 @@ public class CampaignResponse {
     BigDecimal rescuePricePerKg;
     BigDecimal depositPercent;
     LocalDateTime cutoffAt;
+    LocalDate startDate;
+    LocalDate endDate;
+    LocalDateTime publishAt;
+    LocalDateTime farmCutoffAt;
     LocalDate deliveryDate;
     String collectionSiteName;
     String collectionSiteAddress;

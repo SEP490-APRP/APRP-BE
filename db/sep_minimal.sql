@@ -74,7 +74,22 @@ DROP TABLE IF EXISTS invalidated_token;
 DROP TABLE IF EXISTS saved_addresses;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS roles;
-
+-- Bảng do BE (Hibernate) tự tạo khi khởi động: xoá luôn để DB sạch, chạy file xong nhớ khởi động lại BE để tạo lại
+DROP TABLE IF EXISTS pre_order_damage_claims;
+DROP TABLE IF EXISTS campaign_deposits;
+DROP TABLE IF EXISTS pre_orders;
+DROP TABLE IF EXISTS campaign_farm_registrations;
+DROP TABLE IF EXISTS campaign_proposal_members;
+DROP TABLE IF EXISTS campaign_proposals;
+DROP TABLE IF EXISTS referral_commissions;
+DROP TABLE IF EXISTS referral_attributions;
+DROP TABLE IF EXISTS referral_clicks;
+DROP TABLE IF EXISTS referral_links;
+DROP TABLE IF EXISTS user_device_tokens;
+DROP TABLE IF EXISTS wallet_transactions;
+DROP TABLE IF EXISTS blog_comments;
+DROP TABLE IF EXISTS blog_likes;
+DROP TABLE IF EXISTS campaigns;
 -- ==============================================================================
 -- 2. CREATE TABLES (MATCHING APRP-BE JPA ENTITIES)
 -- ==============================================================================
@@ -108,6 +123,8 @@ CREATE TABLE users (
     achievement VARCHAR(255),
     license VARCHAR(100),
     license_image_url VARCHAR(500),
+    shop_latitude DOUBLE,
+    shop_longitude DOUBLE,
     vehicle_number VARCHAR(50),
     vehicle_doc_image_url VARCHAR(500),
     diet_preference ENUM('VEGETARIAN', 'NON_VEGETARIAN', 'VEGAN', 'FLEXITARIAN', 'PESCATARIAN'),
@@ -815,6 +832,14 @@ INSERT INTO roles (id, name, description) VALUES
 (3, 'SHIPPER', 'Role dành cho Người giao hàng'),
 (4, 'ADMIN', 'Role dành cho Quản trị viên hệ thống');
 
+-- 3.1b DANH MỤC (dữ liệu hệ thống: shop chọn khi đăng sản phẩm / đề xuất chiến dịch; không phải dữ liệu sản phẩm)
+INSERT INTO categories (category_id, name, description) VALUES
+(1, 'Rau lá', 'Các loại rau xanh tươi sạch: rau muống, cải, xà lách, rau thơm thu hoạch sáng sớm.'),
+(2, 'Củ', 'Các loại củ tươi ngon: cà rốt, khoai tây, khoai lang, củ cải, hành tỏi Đà Lạt.'),
+(3, 'Quả / Trái cây', 'Trái cây tươi đặc sản: chuối, bưởi da xanh, xoài cát, cam sành, dâu tây mọng nước.'),
+(4, 'Nông sản hữu cơ VietGAP', 'Nông sản canh tác tự nhiên đạt chuẩn chứng nhận an toàn thực phẩm.'),
+(5, 'Combo & Túi mù', 'Gói rau củ theo món ăn và túi mù nông sản tiết kiệm bảo vệ môi trường.');
+
 -- 3.2 USERS (mật khẩu: Admin@123)
 INSERT INTO users (id, email, password, role_id, status, full_name, phone_number, address, shop_name, shop_active, bank_name, bank_account, bank_account_holder, rating_average, description, logo_url, achievement, license, vehicle_number, diet_preference, create_at) VALUES
 (1, 'admin@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 4, 'ACTIVE', 'Quản Trị Viên Hệ Thống', '0900000000', '1 Công Xã Paris, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh', NULL, 0, 'Vietcombank', '0011001234567', 'CAPNONG ADMIN', 5.0, 'Quản trị viên toàn hệ thống CapNong', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252968/brands/vxm3b2gvixlqzf7xocoy.jpg', 'SuperAdmin', NULL, NULL, NULL, NOW()),
@@ -824,5 +849,21 @@ INSERT INTO users (id, email, password, role_id, status, full_name, phone_number
 (3, 'shop1@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 2, 'ACTIVE', 'Trần Văn Kiệt (Nhà Vườn 1)', '0933333333', 'Số 1 Võ Văn Ngân, Phường Linh Chiểu, Thành phố Thủ Đức, TP. Hồ Chí Minh', 'Nông Sản Xấu Mã - Vườn Đà Lạt', 1, 'Vietcombank', '0071000123456', 'TRAN VAN KIET', 4.9, 'Chuyên rau củ quả organic sạch từ Đà Lạt và các vùng nông nghiệp sạch chuẩn VietGAP.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252594/brands/srflhqfol1ckwavsaa1n.jpg', 'Hạt Giống Vàng', NULL, NULL, NULL, NOW()),
 
 (4, 'shipper1@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 3, 'ACTIVE', 'Nguyễn Văn Hoàng (Shipper)', '0922222222', 'Số 1 Võ Văn Ngân, Phường Linh Chiểu, Thành phố Thủ Đức, TP. Hồ Chí Minh', NULL, 0, 'VietinBank', '101899999999', 'NGUYEN VAN HOANG', 4.9, 'Shipper nhiệt tình chuyên nghiệp thùng cách nhiệt bảo quản rau tươi', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252921/brands/xu1pv9ty2njacb3bhozh.jpg', NULL, 'A1-99999999', '59-X1 123.45', NULL, NOW());
+
+-- 3.3 SHOP LÂN CẬN (mật khẩu: Admin@123) để test mời shop lân cận khi đề xuất chiến dịch
+-- Cụm Thủ Đức: shop1 + shop2..shop6 (0,7 – 7 km); shop10 ở sát shop1 nhưng tạm ngưng nên không được hiện.
+-- Cụm Đà Lạt quanh Kho Lạc Dương (12.0421, 108.4329): shop7 ~5 km, shop8 ~13 km, shop9 ~34 km (cần tăng bán kính).
+UPDATE users SET shop_latitude = 10.8506, shop_longitude = 106.7719 WHERE id = 3;
+
+INSERT INTO users (id, email, password, role_id, status, full_name, phone_number, address, shop_name, shop_active, description, logo_url, rating_average, shop_latitude, shop_longitude, create_at) VALUES
+(5, 'shop2@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 2, 'ACTIVE', 'Lê Thị Hoa (Nhà Vườn 2)', '0933000002', '12 Đường số 9, Phường Linh Trung, Thành phố Thủ Đức, TP. Hồ Chí Minh', 'Vườn Rau Sạch Linh Trung', 1, 'Rau ăn lá thuỷ canh, giao trong ngày.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252594/brands/srflhqfol1ckwavsaa1n.jpg', 4.7, 10.87, 106.803, NOW()),
+(6, 'shop3@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 2, 'ACTIVE', 'Phạm Minh Tâm (Nhà Vườn 3)', '0933000003', '45 Lê Văn Việt, Phường Hiệp Phú, Thành phố Thủ Đức, TP. Hồ Chí Minh', 'Nông Trại Hiệp Phú', 1, 'Củ quả, bí, khoai trồng theo VietGAP.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252594/brands/srflhqfol1ckwavsaa1n.jpg', 4.7, 10.847, 106.777, NOW()),
+(7, 'shop4@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 2, 'ACTIVE', 'Võ Thị Lan (Nhà Vườn 4)', '0933000004', '8 Đặng Văn Bi, Phường Bình Thọ, Thành phố Thủ Đức, TP. Hồ Chí Minh', 'Vườn Trái Cây Bình Thọ', 1, 'Trái cây theo mùa, xoài, ổi, mận.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252594/brands/srflhqfol1ckwavsaa1n.jpg', 4.7, 10.846, 106.765, NOW()),
+(8, 'shop5@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 2, 'ACTIVE', 'Huỳnh Văn Phúc (Nhà Vườn 5)', '0933000005', '120 Nguyễn Duy Trinh, Phường Long Trường, Thành phố Thủ Đức, TP. Hồ Chí Minh', 'Nông Sản Long Trường', 1, 'Rau gia vị, ớt, chanh.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252594/brands/srflhqfol1ckwavsaa1n.jpg', 4.7, 10.808, 106.817, NOW()),
+(9, 'shop6@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 2, 'ACTIVE', 'Đỗ Thị Mai (Nhà Vườn 6)', '0933000006', '25 Đường số 3, Phường Đông Hoà, Thành phố Dĩ An, Bình Dương', 'Vườn Nhà Mai Dĩ An', 1, 'Rau củ sạch quy mô hộ gia đình.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252594/brands/srflhqfol1ckwavsaa1n.jpg', 4.7, 10.903, 106.769, NOW()),
+(10, 'shop7@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 2, 'ACTIVE', 'K Briu (Nhà Vườn 7)', '0933000007', 'Thôn Đăng Gia Rít, Xã Lạc Dương, Tỉnh Lâm Đồng', 'Nông Trại Lạc Dương', 1, 'Cải thảo, bắp cải, su hào Đà Lạt.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252594/brands/srflhqfol1ckwavsaa1n.jpg', 4.7, 12.001, 108.42, NOW()),
+(11, 'shop8@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 2, 'ACTIVE', 'Nguyễn Thị Thu (Nhà Vườn 8)', '0933000008', 'Thôn Xuân Thành, Phường Xuân Hương - Đà Lạt, Tỉnh Lâm Đồng', 'Vườn Atiso Xuân Thọ', 1, 'Atiso, cà chua, dâu tây.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252594/brands/srflhqfol1ckwavsaa1n.jpg', 4.7, 11.94, 108.5, NOW()),
+(12, 'shop9@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 2, 'ACTIVE', 'Trần Văn Lộc (Nhà Vườn 9)', '0933000009', 'Thôn Lạc Xuân, Xã Đơn Dương, Tỉnh Lâm Đồng', 'Hợp Tác Xã Đơn Dương', 1, 'Hành tây, cà rốt, khoai tây Đơn Dương.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252594/brands/srflhqfol1ckwavsaa1n.jpg', 4.7, 11.752, 108.547, NOW()),
+(13, 'shop10@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 2, 'ACTIVE', 'Lý Văn Nam (Nhà Vườn 10 - tạm ngưng)', '0933000010', '30 Lê Văn Việt, Phường Hiệp Phú, Thành phố Thủ Đức, TP. Hồ Chí Minh', 'Vườn Rau Tạm Ngưng', 0, 'Shop đang tạm ngưng bán: dùng để kiểm tra không hiện trong danh sách lân cận.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252594/brands/srflhqfol1ckwavsaa1n.jpg', 4.7, 10.849, 106.774, NOW());
 
 SET FOREIGN_KEY_CHECKS = 1;
