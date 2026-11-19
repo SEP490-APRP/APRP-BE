@@ -5,6 +5,7 @@ import com.sang.be_capnong.enums.MealType;
 import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.jpa.domain.Specification;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -17,7 +18,7 @@ public class BuildComboSpecification {
             String type,
             String keyword
     ) {
-        return filterCombos(null, status, mealType, region, type, keyword);
+        return filterCombos(null, status, mealType, region, type, keyword, null, null);
     }
 
     public static Specification<BuildCombo> filterCombos(
@@ -27,6 +28,19 @@ public class BuildComboSpecification {
             String region,
             String type,
             String keyword
+    ) {
+        return filterCombos(shopId, status, mealType, region, type, keyword, null, null);
+    }
+
+    public static Specification<BuildCombo> filterCombos(
+            Integer shopId,
+            String status,
+            MealType mealType,
+            String region,
+            String type,
+            String keyword,
+            BigDecimal minPrice,
+            BigDecimal maxPrice
     ) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
@@ -50,6 +64,14 @@ public class BuildComboSpecification {
 
             if (type != null && !type.isBlank()) {
                 predicates.add(cb.equal(cb.lower(root.get("type")), type.trim().toLowerCase()));
+            }
+
+            if (minPrice != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("price"), minPrice));
+            }
+
+            if (maxPrice != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("price"), maxPrice));
             }
 
             if (keyword != null && !keyword.isBlank()) {

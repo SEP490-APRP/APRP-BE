@@ -90,6 +90,7 @@ public class SecurityConfig {
             "/mystery-boxes",
             "/mystery-boxes/{id:[0-9]+}",
             "/combos",
+            "/combos/catalog",
             "/combos/{id:[0-9]+}",
             "/v1/vouchers",
             "/vouchers",

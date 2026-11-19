@@ -1,4 +1,4 @@
--- ==============================================================================
+    -- ==============================================================================
 -- CAPNONG (SEP490) - SCHEMA + DỮ LIỆU TỐI THIỂU (sep_minimal.sql)
 -- Cùng schema với sep.sql, chỉ seed 4 vai trò và 4 tài khoản: admin, buyer, shop, shipper
 -- Không có sản phẩm, đơn hàng, ví, voucher... (ví sẽ được BE tự tạo khi cần)
@@ -220,6 +220,7 @@ CREATE TABLE products (
     category_id INT,
     product_name VARCHAR(255) NOT NULL,
     unit VARCHAR(50),
+    origin VARCHAR(100),
     selling_price DECIMAL(18,2) NOT NULL,
     stock_quantity INT NOT NULL DEFAULT 0,
     description TEXT,

@@ -33,6 +33,9 @@ public class ProductCreationRequest {
     @Min(value = 0, message = "PRODUCT_STOCK_INVALID")
     Integer stockQuantity;
 
+    @Size(max = 100, message = "ORIGIN_TOO_LONG")
+    String origin;
+
     String description;
 
     @NotNull(message = "PRODUCT_EXPIRY_REQUIRED")

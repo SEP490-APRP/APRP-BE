@@ -4,6 +4,7 @@ import com.sang.be_capnong.entity.Product;
 import jakarta.persistence.criteria.Predicate;
 import org.springframework.data.jpa.domain.Specification;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -14,6 +15,19 @@ public class ProductSpecification {
             Integer categoryId,
             String keyword,
             Integer shopId
+    ) {
+        return filterProducts(status, categoryId, keyword, shopId, null, null, null, null);
+    }
+
+    public static Specification<Product> filterProducts(
+            String status,
+            Integer categoryId,
+            String keyword,
+            Integer shopId,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            String origin,
+            Boolean isVietgap
     ) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
@@ -30,9 +44,33 @@ public class ProductSpecification {
                 predicates.add(cb.equal(root.get("shop").get("id"), shopId));
             }
 
+            if (minPrice != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("sellingPrice"), minPrice));
+            }
+
+            if (maxPrice != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("sellingPrice"), maxPrice));
+            }
+
+            if (origin != null && !origin.isBlank()) {
+                String originPattern = "%" + origin.trim().toLowerCase() + "%";
+                Predicate originMatch = cb.like(cb.lower(root.get("origin")), originPattern);
+                Predicate shopAddressMatch = cb.like(cb.lower(root.get("shop").get("address")), originPattern);
+                predicates.add(cb.or(originMatch, shopAddressMatch));
+            }
+
+            if (Boolean.TRUE.equals(isVietgap)) {
+                String vietgapPattern = "%vietgap%";
+                Predicate licenseMatch = cb.like(cb.lower(root.get("shop").get("license")), vietgapPattern);
+                Predicate achievementMatch = cb.like(cb.lower(root.get("shop").get("achievement")), vietgapPattern);
+                predicates.add(cb.or(licenseMatch, achievementMatch));
+            }
+
             if (keyword != null && !keyword.isBlank()) {
                 String pattern = "%" + keyword.trim().toLowerCase() + "%";
-                predicates.add(cb.like(cb.lower(root.get("productName")), pattern));
+                Predicate nameMatch = cb.like(cb.lower(root.get("productName")), pattern);
+                Predicate descMatch = cb.like(cb.lower(root.get("description")), pattern);
+                predicates.add(cb.or(nameMatch, descMatch));
             }
 
             return cb.and(predicates.toArray(new Predicate[0]));

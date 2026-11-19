@@ -7,6 +7,8 @@ import com.sang.be_capnong.dto.response.ProductResponse;
 
 import com.sang.be_capnong.dto.request.ProductRejectRequest;
 
+import java.math.BigDecimal;
+
 public interface ProductService {
 
     ProductResponse createProduct(ProductCreationRequest request);
@@ -18,11 +20,28 @@ public interface ProductService {
             String keyword,
             String status,
             Integer shopId,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            String origin,
+            Boolean isVietgap,
             int page,
             int size,
             String sortBy,
             String sortDirection
     );
+
+    default PageResponse<ProductResponse> getProducts(
+            Integer categoryId,
+            String keyword,
+            String status,
+            Integer shopId,
+            int page,
+            int size,
+            String sortBy,
+            String sortDirection
+    ) {
+        return getProducts(categoryId, keyword, status, shopId, null, null, null, null, page, size, sortBy, sortDirection);
+    }
 
     PageResponse<ProductResponse> getMyProducts(
             String status,
