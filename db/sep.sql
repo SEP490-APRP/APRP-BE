@@ -204,6 +204,7 @@ CREATE TABLE products (
     category_id INT,
     product_name VARCHAR(255) NOT NULL,
     unit VARCHAR(50),
+    origin VARCHAR(100),
     selling_price DECIMAL(18,2) NOT NULL,
     stock_quantity INT NOT NULL DEFAULT 0,
     description TEXT,

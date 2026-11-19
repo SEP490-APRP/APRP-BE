@@ -3,12 +3,25 @@ package com.sang.be_capnong.service;
 import com.sang.be_capnong.dto.request.BuildComboCreationRequest;
 import com.sang.be_capnong.dto.request.BuildComboUpdateRequest;
 import com.sang.be_capnong.dto.response.BuildComboResponse;
+import com.sang.be_capnong.dto.response.ComboCatalogItemResponse;
 import com.sang.be_capnong.dto.response.PageResponse;
 import com.sang.be_capnong.enums.MealType;
+
+import java.math.BigDecimal;
 
 public interface BuildComboService {
 
     BuildComboResponse createCombo(BuildComboCreationRequest request);
+
+    PageResponse<ComboCatalogItemResponse> getCatalog(
+            String category,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            String keyword,
+            String sortBy,
+            int page,
+            int size
+    );
 
     PageResponse<BuildComboResponse> getCombos(
             String status,

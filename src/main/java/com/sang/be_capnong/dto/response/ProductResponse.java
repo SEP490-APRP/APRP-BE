@@ -20,6 +20,7 @@ public class ProductResponse {
     String unit;
     BigDecimal sellingPrice;
     Integer stockQuantity;
+    String origin;
     String description;
     String status;
 

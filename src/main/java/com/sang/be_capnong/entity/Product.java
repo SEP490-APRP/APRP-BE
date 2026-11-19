@@ -42,6 +42,9 @@ public class Product {
     BigDecimal sellingPrice;
     Integer stockQuantity;
 
+    @Column(length = 100)
+    String origin;
+
     @Column(columnDefinition = "TEXT")
     String description;
 

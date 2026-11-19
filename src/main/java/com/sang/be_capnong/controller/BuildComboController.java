@@ -4,6 +4,7 @@ import com.sang.be_capnong.dto.request.BuildComboCreationRequest;
 import com.sang.be_capnong.dto.request.BuildComboUpdateRequest;
 import com.sang.be_capnong.dto.response.ApiResponse;
 import com.sang.be_capnong.dto.response.BuildComboResponse;
+import com.sang.be_capnong.dto.response.ComboCatalogItemResponse;
 import com.sang.be_capnong.dto.response.PageResponse;
 import com.sang.be_capnong.enums.MealType;
 import com.sang.be_capnong.service.BuildComboService;
@@ -16,6 +17,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
+
 @RestController
 @RequestMapping("/combos")
 @RequiredArgsConstructor
@@ -24,6 +27,22 @@ import org.springframework.web.bind.annotation.*;
 public class BuildComboController {
 
     BuildComboService buildComboService;
+
+    @GetMapping("/catalog")
+    public ApiResponse<PageResponse<ComboCatalogItemResponse>> getCatalog(
+            @RequestParam(value = "category", required = false, defaultValue = "all") String category,
+            @RequestParam(value = "minPrice", required = false) BigDecimal minPrice,
+            @RequestParam(value = "maxPrice", required = false) BigDecimal maxPrice,
+            @RequestParam(value = "keyword", required = false) String keyword,
+            @RequestParam(value = "sortBy", required = false, defaultValue = "featured") String sortBy,
+            @RequestParam(value = "page", defaultValue = "1") int page,
+            @RequestParam(value = "size", defaultValue = "9") int size
+    ) {
+        log.info("REST request to get unified combo & mystery box catalog");
+        return ApiResponse.<PageResponse<ComboCatalogItemResponse>>builder()
+                .result(buildComboService.getCatalog(category, minPrice, maxPrice, keyword, sortBy, page, size))
+                .build();
+    }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)

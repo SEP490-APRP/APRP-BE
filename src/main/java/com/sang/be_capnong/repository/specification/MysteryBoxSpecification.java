@@ -17,6 +17,17 @@ public class MysteryBoxSpecification {
             BigDecimal minPrice,
             BigDecimal maxPrice
     ) {
+        return filterMysteryBoxes(shopId, boxType, isActive, minPrice, maxPrice, null);
+    }
+
+    public static Specification<MysteryBox> filterMysteryBoxes(
+            Integer shopId,
+            String boxType,
+            Boolean isActive,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            String keyword
+    ) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
 
@@ -38,6 +49,14 @@ public class MysteryBoxSpecification {
 
             if (maxPrice != null) {
                 predicates.add(cb.lessThanOrEqualTo(root.get("price"), maxPrice));
+            }
+
+            if (keyword != null && !keyword.isBlank()) {
+                String pattern = "%" + keyword.trim().toLowerCase() + "%";
+                Predicate typeMatch = cb.like(cb.lower(root.get("boxType")), pattern);
+                Predicate descMatch = cb.like(cb.lower(root.get("description")), pattern);
+                Predicate noteMatch = cb.like(cb.lower(root.get("note")), pattern);
+                predicates.add(cb.or(typeMatch, descMatch, noteMatch));
             }
 
             return cb.and(predicates.toArray(new Predicate[0]));
