@@ -23,8 +23,8 @@ import java.time.Duration;
 @Slf4j
 public class ImageDownloadServiceImpl implements ImageDownloadService {
 
-    @Value("${google.vision.max-file-size-bytes:5242880}")
-    long maxFileSizeBytes = 5242880L;
+    @Value("${google.vision.max-file-size-bytes:10485760}")
+    long maxFileSizeBytes = 10485760L;
 
     @Value("${google.vision.connect-timeout-seconds:5}")
     int connectTimeoutSeconds = 5;
