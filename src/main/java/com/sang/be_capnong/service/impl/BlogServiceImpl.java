@@ -10,6 +10,7 @@ import com.sang.be_capnong.dto.response.PageResponse;
 import com.sang.be_capnong.entity.Blog;
 import com.sang.be_capnong.entity.BlogComment;
 import com.sang.be_capnong.entity.BlogLike;
+import com.sang.be_capnong.entity.Product;
 import com.sang.be_capnong.entity.User;
 import com.sang.be_capnong.enums.BlogCategory;
 import com.sang.be_capnong.enums.BlogStatus;
@@ -18,6 +19,7 @@ import com.sang.be_capnong.exception.ErrorCode;
 import com.sang.be_capnong.repository.BlogCommentRepository;
 import com.sang.be_capnong.repository.BlogLikeRepository;
 import com.sang.be_capnong.repository.BlogRepository;
+import com.sang.be_capnong.repository.ProductRepository;
 import com.sang.be_capnong.repository.UserRepository;
 import com.sang.be_capnong.repository.specification.BlogSpecification;
 import com.sang.be_capnong.service.BlogService;
@@ -50,6 +52,7 @@ public class BlogServiceImpl implements BlogService {
     BlogLikeRepository blogLikeRepository;
     BlogCommentRepository blogCommentRepository;
     UserRepository userRepository;
+    ProductRepository productRepository;
     SimpMessagingTemplate messagingTemplate;
 
     // ===================== CRUD APIs (SHOP & ADMIN) =====================
@@ -58,8 +61,14 @@ public class BlogServiceImpl implements BlogService {
     @Override
     public BlogResponse createBlog(BlogCreateRequest request) {
         User creator = getCurrentUser();
+        Product product = null;
+        if (request.getProductId() != null && request.getProductId() > 0) {
+            product = productRepository.findById(request.getProductId()).orElse(null);
+        }
+
         Blog blog = Blog.builder()
                 .shop(creator)
+                .product(product)
                 .title(request.getTitle())
                 .content(request.getContent())
                 .pictureUrl(request.getPictureUrl())
@@ -91,6 +100,14 @@ public class BlogServiceImpl implements BlogService {
         if (request.getPictureUrl() != null) blog.setPictureUrl(request.getPictureUrl());
         if (request.getStatus() != null) blog.setStatus(request.getStatus());
         if (request.getCategory() != null) blog.setCategory(request.getCategory());
+        if (request.getProductId() != null) {
+            if (request.getProductId() > 0) {
+                Product product = productRepository.findById(request.getProductId()).orElse(null);
+                blog.setProduct(product);
+            } else {
+                blog.setProduct(null);
+            }
+        }
         blog.setUpdatedAt(LocalDateTime.now());
 
         Blog saved = blogRepository.save(blog);
@@ -380,6 +397,25 @@ public class BlogServiceImpl implements BlogService {
         }
         String shopAvatar = (shop != null) ? shop.getLogoUrl() : null;
 
+        Product product = blog.getProduct();
+        Integer productId = null;
+        String productName = null;
+        String productImage = null;
+        java.math.BigDecimal productPrice = null;
+        Integer productDiscountPercent = null;
+        String productUnit = null;
+
+        if (product != null) {
+            productId = product.getProductId();
+            productName = product.getProductName();
+            if (product.getImages() != null && !product.getImages().isEmpty()) {
+                productImage = product.getImages().get(0).getImageUrl();
+            }
+            productPrice = product.getSellingPrice();
+            productDiscountPercent = product.getDiscountPercent();
+            productUnit = product.getUnit();
+        }
+
         return BlogResponse.builder()
                 .blogId(blog.getBlogId())
                 .title(blog.getTitle())
@@ -393,6 +429,12 @@ public class BlogServiceImpl implements BlogService {
                 .shopId(shopId)
                 .shopName(shopName)
                 .shopAvatar(shopAvatar)
+                .productId(productId)
+                .productName(productName)
+                .productImage(productImage)
+                .productPrice(productPrice)
+                .productDiscountPercent(productDiscountPercent)
+                .productUnit(productUnit)
                 .likeCount(likeCount)
                 .commentCount(commentCount)
                 .isLikedByCurrentUser(isLiked)
