@@ -26,4 +26,6 @@ public class BlogCreateRequest {
     BlogStatus status;
 
     BlogCategory category;
+
+    Integer productId;
 }

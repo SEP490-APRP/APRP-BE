@@ -34,6 +34,14 @@ public class BlogResponse {
     String shopName;
     String shopAvatar;
 
+    // Sản phẩm đính kèm
+    Integer productId;
+    String productName;
+    String productImage;
+    java.math.BigDecimal productPrice;
+    Integer productDiscountPercent;
+    String productUnit;
+
     // Thống kê tương tác
     long likeCount;
     long commentCount;
