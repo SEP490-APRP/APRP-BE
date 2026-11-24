@@ -26,9 +26,9 @@ public interface ReturnRequestMapper {
     @Mapping(target = "unitPrice", source = "orderDetail.unitPrice")
     @Mapping(target = "itemTotal", source = "orderDetail", qualifiedByName = "mapItemTotal")
     @Mapping(target = "buyerId", source = "buyer.id")
-    @Mapping(target = "buyerName", source = "buyer.fullName")
-    @Mapping(target = "buyerPhone", source = "buyer.phoneNumber")
-    @Mapping(target = "buyerAddress", source = "buyer.address")
+    @Mapping(target = "buyerName", source = "request", qualifiedByName = "mapBuyerName")
+    @Mapping(target = "buyerPhone", source = "request", qualifiedByName = "mapBuyerPhone")
+    @Mapping(target = "buyerAddress", source = "request", qualifiedByName = "mapBuyerAddress")
     @Mapping(target = "shopId", source = "shop.id")
     @Mapping(target = "shopName", source = "shop.shopName")
     @Mapping(target = "shopPhone", source = "shop.phoneNumber")
@@ -90,5 +90,41 @@ public interface ReturnRequestMapper {
     default List<String> mapEvidenceUrls(List<Image> images) {
         if (images == null || images.isEmpty()) return Collections.emptyList();
         return images.stream().map(Image::getImageUrl).toList();
+    }
+
+    @Named("mapBuyerName")
+    default String mapBuyerName(ReturnRequest request) {
+        if (request == null) return null;
+        if (request.getOrderDetail() != null && request.getOrderDetail().getOrder() != null) {
+            String recipientName = request.getOrderDetail().getOrder().getRecipientName();
+            if (recipientName != null && !recipientName.isBlank()) {
+                return recipientName;
+            }
+        }
+        return request.getBuyer() != null ? request.getBuyer().getFullName() : null;
+    }
+
+    @Named("mapBuyerPhone")
+    default String mapBuyerPhone(ReturnRequest request) {
+        if (request == null) return null;
+        if (request.getOrderDetail() != null && request.getOrderDetail().getOrder() != null) {
+            String recipientPhone = request.getOrderDetail().getOrder().getRecipientPhone();
+            if (recipientPhone != null && !recipientPhone.isBlank()) {
+                return recipientPhone;
+            }
+        }
+        return request.getBuyer() != null ? request.getBuyer().getPhoneNumber() : null;
+    }
+
+    @Named("mapBuyerAddress")
+    default String mapBuyerAddress(ReturnRequest request) {
+        if (request == null) return null;
+        if (request.getOrderDetail() != null && request.getOrderDetail().getOrder() != null) {
+            String shippingAddress = request.getOrderDetail().getOrder().getShippingAddress();
+            if (shippingAddress != null && !shippingAddress.isBlank()) {
+                return shippingAddress;
+            }
+        }
+        return request.getBuyer() != null ? request.getBuyer().getAddress() : null;
     }
 }
