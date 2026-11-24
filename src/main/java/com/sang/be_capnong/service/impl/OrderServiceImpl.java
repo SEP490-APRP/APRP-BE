@@ -733,6 +733,15 @@ public class OrderServiceImpl implements OrderService {
         BigDecimal effectiveTotalDiscount = totalGoodsAmount.add(totalShippingFee).subtract(finalTotalAmount).setScale(0, java.math.RoundingMode.HALF_UP);
         if (effectiveTotalDiscount.compareTo(BigDecimal.ZERO) < 0) effectiveTotalDiscount = BigDecimal.ZERO;
 
+        java.util.Map<String, BigDecimal> totalVoucherDiscountsDetail = new java.util.HashMap<>();
+        for (ShopOrderPreview sp : shopOrderPreviews) {
+            if (sp.getVoucherDiscountsDetail() != null) {
+                for (java.util.Map.Entry<String, BigDecimal> entry : sp.getVoucherDiscountsDetail().entrySet()) {
+                    totalVoucherDiscountsDetail.merge(entry.getKey(), entry.getValue(), BigDecimal::add);
+                }
+            }
+        }
+
         boolean isCodAllowed = buyer == null || !userService.isCodBlocked(buyer.getId());
         String codRestrictionReason = isCodAllowed ? null : "Tài khoản của bạn đã bị tước quyền thanh toán COD do có từ 3 lần giao hàng thất bại (bom hàng).";
 
@@ -742,6 +751,7 @@ public class OrderServiceImpl implements OrderService {
                 .totalShippingFee(totalShippingFee)
                 .totalVoucherDiscount(effectiveTotalDiscount)
                 .finalTotalAmount(finalTotalAmount)
+                .voucherDiscountsDetail(totalVoucherDiscountsDetail)
                 .codAllowed(isCodAllowed)
                 .codRestrictionReason(codRestrictionReason)
                 .build();
@@ -828,15 +838,15 @@ public class OrderServiceImpl implements OrderService {
             }
         }
 
-        // Theo dõi số tiền đã giảm theo từng hạng mục cho từng ShopOrderPreview
-        Map<ShopOrderPreview, BigDecimal> shopGoodsDiscountMap = new HashMap<>();
-        Map<ShopOrderPreview, BigDecimal> platformGoodsDiscountMap = new HashMap<>();
-        Map<ShopOrderPreview, BigDecimal> platformShippingDiscountMap = new HashMap<>();
+        // Theo dõi số tiền đã giảm theo từng hạng mục theo shopId (dùng Integer shopId làm key để tránh lỗi HashCode do mutation)
+        Map<Integer, BigDecimal> shopGoodsDiscountMap = new HashMap<>();
+        Map<Integer, BigDecimal> platformGoodsDiscountMap = new HashMap<>();
+        Map<Integer, BigDecimal> platformShippingDiscountMap = new HashMap<>();
 
         for (ShopOrderPreview sp : shopPreviews) {
-            shopGoodsDiscountMap.put(sp, BigDecimal.ZERO);
-            platformGoodsDiscountMap.put(sp, BigDecimal.ZERO);
-            platformShippingDiscountMap.put(sp, BigDecimal.ZERO);
+            shopGoodsDiscountMap.put(sp.getShopId(), BigDecimal.ZERO);
+            platformGoodsDiscountMap.put(sp.getShopId(), BigDecimal.ZERO);
+            platformShippingDiscountMap.put(sp.getShopId(), BigDecimal.ZERO);
         }
 
         // ============================================================
@@ -862,12 +872,12 @@ public class OrderServiceImpl implements OrderService {
             if (discount.compareTo(BigDecimal.ZERO) <= 0) continue;
 
             // Giới hạn giảm giá không vượt quá tiền hàng còn lại của shop đó
-            BigDecimal currentGoodsDiscount = shopGoodsDiscountMap.get(targetShopPreview);
+            BigDecimal currentGoodsDiscount = shopGoodsDiscountMap.getOrDefault(targetShopPreview.getShopId(), BigDecimal.ZERO);
             BigDecimal remainingGoods = targetShopPreview.getGoodsAmount().subtract(currentGoodsDiscount).max(BigDecimal.ZERO);
             discount = discount.min(remainingGoods).setScale(0, java.math.RoundingMode.HALF_UP);
             if (discount.compareTo(BigDecimal.ZERO) <= 0) continue;
 
-            shopGoodsDiscountMap.put(targetShopPreview, currentGoodsDiscount.add(discount));
+            shopGoodsDiscountMap.put(targetShopPreview.getShopId(), currentGoodsDiscount.add(discount));
             targetShopPreview.setVoucherDiscount(targetShopPreview.getVoucherDiscount().add(discount));
             targetShopPreview.getVoucherDiscountsDetail().merge(voucher.getVoucherCode().toUpperCase(), discount, BigDecimal::add);
             totalDiscount = totalDiscount.add(discount);
@@ -885,14 +895,14 @@ public class OrderServiceImpl implements OrderService {
             if (discount.compareTo(BigDecimal.ZERO) <= 0) continue;
 
             // Tính tiền hàng còn lại cho từng shop sau voucher shop và các voucher sàn trước đó
-            Map<ShopOrderPreview, BigDecimal> availableNetGoodsMap = new HashMap<>();
+            Map<Integer, BigDecimal> availableNetGoodsMap = new HashMap<>();
             BigDecimal totalNetGoods = BigDecimal.ZERO;
             for (ShopOrderPreview sp : shopPreviews) {
                 BigDecimal net = sp.getGoodsAmount()
-                        .subtract(shopGoodsDiscountMap.get(sp))
-                        .subtract(platformGoodsDiscountMap.get(sp))
+                        .subtract(shopGoodsDiscountMap.getOrDefault(sp.getShopId(), BigDecimal.ZERO))
+                        .subtract(platformGoodsDiscountMap.getOrDefault(sp.getShopId(), BigDecimal.ZERO))
                         .max(BigDecimal.ZERO);
-                availableNetGoodsMap.put(sp, net);
+                availableNetGoodsMap.put(sp.getShopId(), net);
                 totalNetGoods = totalNetGoods.add(net);
             }
 
@@ -902,38 +912,38 @@ public class OrderServiceImpl implements OrderService {
 
             // Phân bổ tỷ lệ theo netGoods
             BigDecimal allocatedSum = BigDecimal.ZERO;
-            Map<ShopOrderPreview, BigDecimal> shares = new HashMap<>();
+            Map<Integer, BigDecimal> shares = new HashMap<>();
             ShopOrderPreview maxShop = null;
             BigDecimal maxNet = BigDecimal.valueOf(-1);
 
             for (ShopOrderPreview sp : shopPreviews) {
-                BigDecimal net = availableNetGoodsMap.get(sp);
+                BigDecimal net = availableNetGoodsMap.getOrDefault(sp.getShopId(), BigDecimal.ZERO);
                 if (net.compareTo(maxNet) > 0) {
                     maxNet = net;
                     maxShop = sp;
                 }
                 if (net.compareTo(BigDecimal.ZERO) <= 0) {
-                    shares.put(sp, BigDecimal.ZERO);
+                    shares.put(sp.getShopId(), BigDecimal.ZERO);
                     continue;
                 }
                 BigDecimal ratio = net.divide(totalNetGoods, 6, java.math.RoundingMode.HALF_UP);
                 BigDecimal share = discount.multiply(ratio).setScale(0, java.math.RoundingMode.HALF_UP).min(net);
-                shares.put(sp, share);
+                shares.put(sp.getShopId(), share);
                 allocatedSum = allocatedSum.add(share);
             }
 
             // Xử lý chênh lệch làm tròn VNĐ (cộng/trừ vào shop có netGoods lớn nhất)
             BigDecimal diff = discount.subtract(allocatedSum);
             if (diff.compareTo(BigDecimal.ZERO) != 0 && maxShop != null) {
-                BigDecimal currentShare = shares.get(maxShop);
-                BigDecimal adjusted = currentShare.add(diff).min(availableNetGoodsMap.get(maxShop)).max(BigDecimal.ZERO);
-                shares.put(maxShop, adjusted);
+                BigDecimal currentShare = shares.getOrDefault(maxShop.getShopId(), BigDecimal.ZERO);
+                BigDecimal adjusted = currentShare.add(diff).min(availableNetGoodsMap.getOrDefault(maxShop.getShopId(), BigDecimal.ZERO)).max(BigDecimal.ZERO);
+                shares.put(maxShop.getShopId(), adjusted);
             }
 
             for (ShopOrderPreview sp : shopPreviews) {
-                BigDecimal share = shares.getOrDefault(sp, BigDecimal.ZERO);
+                BigDecimal share = shares.getOrDefault(sp.getShopId(), BigDecimal.ZERO);
                 if (share.compareTo(BigDecimal.ZERO) > 0) {
-                    platformGoodsDiscountMap.put(sp, platformGoodsDiscountMap.get(sp).add(share));
+                    platformGoodsDiscountMap.put(sp.getShopId(), platformGoodsDiscountMap.getOrDefault(sp.getShopId(), BigDecimal.ZERO).add(share));
                     sp.setVoucherDiscount(sp.getVoucherDiscount().add(share));
                     sp.getVoucherDiscountsDetail().merge(voucher.getVoucherCode().toUpperCase(), share, BigDecimal::add);
                 }
@@ -952,11 +962,11 @@ public class OrderServiceImpl implements OrderService {
             BigDecimal discount = calculateVoucherDiscount(voucher, VoucherTarget.SHIPPING, totalGoodsAmount, totalShippingFee);
             if (discount.compareTo(BigDecimal.ZERO) <= 0) continue;
 
-            Map<ShopOrderPreview, BigDecimal> availableShippingMap = new HashMap<>();
+            Map<Integer, BigDecimal> availableShippingMap = new HashMap<>();
             BigDecimal totalNetShipping = BigDecimal.ZERO;
             for (ShopOrderPreview sp : shopPreviews) {
-                BigDecimal netShip = sp.getShippingFee().subtract(platformShippingDiscountMap.get(sp)).max(BigDecimal.ZERO);
-                availableShippingMap.put(sp, netShip);
+                BigDecimal netShip = sp.getShippingFee().subtract(platformShippingDiscountMap.getOrDefault(sp.getShopId(), BigDecimal.ZERO)).max(BigDecimal.ZERO);
+                availableShippingMap.put(sp.getShopId(), netShip);
                 totalNetShipping = totalNetShipping.add(netShip);
             }
 
@@ -965,38 +975,38 @@ public class OrderServiceImpl implements OrderService {
             if (discount.compareTo(BigDecimal.ZERO) <= 0) continue;
 
             BigDecimal allocatedSum = BigDecimal.ZERO;
-            Map<ShopOrderPreview, BigDecimal> shares = new HashMap<>();
+            Map<Integer, BigDecimal> shares = new HashMap<>();
             ShopOrderPreview maxShop = null;
             BigDecimal maxShip = BigDecimal.valueOf(-1);
 
             for (ShopOrderPreview sp : shopPreviews) {
-                BigDecimal netShip = availableShippingMap.get(sp);
+                BigDecimal netShip = availableShippingMap.getOrDefault(sp.getShopId(), BigDecimal.ZERO);
                 if (netShip.compareTo(maxShip) > 0) {
                     maxShip = netShip;
                     maxShop = sp;
                 }
                 if (netShip.compareTo(BigDecimal.ZERO) <= 0) {
-                    shares.put(sp, BigDecimal.ZERO);
+                    shares.put(sp.getShopId(), BigDecimal.ZERO);
                     continue;
                 }
                 BigDecimal ratio = netShip.divide(totalNetShipping, 6, java.math.RoundingMode.HALF_UP);
                 BigDecimal share = discount.multiply(ratio).setScale(0, java.math.RoundingMode.HALF_UP).min(netShip);
-                shares.put(sp, share);
+                shares.put(sp.getShopId(), share);
                 allocatedSum = allocatedSum.add(share);
             }
 
             // Xử lý chênh lệch làm tròn VNĐ
             BigDecimal diff = discount.subtract(allocatedSum);
             if (diff.compareTo(BigDecimal.ZERO) != 0 && maxShop != null) {
-                BigDecimal currentShare = shares.get(maxShop);
-                BigDecimal adjusted = currentShare.add(diff).min(availableShippingMap.get(maxShop)).max(BigDecimal.ZERO);
-                shares.put(maxShop, adjusted);
+                BigDecimal currentShare = shares.getOrDefault(maxShop.getShopId(), BigDecimal.ZERO);
+                BigDecimal adjusted = currentShare.add(diff).min(availableShippingMap.getOrDefault(maxShop.getShopId(), BigDecimal.ZERO)).max(BigDecimal.ZERO);
+                shares.put(maxShop.getShopId(), adjusted);
             }
 
             for (ShopOrderPreview sp : shopPreviews) {
-                BigDecimal share = shares.getOrDefault(sp, BigDecimal.ZERO);
+                BigDecimal share = shares.getOrDefault(sp.getShopId(), BigDecimal.ZERO);
                 if (share.compareTo(BigDecimal.ZERO) > 0) {
-                    platformShippingDiscountMap.put(sp, platformShippingDiscountMap.get(sp).add(share));
+                    platformShippingDiscountMap.put(sp.getShopId(), platformShippingDiscountMap.getOrDefault(sp.getShopId(), BigDecimal.ZERO).add(share));
                     sp.setVoucherDiscount(sp.getVoucherDiscount().add(share));
                     sp.getVoucherDiscountsDetail().merge(voucher.getVoucherCode().toUpperCase(), share, BigDecimal::add);
                 }
