@@ -84,6 +84,7 @@ public class ProductServiceImpl implements ProductService {
 
         Category category = categoryRepository.findById(request.getCategoryId())
                 .orElseThrow(() -> new AppException(ErrorCode.CATEGORY_NOT_FOUND));
+        validateFreshProductCategory(category);
 
         if (request.getExpiryDate().isBefore(LocalDate.now())) {
             throw new AppException(ErrorCode.PRODUCT_EXPIRY_INVALID);
@@ -92,6 +93,7 @@ public class ProductServiceImpl implements ProductService {
         Product product = productMapper.toProduct(request);
         product.setShop(shop);
         product.setCategory(category);
+        product.setUnit("kg");
         product.setStatus("PENDING");
         product.setUpdatedAt(LocalDateTime.now());
 
@@ -247,6 +249,7 @@ public class ProductServiceImpl implements ProductService {
 
         Category category = categoryRepository.findById(request.getCategoryId())
                 .orElseThrow(() -> new AppException(ErrorCode.CATEGORY_NOT_FOUND));
+        validateFreshProductCategory(category);
 
         if (request.getExpiryDate().isBefore(LocalDate.now())) {
             throw new AppException(ErrorCode.PRODUCT_EXPIRY_INVALID);
@@ -264,6 +267,7 @@ public class ProductServiceImpl implements ProductService {
 
         productMapper.updateProduct(product, request);
         product.setCategory(category);
+        product.setUnit("kg");
 
         // Status transition lifecycle
         if ("REJECTED".equalsIgnoreCase(currentStatus)) {
@@ -435,6 +439,16 @@ public class ProductServiceImpl implements ProductService {
                 log.info("Cascaded deactivation (status=INACTIVE) to Build Combo id: {} due to non-active product id: {}",
                         combo.getComboId(), productId);
             }
+        }
+    }
+
+    private void validateFreshProductCategory(Category category) {
+        if (category == null || category.getName() == null) {
+            return;
+        }
+        String lower = category.getName().toLowerCase(java.util.Locale.ROOT);
+        if (lower.contains("combo") || lower.contains("túi mù") || lower.contains("tui mu")) {
+            throw new AppException(ErrorCode.INVALID_PRODUCT_CATEGORY);
         }
     }
 }
