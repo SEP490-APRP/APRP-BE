@@ -1,5 +1,7 @@
 package com.sang.be_capnong.service.impl;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.cloud.vision.v1.*;
 import com.google.protobuf.ByteString;
 import com.sang.be_capnong.dto.response.ImageSearchResponse;
@@ -9,6 +11,7 @@ import com.sang.be_capnong.enums.AgriculturalProduceLabel;
 import com.sang.be_capnong.exception.AppException;
 import com.sang.be_capnong.exception.ErrorCode;
 import com.sang.be_capnong.mapper.ProductMapper;
+import com.sang.be_capnong.repository.ModerationResultRepository;
 import com.sang.be_capnong.repository.ProductRepository;
 import com.sang.be_capnong.repository.specification.ProductSpecification;
 import com.sang.be_capnong.service.ImageSearchService;
@@ -37,6 +40,8 @@ public class GoogleVisionImageSearchServiceImpl implements ImageSearchService {
     final ImageAnnotatorClient imageAnnotatorClient;
     final ProductRepository productRepository;
     final ProductMapper productMapper;
+    final ModerationResultRepository moderationResultRepository;
+    final ObjectMapper objectMapper;
 
     // ==========================================
     // IN-MEMORY RATE LIMITING (SLIDING WINDOW LOG)
@@ -46,18 +51,31 @@ public class GoogleVisionImageSearchServiceImpl implements ImageSearchService {
     static final long WINDOW_MS = 60_000L;
     static final int MAX_REQUESTS_PER_MINUTE = 10;
     static final long MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    static final double VECTOR_SIMILARITY_THRESHOLD = 0.35;
 
     final Map<String, ConcurrentLinkedDeque<Long>> ipRequestTimestamps = new ConcurrentHashMap<>();
+
+    public GoogleVisionImageSearchServiceImpl(
+            ImageAnnotatorClient imageAnnotatorClient,
+            ProductRepository productRepository,
+            ProductMapper productMapper
+    ) {
+        this(imageAnnotatorClient, productRepository, productMapper, null, new ObjectMapper());
+    }
 
     @Autowired
     public GoogleVisionImageSearchServiceImpl(
             @Autowired(required = false) ImageAnnotatorClient imageAnnotatorClient,
             ProductRepository productRepository,
-            ProductMapper productMapper
+            ProductMapper productMapper,
+            @Autowired(required = false) ModerationResultRepository moderationResultRepository,
+            @Autowired(required = false) ObjectMapper objectMapper
     ) {
         this.imageAnnotatorClient = imageAnnotatorClient;
         this.productRepository = productRepository;
         this.productMapper = productMapper;
+        this.moderationResultRepository = moderationResultRepository;
+        this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
     }
 
     @Override
@@ -242,12 +260,14 @@ public class GoogleVisionImageSearchServiceImpl implements ImageSearchService {
                     .build();
         }
 
-        // D. Xác định từ khóa chính (Search Keyword) và từ khóa loại trừ (Exclude Keyword)
+        // D. Xác định từ khóa chính (Search Keyword), danh sách đồng nghĩa (Aliases) và từ khóa loại trừ (Exclude Keyword)
         String searchKeyword;
+        List<String> searchAliases = new ArrayList<>();
         String excludeKeyword = null;
 
         if (matchedProduce != null) {
-            searchKeyword = matchedProduce.getVietnameseName();
+            searchKeyword = matchedProduce.getSearchKeyword();
+            searchAliases = matchedProduce.getSearchAliases();
             excludeKeyword = matchedProduce.getExcludeKeyword();
             if (bestVietnameseName == null) {
                 bestVietnameseName = matchedProduce.getVietnameseName();
@@ -257,7 +277,8 @@ public class GoogleVisionImageSearchServiceImpl implements ImageSearchService {
             String naturalName = extractBestNaturalProduceName(response);
             if (naturalName != null && !naturalName.isBlank()) {
                 bestVietnameseName = naturalName;
-                searchKeyword = naturalName;
+                searchKeyword = AgriculturalProduceLabel.stripClassifierPrefix(naturalName);
+                searchAliases.add(searchKeyword);
             } else {
                 // Nhận diện theo nhóm thực vật / nông sản chung (FRUIT, VEGETABLE, ROOT VEGETABLE)
                 if (hasSignal(response, "FRUIT")) {
@@ -273,21 +294,47 @@ public class GoogleVisionImageSearchServiceImpl implements ImageSearchService {
                     bestVietnameseName = "Nông sản tươi";
                     searchKeyword = ""; // Để trống để query lấy nông sản hoạt động, không lọc từ khóa rác "tươi"
                 }
+                if (!searchKeyword.isBlank()) {
+                    searchAliases.add(searchKeyword);
+                }
             }
         }
 
-        // E. Truy vấn kho hàng nông sản đang bán khớp với từ khóa qua Specification
-        Specification<Product> spec = ProductSpecification.searchForVisualSearch(searchKeyword, excludeKeyword);
+        // E.1. So khớp Vector đặc trưng Deep Learning (Cosine Similarity) qua Projection nhẹ (productId, rawResponse)
+        List<Integer> vectorMatchedProductIds = findProductIdsByFeatureVectorSimilarity(response, matchedProduce);
+
+        // E.2. Truy vấn kho hàng qua 1 câu query ProductRepository duy nhất (tận dụng @EntityGraph category, shop)
+        Specification<Product> spec = ProductSpecification.searchForVisualSearch(
+                searchAliases,
+                excludeKeyword,
+                vectorMatchedProductIds
+        );
         Page<Product> productPage = productRepository.findAll(
                 spec,
                 PageRequest.of(0, 12, Sort.by(Sort.Direction.DESC, "updatedAt"))
         );
-        List<Product> matchedProducts = productPage.getContent();
+
+        // Sắp xếp ưu tiên các sản phẩm có độ tương đồng Vector cao nhất lên đầu danh sách
+        List<Product> matchedProducts = new ArrayList<>(productPage.getContent());
+        if (!vectorMatchedProductIds.isEmpty() && matchedProducts.size() > 1) {
+            matchedProducts.sort((a, b) -> {
+                int idxA = vectorMatchedProductIds.indexOf(a.getProductId());
+                int idxB = vectorMatchedProductIds.indexOf(b.getProductId());
+                if (idxA != -1 && idxB != -1) return Integer.compare(idxA, idxB);
+                if (idxA != -1) return -1;
+                if (idxB != -1) return 1;
+                return 0;
+            });
+        }
+
+        if ( (searchKeyword == null || searchKeyword.isBlank()) && !matchedProducts.isEmpty() ) {
+            searchKeyword = matchedProducts.get(0).getProductName();
+        }
 
         List<ProductResponse> productResponses = productMapper.toProductResponseList(matchedProducts);
 
-        log.info("Visual search recognized '{}' (keyword: '{}', exclude: '{}') with {} active products found.",
-                bestVietnameseName, searchKeyword, excludeKeyword, productResponses.size());
+        log.info("Visual search recognized '{}' (keyword: '{}', vectorMatchedIds: {}, totalProducts: {})",
+                bestVietnameseName, searchKeyword, vectorMatchedProductIds, productResponses.size());
 
         return ImageSearchResponse.builder()
                 .isAgricultural(true)
@@ -307,6 +354,189 @@ public class GoogleVisionImageSearchServiceImpl implements ImageSearchService {
             "root vegetable", "leaf vegetable", "citrus", "berry", "legume", "gourd",
             "squash", "grain", "tuber", "fungus"
     );
+
+    private static final Set<String> LOW_DISCRIMINATIVE_VISUAL_TERMS = Set.of(
+            "fruit", "vegetable", "produce", "food", "plant", "natural foods",
+            "whole food", "local food", "superfood", "vegetarian food", "ingredient",
+            "staple food", "crop", "agriculture", "flora", "harvest", "seed",
+            "flowering plant", "terrestrial plant", "vascular plant", "annual plant",
+            "seedless fruit", "accessory fruit", "fruit tree", "tree", "leaf",
+            "plant stem", "twig", "branch", "green", "yellow", "red", "orange", "purple",
+            "close-up", "macro photography", "still life photography", "photography",
+            "sweetness", "recipe", "cuisine", "dish", "tableware", "wood", "soil"
+    );
+
+    /**
+     * Tính trọng số phân biệt (TF-IDF style weight) cho từng chiều đặc trưng trong Vector của Google Vision.
+     * - Nhãn chung/nền (Food, Fruit, Produce, Plant, Màu sắc...): trọng số thấp (0.05) để không gây nhiễu.
+     * - Nhãn nông sản cụ thể hoặc tên khoa học (Noni, Morinda, Muskmelon, Longan...): trọng số cao (3.5).
+     * - Nhãn họ thực vật trung gian (Citrus, Berry, Gourd, Soapberry family...): trọng số trung bình (1.0).
+     */
+    private double getFeatureDiscriminativeWeight(String normalizedLabel) {
+        if (normalizedLabel == null || normalizedLabel.isBlank()) return 0.0;
+        if (LOW_DISCRIMINATIVE_VISUAL_TERMS.contains(normalizedLabel)) {
+            return 0.05;
+        }
+        Optional<AgriculturalProduceLabel> produceOpt = AgriculturalProduceLabel.findByLabel(normalizedLabel);
+        if (produceOpt.isPresent()) {
+            return produceOpt.get().isSpecificProduce() ? 3.5 : 0.8;
+        }
+        Optional<AgriculturalProduceLabel> detectedOpt = AgriculturalProduceLabel.detectExpectedProduce(normalizedLabel);
+        if (detectedOpt.isPresent() && detectedOpt.get().isSpecificProduce()) {
+            return 3.5;
+        }
+        return 1.2;
+    }
+
+    private boolean isSpecificVisualFeature(String normalizedLabel) {
+        return getFeatureDiscriminativeWeight(normalizedLabel) >= 1.2;
+    }
+
+    /**
+     * So khớp Vector đặc trưng Deep Learning (Cosine Similarity) giữa ảnh truy vấn và toàn bộ vector
+     * Google Cloud Vision đã lưu trong bảng moderation_results (raw_response) qua Projection nhẹ (productId, rawResponse).
+     */
+    private List<Integer> findProductIdsByFeatureVectorSimilarity(
+            AnnotateImageResponse response,
+            AgriculturalProduceLabel queryProduce
+    ) {
+        if (moderationResultRepository == null) {
+            return Collections.emptyList();
+        }
+
+        // 1. Xây dựng Vector đặc trưng có trọng số cho ảnh tìm kiếm (Query Feature Vector Q)
+        Map<String, Double> queryVector = new HashMap<>();
+        for (EntityAnnotation label : response.getLabelAnnotationsList()) {
+            if (label.getDescription() == null || label.getDescription().isBlank()) continue;
+            String key = label.getDescription().trim().toLowerCase(Locale.ROOT);
+            double score = Math.min(1.0, Math.max(0.0, label.getScore()));
+            double weight = getFeatureDiscriminativeWeight(key);
+            queryVector.merge(key, score * weight, Math::max);
+        }
+
+        if (response.hasWebDetection()) {
+            WebDetection web = response.getWebDetection();
+            for (WebDetection.WebEntity entity : web.getWebEntitiesList()) {
+                if (entity.getDescription() == null || entity.getDescription().isBlank()) continue;
+                String key = entity.getDescription().trim().toLowerCase(Locale.ROOT);
+                double score = Math.min(1.0, Math.max(0.0, entity.getScore()));
+                if (score <= 0.0) continue;
+                double weight = getFeatureDiscriminativeWeight(key);
+                queryVector.merge(key, score * weight, Math::max);
+            }
+        }
+
+        if (queryVector.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        double queryNormSq = 0.0;
+        for (double val : queryVector.values()) {
+            queryNormSq += val * val;
+        }
+        double queryNorm = Math.sqrt(queryNormSq);
+        if (queryNorm <= 1e-9) {
+            return Collections.emptyList();
+        }
+
+        // 2. Đọc danh sách Projection nhẹ (productId, rawResponse) của các sản phẩm đang ACTIVE / APPROVED từ DB
+        List<ModerationResultRepository.ProductVectorProjection> activeVectors;
+        try {
+            activeVectors = moderationResultRepository.findAllActiveProductVectorProjections();
+        } catch (Exception e) {
+            log.warn("Could not load active product vectors for cosine similarity: {}", e.getMessage());
+            return Collections.emptyList();
+        }
+
+        record ScoredProductId(int productId, double similarity, int sharedSpecificCount) {}
+        List<ScoredProductId> scoredProducts = new ArrayList<>();
+
+        for (ModerationResultRepository.ProductVectorProjection proj : activeVectors) {
+            Integer productId = proj.getProductId();
+            String rawJson = proj.getRawResponse();
+            if (productId == null || rawJson == null || rawJson.isBlank()) continue;
+
+            Map<String, Double> docVector = parseStoredFeatureVector(rawJson);
+            if (docVector.isEmpty()) continue;
+
+            // Tính tích vô hướng (Dot Product), chuẩn L2 của sản phẩm và đếm số chiều đặc trưng cụ thể trùng khớp
+            double dotProduct = 0.0;
+            double docNormSq = 0.0;
+            int sharedSpecificFeatures = 0;
+            AgriculturalProduceLabel docSpecificProduce = null;
+
+            for (Map.Entry<String, Double> entry : docVector.entrySet()) {
+                String feature = entry.getKey();
+                double docVal = entry.getValue();
+                docNormSq += docVal * docVal;
+
+                if (docSpecificProduce == null) {
+                    Optional<AgriculturalProduceLabel> pOpt = AgriculturalProduceLabel.findByLabel(feature);
+                    if (pOpt.isPresent() && pOpt.get().isSpecificProduce()) {
+                        docSpecificProduce = pOpt.get();
+                    } else {
+                        Optional<AgriculturalProduceLabel> dOpt = AgriculturalProduceLabel.detectExpectedProduce(feature);
+                        if (dOpt.isPresent() && dOpt.get().isSpecificProduce()) {
+                            docSpecificProduce = dOpt.get();
+                        }
+                    }
+                }
+
+                Double queryVal = queryVector.get(feature);
+                if (queryVal != null) {
+                    dotProduct += queryVal * docVal;
+                    if (isSpecificVisualFeature(feature)) {
+                        sharedSpecificFeatures++;
+                    }
+                }
+            }
+
+            // Bắt buộc phải chia sẻ ít nhất 1 đặc trưng hình ảnh cụ thể (không tính các nhãn chung như Food/Fruit/Plant)
+            if (sharedSpecificFeatures == 0 || docNormSq <= 1e-9) {
+                continue;
+            }
+
+            // Nếu cả ảnh tìm kiếm và ảnh sản phẩm đều xác định rõ loài nông sản nhưng khác họ hoàn toàn -> Bỏ qua để tránh nhiễu
+            if (queryProduce != null && docSpecificProduce != null && !queryProduce.isFamilyCompatibleWith(docSpecificProduce)) {
+                continue;
+            }
+
+            double cosineSimilarity = dotProduct / (queryNorm * Math.sqrt(docNormSq));
+            if (cosineSimilarity >= VECTOR_SIMILARITY_THRESHOLD) {
+                scoredProducts.add(new ScoredProductId(productId, cosineSimilarity, sharedSpecificFeatures));
+                log.debug("Vector match product #{} -> cosineSimilarity={}, sharedSpecificFeatures={}",
+                        productId, String.format("%.4f", cosineSimilarity), sharedSpecificFeatures);
+            }
+        }
+
+        scoredProducts.sort((a, b) -> Double.compare(b.similarity(), a.similarity()));
+        return scoredProducts.stream().limit(12).map(ScoredProductId::productId).toList();
+    }
+
+    private Map<String, Double> parseStoredFeatureVector(String rawJson) {
+        try {
+            List<Map<String, Object>> items = objectMapper.readValue(
+                    rawJson,
+                    new TypeReference<List<Map<String, Object>>>() {}
+            );
+            Map<String, Double> vector = new HashMap<>();
+            for (Map<String, Object> item : items) {
+                Object nameObj = item.get("name");
+                Object confObj = item.get("confidence");
+                if (nameObj == null || confObj == null) continue;
+                String key = nameObj.toString().trim().toLowerCase(Locale.ROOT);
+                double rawConf = (confObj instanceof Number num)
+                        ? num.doubleValue()
+                        : Double.parseDouble(confObj.toString());
+                double normalizedScore = rawConf > 1.0 ? Math.min(1.0, rawConf / 100.0) : Math.max(0.0, rawConf);
+                double weight = getFeatureDiscriminativeWeight(key);
+                vector.merge(key, normalizedScore * weight, Math::max);
+            }
+            return vector;
+        } catch (Exception e) {
+            return Collections.emptyMap();
+        }
+    }
 
     private boolean isUnsafeImage(SafeSearchAnnotation safeSearch) {
         if (safeSearch == null) return false;
