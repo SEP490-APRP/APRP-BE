@@ -17,6 +17,7 @@ public class CheckoutPreviewResponse {
     BigDecimal totalShippingFee;
     BigDecimal totalVoucherDiscount;
     BigDecimal finalTotalAmount;
+    java.util.Map<String, BigDecimal> voucherDiscountsDetail;
     Boolean codAllowed;
     String codRestrictionReason;
 
@@ -25,7 +26,9 @@ public class CheckoutPreviewResponse {
     @AllArgsConstructor
     @Builder
     @FieldDefaults(level = AccessLevel.PRIVATE)
+    @EqualsAndHashCode(onlyExplicitlyIncluded = true)
     public static class ShopOrderPreview {
+        @EqualsAndHashCode.Include
         int shopId;
         String shopName;
         BigDecimal goodsAmount;

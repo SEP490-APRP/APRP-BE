@@ -18,6 +18,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
+
 @RestController
 @RequestMapping("/products")
 @RequiredArgsConstructor
@@ -62,6 +64,10 @@ public class ProductController {
             @RequestParam(name = "keyword", required = false) String keyword,
             @RequestParam(name = "status", required = false, defaultValue = "ACTIVE") String status,
             @RequestParam(name = "shopId", required = false) Integer shopId,
+            @RequestParam(name = "minPrice", required = false) BigDecimal minPrice,
+            @RequestParam(name = "maxPrice", required = false) BigDecimal maxPrice,
+            @RequestParam(name = "origin", required = false) String origin,
+            @RequestParam(name = "isVietgap", required = false) Boolean isVietgap,
             @RequestParam(name = "page", required = false, defaultValue = "1") int page,
             @RequestParam(name = "size", required = false, defaultValue = "10") int size,
             @RequestParam(name = "sortBy", required = false, defaultValue = "productId") String sortBy,
@@ -69,7 +75,7 @@ public class ProductController {
     ) {
         log.info("REST request to get catalog products");
         return ApiResponse.<PageResponse<ProductResponse>>builder()
-                .result(productService.getProducts(categoryId, keyword, status, shopId, page, size, sortBy, sortDirection))
+                .result(productService.getProducts(categoryId, keyword, status, shopId, minPrice, maxPrice, origin, isVietgap, page, size, sortBy, sortDirection))
                 .build();
     }
 

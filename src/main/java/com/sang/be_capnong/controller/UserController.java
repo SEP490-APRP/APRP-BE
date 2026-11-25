@@ -129,6 +129,19 @@ public class UserController {
                 .build();
     }
 
+    @GetMapping("/report")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<com.sang.be_capnong.dto.response.AdminUserReportResponse> getUserReport(
+            @RequestParam(name = "type", required = false) String type,
+            @RequestParam(name = "from", required = false) String from,
+            @RequestParam(name = "to", required = false) String to
+    ) {
+        log.info("REST request to get user report. type: {}, from: {}, to: {}", type, from, to);
+        return ApiResponse.<com.sang.be_capnong.dto.response.AdminUserReportResponse>builder()
+                .result(userService.getUserReport(type, from, to))
+                .build();
+    }
+
     @GetMapping("/paged")
     @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<PageResponse<UserResponse>> getUsersByRolePaged(

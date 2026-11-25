@@ -372,11 +372,18 @@ public class CampaignProposalService {
         closeInvites(proposals, null);
         String merged = proposals.size() > 1 ? " (gộp " + proposals.size() + " đơn gần nhau)" : "";
         for (CampaignProposal p : proposals) {
+            // So bài đăng admin soạn với đơn shop gửi: giống thì báo duyệt bình thường, khác thì liệt kê thay đổi
+            List<String> changes = diffWithProposal(p, cr);
+            String title = changes.isEmpty() ? "Đề xuất chiến dịch đã được duyệt" : "Đề xuất " + p.getCode() + " được duyệt, có điều chỉnh";
+            String publish = cr.getPublishAt() != null ? " Bài đăng dự kiến lên lúc " + fmtDateTime(cr.getPublishAt()) + "." : "";
+            String body = "Đề xuất " + p.getCode() + " đã được duyệt thành chiến dịch \"" + created.getTitle() + "\"" + merged + "."
+                    + (changes.isEmpty() ? ""
+                    : " CapNong đã điều chỉnh so với đề xuất của bạn: " + String.join("; ", changes) + ". Có thắc mắc hãy nhắn tin cho CapNong.")
+                    + publish
+                    + " Khi CapNong đăng lời kêu gọi, hãy vào đăng ký số kg như mọi shop khác.";
             for (CampaignProposalMember m : memberRepository.findByProposal_ProposalIdOrderByMemberIdAsc(p.getProposalId())) {
                 if (m.getStatus() != ProposalMemberStatus.ACCEPTED) continue;
-                notify(m.getShop(), "Đề xuất chiến dịch đã được duyệt",
-                        "Đề xuất " + p.getCode() + " đã được duyệt thành chiến dịch \"" + created.getTitle() + "\"" + merged
-                                + ". Khi CapNong đăng lời kêu gọi, hãy vào đăng ký số kg như mọi shop khác.");
+                notify(m.getShop(), title, body);
             }
         }
         return created;
@@ -432,8 +439,11 @@ public class CampaignProposalService {
 
     private void apply(CampaignProposal p, CampaignProposalRequest r) {
         if (r == null) throw new AppException(ErrorCode.PROPOSAL_INVALID);
+        Map<String, String> errors = new LinkedHashMap<>();
         if (r.getCategoryId() != null) {
-            p.setCategory(categoryRepository.findById(r.getCategoryId()).orElseThrow(() -> new AppException(ErrorCode.PROPOSAL_INVALID)));
+            Category cat = categoryRepository.findById(r.getCategoryId()).orElse(null);
+            if (cat == null) errors.put("categoryId", "Danh mục này không còn trên hệ thống, hãy chọn lại");
+            p.setCategory(cat);
         } else {
             p.setCategory(null);
         }
@@ -441,35 +451,53 @@ public class CampaignProposalService {
         List<String> photos = r.getPhotoUrls() == null ? List.of()
                 : r.getPhotoUrls().stream().filter(Objects::nonNull).map(String::trim)
                 .filter(s -> !s.isEmpty() && !s.contains(",")).distinct().toList();
-        if (photos.size() > 5) throw new AppException(ErrorCode.PROPOSAL_INVALID);
+        if (photos.size() > 5) errors.put("photoUrls", "Tối đa 5 ảnh");
         p.setPhotoUrls(photos.isEmpty() ? null : String.join(",", photos));
         p.setStory(trim(r.getStory(), 3000));
         p.setHarvestFrom(r.getHarvestFrom());
         p.setHarvestTo(r.getHarvestTo());
+        p.setProposedOpenDate(r.getProposedOpenDate());
+        p.setProposedCloseDate(r.getProposedCloseDate());
         p.setShelfLifeTier(r.getShelfLifeTier());
         p.setDesiredPricePerKg(positiveOrNull(r.getDesiredPricePerKg()));
         p.setMarketPricePerKg(positiveOrNull(r.getMarketPricePerKg()));
         p.setSiteName(trim(r.getSiteName(), 200));
         p.setSiteAddress(trim(r.getSiteAddress(), 500));
         Double lat = r.getSiteLatitude(), lng = r.getSiteLongitude();
-        if (lat != null && lng != null && (Math.abs(lat) > 90 || Math.abs(lng) > 180)) throw new AppException(ErrorCode.PROPOSAL_INVALID);
+        if (lat != null && lng != null && (Math.abs(lat) > 90 || Math.abs(lng) > 180)) errors.put("site", "Vị trí ghim trên bản đồ không hợp lệ");
         p.setSiteLatitude(lat);
         p.setSiteLongitude(lng);
+        throwFieldErrors(errors);
+    }
+
+    /** Lỗi theo từng ô: message = lỗi đầu tiên, result = {tên ô: lỗi} để FE hiện ngay dưới ô đó */
+    private static void throwFieldErrors(Map<String, String> errors) {
+        if (errors.isEmpty()) return;
+        throw new AppException(ErrorCode.PROPOSAL_INVALID, errors.values().iterator().next(), Map.of("fieldErrors", errors));
     }
 
     private void validateForSubmit(CampaignProposal p) {
-        if (p.getSiteName() == null || p.getSiteAddress() == null || p.getSiteLatitude() == null || p.getSiteLongitude() == null) {
-            throw new AppException(ErrorCode.PROPOSAL_SITE_REQUIRED);
-        }
-        if (p.getCategory() == null || p.getProductName() == null || p.getPhotoUrls() == null
-                || p.getShelfLifeTier() == null || p.getDesiredPricePerKg() == null || p.getStory() == null
-                || p.getHarvestFrom() == null || p.getHarvestTo() == null) {
-            throw new AppException(ErrorCode.PROPOSAL_INVALID);
-        }
-        if (p.getHarvestFrom().isBefore(LocalDate.now().plusDays(MIN_HARVEST_LEAD_DAYS))) {
-            throw new AppException(ErrorCode.PROPOSAL_HARVEST_TOO_SOON);
-        }
-        if (p.getHarvestTo().isBefore(p.getHarvestFrom())) throw new AppException(ErrorCode.PROPOSAL_INVALID);
+        Map<String, String> e = new LinkedHashMap<>();
+        if (p.getCategory() == null) e.put("categoryId", "Chọn danh mục");
+        if (p.getProductName() == null) e.put("productName", "Nhập tên nông sản");
+        if (p.getStory() == null) e.put("story", "Kể ngắn vì sao cần giải cứu");
+        if (p.getPhotoUrls() == null) e.put("photoUrls", "Thêm ít nhất 1 ảnh");
+        if (p.getShelfLifeTier() == null) e.put("shelfLifeTier", "Chọn độ bền sau khi kết thúc chiến dịch");
+        if (p.getDesiredPricePerKg() == null) e.put("desiredPricePerKg", "Nhập giá mong muốn");
+        LocalDate today = LocalDate.now();
+        if (p.getHarvestFrom() == null) e.put("harvestFrom", "Chọn ngày bắt đầu thu hoạch");
+        else if (p.getHarvestFrom().isBefore(today.plusDays(MIN_HARVEST_LEAD_DAYS))) e.put("harvestFrom", ErrorCode.PROPOSAL_HARVEST_TOO_SOON.getMessage());
+        if (p.getHarvestTo() == null) e.put("harvestTo", "Chọn ngày thu hoạch xong");
+        else if (p.getHarvestFrom() != null && p.getHarvestTo().isBefore(p.getHarvestFrom())) e.put("harvestTo", "Không được trước ngày bắt đầu thu hoạch");
+        if (p.getProposedOpenDate() == null) e.put("proposedOpenDate", "Chọn ngày mở chiến dịch");
+        else if (!p.getProposedOpenDate().isAfter(today)) e.put("proposedOpenDate", "Ngày mở phải từ ngày mai trở đi");
+        else if (p.getHarvestTo() != null && !p.getProposedOpenDate().isAfter(p.getHarvestTo())) e.put("proposedOpenDate", "Phải sau ngày thu hoạch xong (" + fmtDate(p.getHarvestTo()) + ")");
+        if (p.getProposedCloseDate() == null) e.put("proposedCloseDate", "Chọn ngày kết thúc chiến dịch");
+        else if (p.getProposedOpenDate() != null && !p.getProposedCloseDate().isAfter(p.getProposedOpenDate())) e.put("proposedCloseDate", "Phải sau ngày mở chiến dịch");
+        else if (p.getHarvestTo() != null && p.getHarvestTo().isAfter(p.getProposedCloseDate())) e.put("proposedCloseDate", "Không được trước ngày thu hoạch xong (hàng thu hoạch không sau ngày kết thúc)");
+        if (p.getSiteName() == null) e.put("siteName", "Nhập tên điểm tập kết");
+        if (p.getSiteAddress() == null || p.getSiteLatitude() == null || p.getSiteLongitude() == null) e.put("site", "Chọn địa chỉ và ghim điểm tập kết trên bản đồ");
+        throwFieldErrors(e);
     }
 
     /** 3 lần bị từ chối trong 30 ngày -> tạm khoá tạo đơn mới 7 ngày kể từ lần từ chối gần nhất */
@@ -564,6 +592,8 @@ public class CampaignProposalService {
                 .story(p.getStory())
                 .harvestFrom(p.getHarvestFrom())
                 .harvestTo(p.getHarvestTo())
+                .proposedOpenDate(p.getProposedOpenDate())
+                .proposedCloseDate(p.getProposedCloseDate())
                 .shelfLifeTier(p.getShelfLifeTier() == null ? null : p.getShelfLifeTier().name())
                 .desiredPricePerKg(p.getDesiredPricePerKg())
                 .marketPricePerKg(p.getMarketPricePerKg())
@@ -673,6 +703,45 @@ public class CampaignProposalService {
 
     private static String plain(BigDecimal v) {
         return v == null ? "0" : v.stripTrailingZeros().toPlainString();
+    }
+
+    /** Các điểm bài đăng khác đơn đề xuất (giá, ngày mở/kết thúc, điểm tập kết) */
+    private List<String> diffWithProposal(CampaignProposal p, CampaignUpsertRequest cr) {
+        List<String> out = new ArrayList<>();
+        if (p.getDesiredPricePerKg() != null && cr.getRescuePricePerKg() != null
+                && p.getDesiredPricePerKg().compareTo(cr.getRescuePricePerKg()) != 0) {
+            out.add("giá " + fmtVnd(p.getDesiredPricePerKg()) + " → " + fmtVnd(cr.getRescuePricePerKg()) + "/kg");
+        }
+        if (p.getProposedOpenDate() != null && cr.getStartDate() != null && !p.getProposedOpenDate().equals(cr.getStartDate())) {
+            out.add("ngày bắt đầu " + fmtDate(p.getProposedOpenDate()) + " → " + fmtDate(cr.getStartDate()));
+        }
+        if (p.getProposedCloseDate() != null && cr.getEndDate() != null && !p.getProposedCloseDate().equals(cr.getEndDate())) {
+            out.add("ngày kết thúc " + fmtDate(p.getProposedCloseDate()) + " → " + fmtDate(cr.getEndDate()));
+        }
+        if (!sameText(p.getSiteName(), cr.getCollectionSiteName())) {
+            out.add("điểm tập kết \"" + Objects.toString(p.getSiteName(), "") + "\" → \"" + Objects.toString(cr.getCollectionSiteName(), "") + "\"");
+        } else if (!sameText(p.getSiteAddress(), cr.getCollectionSiteAddress())) {
+            out.add("địa chỉ điểm tập kết → " + Objects.toString(cr.getCollectionSiteAddress(), ""));
+        }
+        return out;
+    }
+
+    private static boolean sameText(String a, String b) {
+        String x = a == null ? "" : a.trim().replaceAll("\\s+", " ");
+        String y = b == null ? "" : b.trim().replaceAll("\\s+", " ");
+        return x.equalsIgnoreCase(y);
+    }
+
+    private static String fmtVnd(BigDecimal v) {
+        return String.format("%,.0f", v).replace(',', '.') + "đ";
+    }
+
+    private static String fmtDate(LocalDate d) {
+        return d.format(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy"));
+    }
+
+    private static String fmtDateTime(LocalDateTime d) {
+        return d.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm dd/MM/yyyy"));
     }
 
     private void notify(User user, String title, String message) {

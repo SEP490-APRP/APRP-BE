@@ -72,6 +72,30 @@ public class Campaign {
     @Column(name = "cutoff_at", nullable = false)
     LocalDateTime cutoffAt;
 
+    /** Ngày bắt đầu chiến dịch, sau hạn chốt đơn đặt trước (cutoffAt) khi đã đủ người đặt */
+    @Column(name = "start_date")
+    LocalDate startDate;
+
+    /** Ngày giờ đăng bài kêu gọi nhà vườn góp hàng (tới giờ tự gửi lời kêu gọi) */
+    @Column(name = "publish_at")
+    LocalDateTime publishAt;
+
+    /** Hạn chốt góp hàng của nhà vườn: sau ngày đăng bài, trước hạn chốt đơn đặt trước */
+    @Column(name = "farm_cutoff_at")
+    LocalDateTime farmCutoffAt;
+
+    /** Đã kiểm tra số kg nhà vườn góp lúc chốt góp hàng (đủ ngưỡng thì giữ, thiếu thì đã tự huỷ) */
+    @Column(name = "farm_cutoff_checked_at")
+    LocalDateTime farmCutoffCheckedAt;
+
+    /** Lần tự đăng theo publishAt thất bại (vd chưa có nhà vườn được duyệt); admin sửa chiến dịch thì xoá để thử lại */
+    @Column(name = "auto_publish_failed_at")
+    LocalDateTime autoPublishFailedAt;
+
+    /** Ngày kết thúc chiến dịch, không trước ngày bắt đầu */
+    @Column(name = "end_date")
+    LocalDate endDate;
+
     /** Ngày dự kiến gom hàng tại điểm tập kết / giao */
     LocalDate deliveryDate;
 

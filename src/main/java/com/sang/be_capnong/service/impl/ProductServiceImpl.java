@@ -1,5 +1,6 @@
 package com.sang.be_capnong.service.impl;
 
+import java.math.BigDecimal;
 import com.sang.be_capnong.dto.request.ProductCreationRequest;
 import com.sang.be_capnong.dto.request.ProductUpdateRequest;
 import com.sang.be_capnong.dto.response.PageResponse;
@@ -83,6 +84,7 @@ public class ProductServiceImpl implements ProductService {
 
         Category category = categoryRepository.findById(request.getCategoryId())
                 .orElseThrow(() -> new AppException(ErrorCode.CATEGORY_NOT_FOUND));
+        validateFreshProductCategory(category);
 
         if (request.getExpiryDate().isBefore(LocalDate.now())) {
             throw new AppException(ErrorCode.PRODUCT_EXPIRY_INVALID);
@@ -91,6 +93,7 @@ public class ProductServiceImpl implements ProductService {
         Product product = productMapper.toProduct(request);
         product.setShop(shop);
         product.setCategory(category);
+        product.setUnit("kg");
         product.setStatus("PENDING");
         product.setUpdatedAt(LocalDateTime.now());
 
@@ -128,24 +131,34 @@ public class ProductServiceImpl implements ProductService {
             String keyword,
             String status,
             Integer shopId,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            String origin,
+            Boolean isVietgap,
             int page,
             int size,
             String sortBy,
             String sortDirection
     ) {
-        log.info("Fetching products list - category: {}, keyword: {}, status: {}, shopId: {}, page: {}, size: {}",
-                categoryId, keyword, status, shopId, page, size);
+        log.info("Fetching products list - category: {}, keyword: {}, status: {}, shopId: {}, minPrice: {}, maxPrice: {}, origin: {}, isVietgap: {}, page: {}, size: {}",
+                categoryId, keyword, status, shopId, minPrice, maxPrice, origin, isVietgap, page, size);
 
-        String effectiveSortBy = (sortBy != null && !sortBy.isBlank()) ? sortBy : "productId";
+        String effectiveSortBy = (sortBy != null && !sortBy.isBlank()) ? sortBy.trim() : "productId";
         Sort.Direction direction = "asc".equalsIgnoreCase(sortDirection) ? Sort.Direction.ASC : Sort.Direction.DESC;
 
         int pageIndex = Math.max(0, page - 1);
         int pageSize = Math.min(Math.max(1, size), 100);
-        // Sắp xếp tự nhiên: Ưu tiên theo điểm đánh giá của shop (shop.ratingAverage DESC).
-        // Shop bị phạt trừ 1 sao do 3 active risk flags sẽ tự động giảm thứ hạng ưu tiên hiển thị.
+
         Sort sort;
-        if (sortBy == null || sortBy.isBlank() || "productId".equalsIgnoreCase(sortBy)) {
-            sort = Sort.by(Sort.Direction.DESC, "shop.ratingAverage").and(Sort.by(direction, effectiveSortBy));
+        String normalizedSort = effectiveSortBy.toLowerCase();
+        if ("price-asc".equals(normalizedSort) || "price_asc".equals(normalizedSort)) {
+            sort = Sort.by(Sort.Direction.ASC, "sellingPrice");
+        } else if ("price-desc".equals(normalizedSort) || "price_desc".equals(normalizedSort)) {
+            sort = Sort.by(Sort.Direction.DESC, "sellingPrice");
+        } else if ("harvested".equals(normalizedSort) || "newest".equals(normalizedSort)) {
+            sort = Sort.by(Sort.Direction.DESC, "updatedAt").and(Sort.by(Sort.Direction.DESC, "productId"));
+        } else if ("featured".equals(normalizedSort) || "popular".equals(normalizedSort) || "productid".equals(normalizedSort)) {
+            sort = Sort.by(Sort.Direction.DESC, "shop.ratingAverage").and(Sort.by(direction, "productId"));
         } else {
             sort = Sort.by(direction, effectiveSortBy);
         }
@@ -163,7 +176,9 @@ public class ProductServiceImpl implements ProductService {
             }
         }
 
-        Specification<Product> spec = ProductSpecification.filterProducts(effectiveStatus, categoryId, keyword, shopId);
+        Specification<Product> spec = ProductSpecification.filterProducts(
+                effectiveStatus, categoryId, keyword, shopId, minPrice, maxPrice, origin, isVietgap
+        );
         Page<Product> productPage = productRepository.findAll(spec, pageable);
 
         List<ProductResponse> content = productPage.getContent().stream()
@@ -234,6 +249,7 @@ public class ProductServiceImpl implements ProductService {
 
         Category category = categoryRepository.findById(request.getCategoryId())
                 .orElseThrow(() -> new AppException(ErrorCode.CATEGORY_NOT_FOUND));
+        validateFreshProductCategory(category);
 
         if (request.getExpiryDate().isBefore(LocalDate.now())) {
             throw new AppException(ErrorCode.PRODUCT_EXPIRY_INVALID);
@@ -251,6 +267,7 @@ public class ProductServiceImpl implements ProductService {
 
         productMapper.updateProduct(product, request);
         product.setCategory(category);
+        product.setUnit("kg");
 
         // Status transition lifecycle
         if ("REJECTED".equalsIgnoreCase(currentStatus)) {
@@ -422,6 +439,16 @@ public class ProductServiceImpl implements ProductService {
                 log.info("Cascaded deactivation (status=INACTIVE) to Build Combo id: {} due to non-active product id: {}",
                         combo.getComboId(), productId);
             }
+        }
+    }
+
+    private void validateFreshProductCategory(Category category) {
+        if (category == null || category.getName() == null) {
+            return;
+        }
+        String lower = category.getName().toLowerCase(java.util.Locale.ROOT);
+        if (lower.contains("combo") || lower.contains("túi mù") || lower.contains("tui mu")) {
+            throw new AppException(ErrorCode.INVALID_PRODUCT_CATEGORY);
         }
     }
 }

@@ -10,10 +10,13 @@ import com.sang.be_capnong.service.UserService;
 import com.sang.be_capnong.dto.request.CheckoutPreviewRequest;
 import com.sang.be_capnong.dto.request.CreateOrderRequest;
 import com.sang.be_capnong.dto.request.OrderItemRequest;
+import com.sang.be_capnong.dto.response.AdminOrderReportItemResponse;
+import com.sang.be_capnong.dto.response.AdminOrderReportResponse;
 import com.sang.be_capnong.dto.response.CheckoutPreviewResponse;
 import com.sang.be_capnong.dto.response.CheckoutPreviewResponse.ShopOrderPreview;
 import com.sang.be_capnong.dto.response.OrderDetailResponse;
 import com.sang.be_capnong.dto.response.OrderResponse;
+import com.sang.be_capnong.dto.response.ShopRevenueReportResponse;
 import com.sang.be_capnong.entity.*;
 import com.sang.be_capnong.enums.OrderStatus;
 import com.sang.be_capnong.enums.ReturnStatus;
@@ -21,10 +24,7 @@ import com.sang.be_capnong.exception.AppException;
 import com.sang.be_capnong.exception.ErrorCode;
 import com.sang.be_capnong.mapper.OrderMapper;
 import com.sang.be_capnong.repository.*;
-import com.sang.be_capnong.service.GoogleMapService;
-import com.sang.be_capnong.service.NotificationService;
-import com.sang.be_capnong.service.OrderService;
-import com.sang.be_capnong.service.ShippingFeeService;
+import com.sang.be_capnong.service.*;
 import com.sang.be_capnong.enums.UserStatus;
 import com.sang.be_capnong.enums.VoucherScope;
 import com.sang.be_capnong.enums.VoucherTarget;
@@ -50,7 +50,12 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 
 import java.math.BigDecimal;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -89,6 +94,10 @@ public class OrderServiceImpl implements OrderService {
     ReferralService referralService;
     UserService userService;
     NotificationService notificationService;
+
+    @org.springframework.beans.factory.annotation.Value("${capnong.order.geofence-radius-meters:500}")
+    @lombok.experimental.NonFinal
+    double geofenceRadiusMeters = 500;
 
     /** Bán kính tối đa (km) để shipper thấy đơn READY trong danh sách */
     static final double READY_LIST_MAX_KM = 15.0;
@@ -724,6 +733,15 @@ public class OrderServiceImpl implements OrderService {
         BigDecimal effectiveTotalDiscount = totalGoodsAmount.add(totalShippingFee).subtract(finalTotalAmount).setScale(0, java.math.RoundingMode.HALF_UP);
         if (effectiveTotalDiscount.compareTo(BigDecimal.ZERO) < 0) effectiveTotalDiscount = BigDecimal.ZERO;
 
+        java.util.Map<String, BigDecimal> totalVoucherDiscountsDetail = new java.util.HashMap<>();
+        for (ShopOrderPreview sp : shopOrderPreviews) {
+            if (sp.getVoucherDiscountsDetail() != null) {
+                for (java.util.Map.Entry<String, BigDecimal> entry : sp.getVoucherDiscountsDetail().entrySet()) {
+                    totalVoucherDiscountsDetail.merge(entry.getKey(), entry.getValue(), BigDecimal::add);
+                }
+            }
+        }
+
         boolean isCodAllowed = buyer == null || !userService.isCodBlocked(buyer.getId());
         String codRestrictionReason = isCodAllowed ? null : "Tài khoản của bạn đã bị tước quyền thanh toán COD do có từ 3 lần giao hàng thất bại (bom hàng).";
 
@@ -733,6 +751,7 @@ public class OrderServiceImpl implements OrderService {
                 .totalShippingFee(totalShippingFee)
                 .totalVoucherDiscount(effectiveTotalDiscount)
                 .finalTotalAmount(finalTotalAmount)
+                .voucherDiscountsDetail(totalVoucherDiscountsDetail)
                 .codAllowed(isCodAllowed)
                 .codRestrictionReason(codRestrictionReason)
                 .build();
@@ -819,15 +838,15 @@ public class OrderServiceImpl implements OrderService {
             }
         }
 
-        // Theo dõi số tiền đã giảm theo từng hạng mục cho từng ShopOrderPreview
-        Map<ShopOrderPreview, BigDecimal> shopGoodsDiscountMap = new HashMap<>();
-        Map<ShopOrderPreview, BigDecimal> platformGoodsDiscountMap = new HashMap<>();
-        Map<ShopOrderPreview, BigDecimal> platformShippingDiscountMap = new HashMap<>();
+        // Theo dõi số tiền đã giảm theo từng hạng mục theo shopId (dùng Integer shopId làm key để tránh lỗi HashCode do mutation)
+        Map<Integer, BigDecimal> shopGoodsDiscountMap = new HashMap<>();
+        Map<Integer, BigDecimal> platformGoodsDiscountMap = new HashMap<>();
+        Map<Integer, BigDecimal> platformShippingDiscountMap = new HashMap<>();
 
         for (ShopOrderPreview sp : shopPreviews) {
-            shopGoodsDiscountMap.put(sp, BigDecimal.ZERO);
-            platformGoodsDiscountMap.put(sp, BigDecimal.ZERO);
-            platformShippingDiscountMap.put(sp, BigDecimal.ZERO);
+            shopGoodsDiscountMap.put(sp.getShopId(), BigDecimal.ZERO);
+            platformGoodsDiscountMap.put(sp.getShopId(), BigDecimal.ZERO);
+            platformShippingDiscountMap.put(sp.getShopId(), BigDecimal.ZERO);
         }
 
         // ============================================================
@@ -853,12 +872,12 @@ public class OrderServiceImpl implements OrderService {
             if (discount.compareTo(BigDecimal.ZERO) <= 0) continue;
 
             // Giới hạn giảm giá không vượt quá tiền hàng còn lại của shop đó
-            BigDecimal currentGoodsDiscount = shopGoodsDiscountMap.get(targetShopPreview);
+            BigDecimal currentGoodsDiscount = shopGoodsDiscountMap.getOrDefault(targetShopPreview.getShopId(), BigDecimal.ZERO);
             BigDecimal remainingGoods = targetShopPreview.getGoodsAmount().subtract(currentGoodsDiscount).max(BigDecimal.ZERO);
             discount = discount.min(remainingGoods).setScale(0, java.math.RoundingMode.HALF_UP);
             if (discount.compareTo(BigDecimal.ZERO) <= 0) continue;
 
-            shopGoodsDiscountMap.put(targetShopPreview, currentGoodsDiscount.add(discount));
+            shopGoodsDiscountMap.put(targetShopPreview.getShopId(), currentGoodsDiscount.add(discount));
             targetShopPreview.setVoucherDiscount(targetShopPreview.getVoucherDiscount().add(discount));
             targetShopPreview.getVoucherDiscountsDetail().merge(voucher.getVoucherCode().toUpperCase(), discount, BigDecimal::add);
             totalDiscount = totalDiscount.add(discount);
@@ -876,14 +895,14 @@ public class OrderServiceImpl implements OrderService {
             if (discount.compareTo(BigDecimal.ZERO) <= 0) continue;
 
             // Tính tiền hàng còn lại cho từng shop sau voucher shop và các voucher sàn trước đó
-            Map<ShopOrderPreview, BigDecimal> availableNetGoodsMap = new HashMap<>();
+            Map<Integer, BigDecimal> availableNetGoodsMap = new HashMap<>();
             BigDecimal totalNetGoods = BigDecimal.ZERO;
             for (ShopOrderPreview sp : shopPreviews) {
                 BigDecimal net = sp.getGoodsAmount()
-                        .subtract(shopGoodsDiscountMap.get(sp))
-                        .subtract(platformGoodsDiscountMap.get(sp))
+                        .subtract(shopGoodsDiscountMap.getOrDefault(sp.getShopId(), BigDecimal.ZERO))
+                        .subtract(platformGoodsDiscountMap.getOrDefault(sp.getShopId(), BigDecimal.ZERO))
                         .max(BigDecimal.ZERO);
-                availableNetGoodsMap.put(sp, net);
+                availableNetGoodsMap.put(sp.getShopId(), net);
                 totalNetGoods = totalNetGoods.add(net);
             }
 
@@ -893,38 +912,38 @@ public class OrderServiceImpl implements OrderService {
 
             // Phân bổ tỷ lệ theo netGoods
             BigDecimal allocatedSum = BigDecimal.ZERO;
-            Map<ShopOrderPreview, BigDecimal> shares = new HashMap<>();
+            Map<Integer, BigDecimal> shares = new HashMap<>();
             ShopOrderPreview maxShop = null;
             BigDecimal maxNet = BigDecimal.valueOf(-1);
 
             for (ShopOrderPreview sp : shopPreviews) {
-                BigDecimal net = availableNetGoodsMap.get(sp);
+                BigDecimal net = availableNetGoodsMap.getOrDefault(sp.getShopId(), BigDecimal.ZERO);
                 if (net.compareTo(maxNet) > 0) {
                     maxNet = net;
                     maxShop = sp;
                 }
                 if (net.compareTo(BigDecimal.ZERO) <= 0) {
-                    shares.put(sp, BigDecimal.ZERO);
+                    shares.put(sp.getShopId(), BigDecimal.ZERO);
                     continue;
                 }
                 BigDecimal ratio = net.divide(totalNetGoods, 6, java.math.RoundingMode.HALF_UP);
                 BigDecimal share = discount.multiply(ratio).setScale(0, java.math.RoundingMode.HALF_UP).min(net);
-                shares.put(sp, share);
+                shares.put(sp.getShopId(), share);
                 allocatedSum = allocatedSum.add(share);
             }
 
             // Xử lý chênh lệch làm tròn VNĐ (cộng/trừ vào shop có netGoods lớn nhất)
             BigDecimal diff = discount.subtract(allocatedSum);
             if (diff.compareTo(BigDecimal.ZERO) != 0 && maxShop != null) {
-                BigDecimal currentShare = shares.get(maxShop);
-                BigDecimal adjusted = currentShare.add(diff).min(availableNetGoodsMap.get(maxShop)).max(BigDecimal.ZERO);
-                shares.put(maxShop, adjusted);
+                BigDecimal currentShare = shares.getOrDefault(maxShop.getShopId(), BigDecimal.ZERO);
+                BigDecimal adjusted = currentShare.add(diff).min(availableNetGoodsMap.getOrDefault(maxShop.getShopId(), BigDecimal.ZERO)).max(BigDecimal.ZERO);
+                shares.put(maxShop.getShopId(), adjusted);
             }
 
             for (ShopOrderPreview sp : shopPreviews) {
-                BigDecimal share = shares.getOrDefault(sp, BigDecimal.ZERO);
+                BigDecimal share = shares.getOrDefault(sp.getShopId(), BigDecimal.ZERO);
                 if (share.compareTo(BigDecimal.ZERO) > 0) {
-                    platformGoodsDiscountMap.put(sp, platformGoodsDiscountMap.get(sp).add(share));
+                    platformGoodsDiscountMap.put(sp.getShopId(), platformGoodsDiscountMap.getOrDefault(sp.getShopId(), BigDecimal.ZERO).add(share));
                     sp.setVoucherDiscount(sp.getVoucherDiscount().add(share));
                     sp.getVoucherDiscountsDetail().merge(voucher.getVoucherCode().toUpperCase(), share, BigDecimal::add);
                 }
@@ -943,11 +962,11 @@ public class OrderServiceImpl implements OrderService {
             BigDecimal discount = calculateVoucherDiscount(voucher, VoucherTarget.SHIPPING, totalGoodsAmount, totalShippingFee);
             if (discount.compareTo(BigDecimal.ZERO) <= 0) continue;
 
-            Map<ShopOrderPreview, BigDecimal> availableShippingMap = new HashMap<>();
+            Map<Integer, BigDecimal> availableShippingMap = new HashMap<>();
             BigDecimal totalNetShipping = BigDecimal.ZERO;
             for (ShopOrderPreview sp : shopPreviews) {
-                BigDecimal netShip = sp.getShippingFee().subtract(platformShippingDiscountMap.get(sp)).max(BigDecimal.ZERO);
-                availableShippingMap.put(sp, netShip);
+                BigDecimal netShip = sp.getShippingFee().subtract(platformShippingDiscountMap.getOrDefault(sp.getShopId(), BigDecimal.ZERO)).max(BigDecimal.ZERO);
+                availableShippingMap.put(sp.getShopId(), netShip);
                 totalNetShipping = totalNetShipping.add(netShip);
             }
 
@@ -956,38 +975,38 @@ public class OrderServiceImpl implements OrderService {
             if (discount.compareTo(BigDecimal.ZERO) <= 0) continue;
 
             BigDecimal allocatedSum = BigDecimal.ZERO;
-            Map<ShopOrderPreview, BigDecimal> shares = new HashMap<>();
+            Map<Integer, BigDecimal> shares = new HashMap<>();
             ShopOrderPreview maxShop = null;
             BigDecimal maxShip = BigDecimal.valueOf(-1);
 
             for (ShopOrderPreview sp : shopPreviews) {
-                BigDecimal netShip = availableShippingMap.get(sp);
+                BigDecimal netShip = availableShippingMap.getOrDefault(sp.getShopId(), BigDecimal.ZERO);
                 if (netShip.compareTo(maxShip) > 0) {
                     maxShip = netShip;
                     maxShop = sp;
                 }
                 if (netShip.compareTo(BigDecimal.ZERO) <= 0) {
-                    shares.put(sp, BigDecimal.ZERO);
+                    shares.put(sp.getShopId(), BigDecimal.ZERO);
                     continue;
                 }
                 BigDecimal ratio = netShip.divide(totalNetShipping, 6, java.math.RoundingMode.HALF_UP);
                 BigDecimal share = discount.multiply(ratio).setScale(0, java.math.RoundingMode.HALF_UP).min(netShip);
-                shares.put(sp, share);
+                shares.put(sp.getShopId(), share);
                 allocatedSum = allocatedSum.add(share);
             }
 
             // Xử lý chênh lệch làm tròn VNĐ
             BigDecimal diff = discount.subtract(allocatedSum);
             if (diff.compareTo(BigDecimal.ZERO) != 0 && maxShop != null) {
-                BigDecimal currentShare = shares.get(maxShop);
-                BigDecimal adjusted = currentShare.add(diff).min(availableShippingMap.get(maxShop)).max(BigDecimal.ZERO);
-                shares.put(maxShop, adjusted);
+                BigDecimal currentShare = shares.getOrDefault(maxShop.getShopId(), BigDecimal.ZERO);
+                BigDecimal adjusted = currentShare.add(diff).min(availableShippingMap.getOrDefault(maxShop.getShopId(), BigDecimal.ZERO)).max(BigDecimal.ZERO);
+                shares.put(maxShop.getShopId(), adjusted);
             }
 
             for (ShopOrderPreview sp : shopPreviews) {
-                BigDecimal share = shares.getOrDefault(sp, BigDecimal.ZERO);
+                BigDecimal share = shares.getOrDefault(sp.getShopId(), BigDecimal.ZERO);
                 if (share.compareTo(BigDecimal.ZERO) > 0) {
-                    platformShippingDiscountMap.put(sp, platformShippingDiscountMap.get(sp).add(share));
+                    platformShippingDiscountMap.put(sp.getShopId(), platformShippingDiscountMap.getOrDefault(sp.getShopId(), BigDecimal.ZERO).add(share));
                     sp.setVoucherDiscount(sp.getVoucherDiscount().add(share));
                     sp.getVoucherDiscountsDetail().merge(voucher.getVoucherCode().toUpperCase(), share, BigDecimal::add);
                 }
@@ -1204,6 +1223,56 @@ public class OrderServiceImpl implements OrderService {
         if (proofs.isEmpty()) {
             throw new AppException(ErrorCode.DELIVERY_PROOF_REQUIRED);
         }
+
+        // === KIỂM TRA BÁN KÍNH GEOFENCE GPS (Scenario DS-04b) ===
+        // 1. Toạ độ điểm giao hàng (đích)
+        Double destLat = order.getShippingLatitude();
+        Double destLng = order.getShippingLongitude();
+        if ((destLat == null || destLng == null) && order.getShippingAddress() != null && !order.getShippingAddress().isBlank()) {
+            try {
+                double[] coords = googleMapService.geocodeAddress(order.getShippingAddress());
+                if (coords != null && coords.length == 2) {
+                    destLat = coords[0];
+                    destLng = coords[1];
+                    order.setShippingLatitude(destLat);
+                    order.setShippingLongitude(destLng);
+                }
+            } catch (Exception e) {
+                log.warn("[Geofence] Cannot geocode shipping address '{}': {}", order.getShippingAddress(), e.getMessage());
+            }
+        }
+
+        // 2. Toạ độ thực tế của Shipper (ưu tiên toạ độ gửi kèm request, fallback toạ độ GPS gần nhất từ heartbeat/tracker)
+        Double shipperLat = request != null ? request.getLatitude() : null;
+        Double shipperLng = request != null ? request.getLongitude() : null;
+        if (shipperLat == null || shipperLng == null) {
+            double[] lastPos = shipperService.getLastPosition(currentUser.getId());
+            if (lastPos != null && lastPos.length == 2) {
+                shipperLat = lastPos[0];
+                shipperLng = lastPos[1];
+            }
+        }
+
+        // 3. Nếu cấu hình geofenceRadiusMeters > 0 và có toạ độ đích
+        if (destLat != null && destLng != null && geofenceRadiusMeters > 0) {
+            if (shipperLat == null || shipperLng == null) {
+                log.warn("[Geofence] Delivery blocked for order #{}: Shipper #{} location unknown", orderId, currentUser.getId());
+                throw new AppException(ErrorCode.DELIVERY_LOCATION_REQUIRED);
+            }
+            double distanceMeters = com.sang.be_capnong.util.GeoUtils.haversineMeters(shipperLat, shipperLng, destLat, destLng);
+            if (distanceMeters > geofenceRadiusMeters) {
+                log.warn("[Geofence] Delivery blocked for order #{}: Shipper #{} is {}m away from destination (allowed: {}m)",
+                        orderId, currentUser.getId(), Math.round(distanceMeters), Math.round(geofenceRadiusMeters));
+                throw new AppException(ErrorCode.DELIVERY_GEOFENCE_EXCEEDED,
+                        ErrorCode.DELIVERY_GEOFENCE_EXCEEDED.getMessage(),
+                        Map.of(
+                                "currentDistanceMeters", Math.round(distanceMeters),
+                                "allowedRadiusMeters", Math.round(geofenceRadiusMeters),
+                                "destinationAddress", order.getShippingAddress() != null ? order.getShippingAddress() : ""
+                        ));
+            }
+        }
+
         order.setDeliveryProofUrls(String.join("\n", proofs));
         order.setStatus(OrderStatus.DELIVERED);
         order.setDeliveredAt(LocalDateTime.now());
@@ -1949,5 +2018,215 @@ public class OrderServiceImpl implements OrderService {
         }
 
         return totalOrderWeight.setScale(2, java.math.RoundingMode.HALF_UP);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<OrderResponse> getAllOrdersAdmin() {
+        return orderRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt"))
+                .stream()
+                .map(o -> buildOrderResponse(o, o.getOrderDetails() != null ? o.getOrderDetails() : Collections.emptyList()))
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<OrderResponse> getAllOrdersAdminPaged(int page, int size, List<OrderStatus> statuses) {
+        Pageable pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Page<Order> orders;
+        if (statuses != null && !statuses.isEmpty()) {
+            orders = orderRepository.findByStatusIn(statuses, pageable);
+        } else {
+            orders = orderRepository.findAll(pageable);
+        }
+        return orders.map(o -> buildOrderResponse(o, o.getOrderDetails() != null ? o.getOrderDetails() : Collections.emptyList()));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public AdminOrderReportResponse getAdminOrderReport(String type, String from, String to) {
+        long totalOrders = orderRepository.count();
+        long completedOrders = orderRepository.countByStatus(OrderStatus.COMPLETED);
+        long cancelledOrders = orderRepository.countByStatus(OrderStatus.CANCELLED) + orderRepository.countByStatus(OrderStatus.FAILED);
+        long refundedOrders = orderRepository.countByStatus(OrderStatus.REFUNDED) + orderRepository.countByStatus(OrderStatus.REFUND_REQUESTED);
+        long deliveringOrders = orderRepository.countByStatus(OrderStatus.SHIPPING) + orderRepository.countByStatus(OrderStatus.PICKED_UP);
+        long pendingOrders = orderRepository.countByStatus(OrderStatus.PENDING) + orderRepository.countByStatus(OrderStatus.CONFIRMED) + orderRepository.countByStatus(OrderStatus.READY);
+
+        List<Order> allOrders = orderRepository.findAll();
+        BigDecimal totalRevenue = BigDecimal.ZERO;
+        for (Order o : allOrders) {
+            if (o.getStatus() == OrderStatus.COMPLETED || o.getStatus() == OrderStatus.DELIVERED) {
+                if (o.getTotalAmount() != null) {
+                    totalRevenue = totalRevenue.add(o.getTotalAmount());
+                }
+            }
+        }
+
+        List<AdminOrderReportItemResponse> chartData = buildOrderReportChartData(allOrders, type, from, to);
+
+        return AdminOrderReportResponse.builder()
+                .totalOrders(totalOrders)
+                .totalRevenue(totalRevenue)
+                .completedOrders(completedOrders)
+                .deliveringOrders(deliveringOrders)
+                .pendingOrders(pendingOrders)
+                .cancelledOrders(cancelledOrders)
+                .refundedOrders(refundedOrders)
+                .chartData(chartData)
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ShopRevenueReportResponse getShopRevenueReport(String type, String from, String to) {
+        User shop = getCurrentUser();
+        List<Order> shopOrders = orderRepository.findByShop_Id(shop.getId());
+
+        long totalOrders = shopOrders.size();
+        long completedOrders = 0;
+        BigDecimal totalRevenue = BigDecimal.ZERO;
+        BigDecimal totalRescuedWeight = BigDecimal.ZERO;
+
+        for (Order o : shopOrders) {
+            if (o.getStatus() == OrderStatus.COMPLETED || o.getStatus() == OrderStatus.DELIVERED) {
+                completedOrders++;
+                if (o.getTotalAmount() != null) {
+                    totalRevenue = totalRevenue.add(o.getTotalAmount());
+                }
+                if (o.getRescuedWeight() != null) {
+                    totalRescuedWeight = totalRescuedWeight.add(o.getRescuedWeight());
+                }
+            }
+        }
+
+        double successRate = totalOrders > 0 ? (double) completedOrders / totalOrders * 100.0 : 0.0;
+        successRate = Math.round(successRate * 10.0) / 10.0;
+
+        List<AdminOrderReportItemResponse> chartData = buildOrderReportChartData(shopOrders, type, from, to);
+
+        return ShopRevenueReportResponse.builder()
+                .totalRevenue(totalRevenue)
+                .completedOrders(completedOrders)
+                .totalOrders(totalOrders)
+                .totalRescuedWeight(totalRescuedWeight)
+                .successRate(successRate)
+                .chartData(chartData)
+                .build();
+    }
+
+    private List<AdminOrderReportItemResponse> buildOrderReportChartData(List<Order> orders, String type, String from, String to) {
+        List<AdminOrderReportItemResponse> items = new ArrayList<>();
+        LocalDate today = LocalDate.now();
+
+        if (from != null && !from.isBlank() && to != null && !to.isBlank()) {
+            LocalDate fromDate = LocalDate.parse(from);
+            LocalDate toDate = LocalDate.parse(to);
+            long daysDiff = ChronoUnit.DAYS.between(fromDate, toDate);
+
+            if (daysDiff <= 31) {
+                LocalDate curr = fromDate;
+                while (!curr.isAfter(toDate)) {
+                    LocalDateTime bStart = curr.atStartOfDay();
+                    LocalDateTime bEnd = curr.atTime(LocalTime.MAX);
+                    String dayLabel = formatOrderDayOfWeek(curr.getDayOfWeek()) + " (" + curr.format(DateTimeFormatter.ofPattern("dd/MM")) + ")";
+                    items.add(calculateOrderBucket(orders, bStart, bEnd, curr.toString(), dayLabel));
+                    curr = curr.plusDays(1);
+                }
+            } else {
+                LocalDate curr = fromDate.withDayOfMonth(1);
+                while (!curr.isAfter(toDate)) {
+                    LocalDateTime bStart = curr.atStartOfDay();
+                    LocalDate nextMonth = curr.plusMonths(1).withDayOfMonth(1);
+                    LocalDateTime bEnd = nextMonth.minusDays(1).atTime(LocalTime.MAX);
+                    String monthLabel = "Thg " + curr.getMonthValue() + "/" + curr.getYear();
+                    items.add(calculateOrderBucket(orders, bStart, bEnd, curr.toString(), monthLabel));
+                    curr = nextMonth;
+                }
+            }
+        } else if ("year".equalsIgnoreCase(type)) {
+            int currentYear = today.getYear();
+            for (int m = 1; m <= 12; m++) {
+                LocalDate mStart = LocalDate.of(currentYear, m, 1);
+                LocalDate mEnd = mStart.plusMonths(1).minusDays(1);
+                LocalDateTime bStart = mStart.atStartOfDay();
+                LocalDateTime bEnd = mEnd.atTime(LocalTime.MAX);
+                String monthLabel = "Thg " + m;
+                items.add(calculateOrderBucket(orders, bStart, bEnd, mStart.toString(), monthLabel));
+            }
+        } else if ("all".equalsIgnoreCase(type)) {
+            LocalDate startMonth = today.minusMonths(11).withDayOfMonth(1);
+            LocalDate curr = startMonth;
+            for (int i = 0; i < 12; i++) {
+                LocalDate mEnd = curr.plusMonths(1).minusDays(1);
+                LocalDateTime bStart = curr.atStartOfDay();
+                LocalDateTime bEnd = mEnd.atTime(LocalTime.MAX);
+                String monthLabel = curr.format(DateTimeFormatter.ofPattern("MM/yyyy"));
+                items.add(calculateOrderBucket(orders, bStart, bEnd, curr.toString(), monthLabel));
+                curr = curr.plusMonths(1);
+            }
+        } else if ("month".equalsIgnoreCase(type)) {
+            for (int i = 29; i >= 0; i--) {
+                LocalDate d = today.minusDays(i);
+                LocalDateTime bStart = d.atStartOfDay();
+                LocalDateTime bEnd = d.atTime(LocalTime.MAX);
+                String label = d.format(DateTimeFormatter.ofPattern("dd/MM"));
+                items.add(calculateOrderBucket(orders, bStart, bEnd, d.toString(), label));
+            }
+        } else {
+            for (int i = 6; i >= 0; i--) {
+                LocalDate d = today.minusDays(i);
+                LocalDateTime bStart = d.atStartOfDay();
+                LocalDateTime bEnd = d.atTime(LocalTime.MAX);
+                String period = formatOrderDayOfWeek(d.getDayOfWeek());
+                String label = period + " (" + d.format(DateTimeFormatter.ofPattern("dd/MM")) + ")";
+                items.add(calculateOrderBucket(orders, bStart, bEnd, d.toString(), label));
+            }
+        }
+
+        return items;
+    }
+
+    private AdminOrderReportItemResponse calculateOrderBucket(List<Order> orders, LocalDateTime bStart, LocalDateTime bEnd, String dateStr, String labelStr) {
+        BigDecimal revenue = BigDecimal.ZERO;
+        long orderCount = 0;
+        long completedCount = 0;
+        long cancelledCount = 0;
+
+        for (Order o : orders) {
+            LocalDateTime ct = o.getCreatedAt();
+            if (ct != null && !ct.isBefore(bStart) && !ct.isAfter(bEnd)) {
+                orderCount++;
+                if (o.getStatus() == OrderStatus.COMPLETED || o.getStatus() == OrderStatus.DELIVERED) {
+                    completedCount++;
+                    if (o.getTotalAmount() != null) {
+                        revenue = revenue.add(o.getTotalAmount());
+                    }
+                } else if (o.getStatus() == OrderStatus.CANCELLED || o.getStatus() == OrderStatus.FAILED) {
+                    cancelledCount++;
+                }
+            }
+        }
+
+        return AdminOrderReportItemResponse.builder()
+                .date(dateStr)
+                .label(labelStr)
+                .revenue(revenue)
+                .orderCount(orderCount)
+                .completedCount(completedCount)
+                .cancelledCount(cancelledCount)
+                .build();
+    }
+
+    private String formatOrderDayOfWeek(DayOfWeek dow) {
+        switch (dow) {
+            case MONDAY: return "T2";
+            case TUESDAY: return "T3";
+            case WEDNESDAY: return "T4";
+            case THURSDAY: return "T5";
+            case FRIDAY: return "T6";
+            case SATURDAY: return "T7";
+            case SUNDAY: return "CN";
+            default: return "";
+        }
     }
 }

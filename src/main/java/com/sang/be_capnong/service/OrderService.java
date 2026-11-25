@@ -35,4 +35,10 @@ public interface OrderService {
     /** Đơn READY chưa có người nhận trong bán kính quanh shipper, gần nhất trước. Bắt buộc đang trực tuyến */
     org.springframework.data.domain.Page<OrderResponse> getReadyOrders(int page, int size, Double latitude, Double longitude);
     org.springframework.data.domain.Page<OrderResponse> getShipperOrders(int page, int size, java.util.List<com.sang.be_capnong.enums.OrderStatus> statuses);
+
+    // === REPORTS & ADMIN ===
+    com.sang.be_capnong.dto.response.AdminOrderReportResponse getAdminOrderReport(String type, String from, String to);
+    com.sang.be_capnong.dto.response.ShopRevenueReportResponse getShopRevenueReport(String type, String from, String to);
+    java.util.List<OrderResponse> getAllOrdersAdmin();
+    org.springframework.data.domain.Page<OrderResponse> getAllOrdersAdminPaged(int page, int size, java.util.List<com.sang.be_capnong.enums.OrderStatus> statuses);
 }

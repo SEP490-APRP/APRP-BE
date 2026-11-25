@@ -120,10 +120,10 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
         // Deduct inventory
         productRepository.saveAll(productsToUpdate);
 
-        // Build and save MysteryBox
+        // Build and save MysteryBox (auto-activated after Shop, product items, and AI image checks pass)
         MysteryBox mysteryBox = mysteryBoxMapper.toMysteryBox(request);
         mysteryBox.setShop(shop);
-        mysteryBox.setIsActive(false);
+        mysteryBox.setIsActive(true);
         mysteryBox.setSoldQuantity(0);
 
         MysteryBox savedBox = mysteryBoxRepository.save(mysteryBox);
@@ -166,7 +166,7 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
         }
 
         boolean isOwner = (currentUserId != null && box.getShop() != null && Objects.equals(box.getShop().getId(), currentUserId));
-        if (isOwner) {
+        if (isOwner || SecurityUtils.isAdmin()) {
             List<ProductMystery> items = productMysteryRepository.findByMysteryBox_MysteryId(id);
             response.setItems(mysteryBoxMapper.toProductMysteryResponseList(items));
         } else {
@@ -255,6 +255,8 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
             throw new AppException(ErrorCode.NOT_MYSTERY_BOX_OWNER);
         }
 
+        List<ProductMystery> items = productMysteryRepository.findByMysteryBox_MysteryId(id);
+
         // Adjust totalQuantity and inventory delta if requested
         if (request.getTotalQuantity() != null) {
             int newTotal = request.getTotalQuantity();
@@ -267,12 +269,14 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
             int delta = newTotal - currentTotal;
 
             if (delta != 0) {
-                List<ProductMystery> items = productMysteryRepository.findByMysteryBox_MysteryId(id);
                 for (ProductMystery item : items) {
                     Product p = item.getProduct();
                     int stockDiff = item.getProductQuantity() * delta;
 
-                    if (delta > 0) { // Increasing box count requires more stock
+                    if (delta > 0) { // Increasing box count requires active component product and more stock
+                        if (p == null || !"ACTIVE".equalsIgnoreCase(p.getStatus())) {
+                            throw new AppException(ErrorCode.PRODUCT_NOT_ACTIVE);
+                        }
                         if (p.getStockQuantity() == null || p.getStockQuantity() < stockDiff) {
                             throw new AppException(ErrorCode.STOCK_INSUFFICIENT);
                         }
@@ -306,9 +310,21 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
             }
         }
 
+        boolean previousActive = Boolean.TRUE.equals(box.getIsActive());
         mysteryBoxMapper.updateMysteryBox(box, request);
-        // Phương án B: Chuyển về isActive = false để Admin duyệt lại mỗi khi chỉnh sửa mystery box
-        box.setIsActive(false);
+
+        int updatedSold = box.getSoldQuantity() != null ? box.getSoldQuantity() : 0;
+        int updatedTotal = box.getTotalQuantity() != null ? box.getTotalQuantity() : 0;
+        boolean desiredActive = request.getIsActive() != null ? Boolean.TRUE.equals(request.getIsActive()) : previousActive;
+
+        if (updatedTotal - updatedSold <= 0) {
+            box.setIsActive(false);
+        } else if (desiredActive) {
+            validateMysteryBoxReadyForActivation(box, items);
+            box.setIsActive(true);
+        } else {
+            box.setIsActive(false);
+        }
 
         MysteryBox savedBox = mysteryBoxRepository.save(box);
 
@@ -321,7 +337,6 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
         }
 
         MysteryBoxResponse res = mysteryBoxMapper.toMysteryBoxResponse(savedBox);
-        List<ProductMystery> items = productMysteryRepository.findByMysteryBox_MysteryId(id);
         res.setItems(mysteryBoxMapper.toProductMysteryResponseList(items));
         return res;
     }
@@ -341,21 +356,38 @@ public class MysteryBoxServiceImpl implements MysteryBoxService {
         }
 
         boolean targetActive = Boolean.TRUE.equals(isActive);
+        List<ProductMystery> items = productMysteryRepository.findByMysteryBox_MysteryId(id);
 
-        // Shop cannot self-activate mystery box directly if it is not already active
-        if (targetActive && !isAdmin) {
-            if (!Boolean.TRUE.equals(box.getIsActive())) {
-                throw new AppException(ErrorCode.CANNOT_ACTIVATE_DIRECTLY);
-            }
+        if (targetActive) {
+            validateMysteryBoxReadyForActivation(box, items);
         }
 
         box.setIsActive(targetActive);
         MysteryBox savedBox = mysteryBoxRepository.save(box);
 
         MysteryBoxResponse res = mysteryBoxMapper.toMysteryBoxResponse(savedBox);
-        List<ProductMystery> items = productMysteryRepository.findByMysteryBox_MysteryId(id);
         res.setItems(mysteryBoxMapper.toProductMysteryResponseList(items));
         return res;
+    }
+
+    private void validateMysteryBoxReadyForActivation(MysteryBox box, List<ProductMystery> items) {
+        User shop = box.getShop();
+        if (shop == null || shop.getStatus() != UserStatus.ACTIVE || Boolean.FALSE.equals(shop.getShopActive())) {
+            throw new AppException(ErrorCode.SHOP_NOT_ACTIVE);
+        }
+
+        int sold = box.getSoldQuantity() != null ? box.getSoldQuantity() : 0;
+        int total = box.getTotalQuantity() != null ? box.getTotalQuantity() : 0;
+        if (total - sold <= 0) {
+            throw new AppException(ErrorCode.STOCK_INSUFFICIENT);
+        }
+
+        for (ProductMystery item : items) {
+            Product product = item.getProduct();
+            if (product == null || !"ACTIVE".equalsIgnoreCase(product.getStatus())) {
+                throw new AppException(ErrorCode.PRODUCT_NOT_ACTIVE);
+            }
+        }
     }
 
     @Override

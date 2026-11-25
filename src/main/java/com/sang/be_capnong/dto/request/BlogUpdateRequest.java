@@ -17,4 +17,5 @@ public class BlogUpdateRequest {
     String pictureUrl;
     BlogStatus status;
     BlogCategory category;
+    Integer productId;
 }

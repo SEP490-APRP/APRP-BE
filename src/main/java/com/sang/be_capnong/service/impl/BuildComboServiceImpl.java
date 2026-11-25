@@ -37,6 +37,13 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.sang.be_capnong.dto.response.ComboCatalogItemResponse;
+import com.sang.be_capnong.entity.MysteryBox;
+import com.sang.be_capnong.mapper.ProductMapper;
+import com.sang.be_capnong.repository.MysteryBoxRepository;
+import com.sang.be_capnong.repository.specification.MysteryBoxSpecification;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.*;
 
 @Service
@@ -53,6 +60,8 @@ public class BuildComboServiceImpl implements BuildComboService {
     BuildComboMapper buildComboMapper;
     ImageModerationService imageModerationService;
     CloudinaryService cloudinaryService;
+    MysteryBoxRepository mysteryBoxRepository;
+    ProductMapper productMapper;
 
     @Override
     @Transactional
@@ -84,7 +93,7 @@ public class BuildComboServiceImpl implements BuildComboService {
         BuildCombo buildCombo = buildComboMapper.toBuildCombo(request);
         buildCombo.setShop(shop);
         buildCombo.setSoldQuantity(0);
-        buildCombo.setStatus("PENDING");
+        buildCombo.setStatus("ACTIVE");
 
         BuildCombo savedCombo = buildComboRepository.save(buildCombo);
 
@@ -321,8 +330,12 @@ public class BuildComboServiceImpl implements BuildComboService {
         }
 
         buildComboMapper.updateBuildCombo(buildCombo, request);
-        // Phương án B: Chuyển về PENDING để Admin duyệt lại mỗi khi chỉnh sửa combo
-        buildCombo.setStatus("PENDING");
+        // Tự động mở bán nếu còn tồn kho (các sản phẩm con đã được validate ACTIVE ở trên và ảnh bìa đã qua AI)
+        if (newUnsold <= 0 || "INACTIVE".equalsIgnoreCase(request.getStatus())) {
+            buildCombo.setStatus("INACTIVE");
+        } else {
+            buildCombo.setStatus("ACTIVE");
+        }
 
         BuildCombo updatedCombo = buildComboRepository.save(buildCombo);
 
@@ -354,21 +367,41 @@ public class BuildComboServiceImpl implements BuildComboService {
         }
 
         String normalizedStatus = (status != null && !status.isBlank()) ? status.trim().toUpperCase() : "ACTIVE";
+        if (!"ACTIVE".equals(normalizedStatus) && !"INACTIVE".equals(normalizedStatus)) {
+            throw new AppException(ErrorCode.INVALID_STATUS);
+        }
 
-        // Shop cannot self-activate combo directly if it is not already ACTIVE
-        if ("ACTIVE".equalsIgnoreCase(normalizedStatus) && !isAdmin) {
-            if (!"ACTIVE".equalsIgnoreCase(buildCombo.getStatus())) {
-                throw new AppException(ErrorCode.CANNOT_ACTIVATE_DIRECTLY);
-            }
+        List<ProductCombo> items = productComboRepository.findByBuildComboComboId(comboId);
+        if ("ACTIVE".equals(normalizedStatus)) {
+            validateComboReadyForActivation(buildCombo, items);
         }
 
         buildCombo.setStatus(normalizedStatus);
         BuildCombo savedCombo = buildComboRepository.save(buildCombo);
 
         BuildComboResponse response = buildComboMapper.toBuildComboResponse(savedCombo);
-        List<ProductCombo> items = productComboRepository.findByBuildComboComboId(comboId);
         response.setItems(buildComboMapper.toProductComboResponseList(items));
         return response;
+    }
+
+    private void validateComboReadyForActivation(BuildCombo buildCombo, List<ProductCombo> items) {
+        User shop = buildCombo.getShop();
+        if (shop == null || shop.getStatus() != UserStatus.ACTIVE || Boolean.FALSE.equals(shop.getShopActive())) {
+            throw new AppException(ErrorCode.SHOP_NOT_ACTIVE);
+        }
+
+        int sold = buildCombo.getSoldQuantity() != null ? buildCombo.getSoldQuantity() : 0;
+        int total = buildCombo.getTotalQuantity() != null ? buildCombo.getTotalQuantity() : 0;
+        if (total - sold <= 0) {
+            throw new AppException(ErrorCode.STOCK_INSUFFICIENT);
+        }
+
+        for (ProductCombo item : items) {
+            Product product = item.getProduct();
+            if (product == null || !"ACTIVE".equalsIgnoreCase(product.getStatus())) {
+                throw new AppException(ErrorCode.PRODUCT_NOT_ACTIVE);
+            }
+        }
     }
 
     @Override
@@ -406,6 +439,180 @@ public class BuildComboServiceImpl implements BuildComboService {
         log.info("Build combo id: {} soft deleted (set INACTIVE), refunded {} unsold units", comboId, unsoldQuantity);
     }
 
+    @Override
+    public PageResponse<ComboCatalogItemResponse> getCatalog(
+            String category,
+            BigDecimal minPrice,
+            BigDecimal maxPrice,
+            String keyword,
+            String sortBy,
+            int page,
+            int size
+    ) {
+        log.info("Fetching unified combo & mystery box catalog - category: {}, minPrice: {}, maxPrice: {}, keyword: {}, sortBy: {}, page: {}, size: {}",
+                category, minPrice, maxPrice, keyword, sortBy, page, size);
+
+        String normalizedCategory = category != null ? category.trim().toLowerCase() : "all";
+        int pageIndex = Math.max(0, page - 1);
+        int pageSize = Math.max(1, size);
+
+        List<ComboCatalogItemResponse> items = new ArrayList<>();
+
+        boolean queryMystery = "all".equals(normalizedCategory) || "mystery".equals(normalizedCategory);
+        boolean queryCombo = "all".equals(normalizedCategory) || "combo".equals(normalizedCategory) || "family".equals(normalizedCategory);
+        boolean queryBulk = "all".equals(normalizedCategory) || "bulk".equals(normalizedCategory);
+
+        // 1. Fetch and map MysteryBoxes
+        if (queryMystery) {
+            Specification<MysteryBox> mysterySpec = MysteryBoxSpecification.filterMysteryBoxes(
+                    null, null, true, minPrice, maxPrice, keyword
+            );
+            List<MysteryBox> boxes = mysteryBoxRepository.findAll(mysterySpec);
+            for (MysteryBox box : boxes) {
+                items.add(mapMysteryBoxToCatalogItem(box));
+            }
+        }
+
+        // 2. Fetch and map BuildCombos
+        if (queryCombo || queryBulk) {
+            String typeFilter = null;
+            if ("bulk".equals(normalizedCategory)) {
+                typeFilter = "BULK";
+            }
+            Specification<BuildCombo> comboSpec = BuildComboSpecification.filterCombos(
+                    null, "ACTIVE", null, null, typeFilter, keyword, minPrice, maxPrice
+            );
+            List<BuildCombo> combos = buildComboRepository.findAll(comboSpec);
+            for (BuildCombo combo : combos) {
+                boolean isBulk = "BULK".equalsIgnoreCase(combo.getType()) 
+                        || (combo.getComboName() != null && combo.getComboName().toLowerCase().contains("thùng"));
+
+                if ("combo".equals(normalizedCategory) || "family".equals(normalizedCategory)) {
+                    if (isBulk) continue;
+                }
+                if ("bulk".equals(normalizedCategory)) {
+                    if (!isBulk && (combo.getPrice() == null || combo.getPrice().compareTo(BigDecimal.valueOf(200000)) < 0)) {
+                        continue;
+                    }
+                }
+                items.add(mapBuildComboToCatalogItem(combo));
+            }
+        }
+
+        // 3. Sorting
+        String sortKey = sortBy != null ? sortBy.trim().toLowerCase() : "featured";
+        Comparator<ComboCatalogItemResponse> comparator;
+        switch (sortKey) {
+            case "price-asc":
+            case "price_asc":
+                comparator = Comparator.comparing(ComboCatalogItemResponse::getPrice, Comparator.nullsLast(BigDecimal::compareTo));
+                break;
+            case "price-desc":
+            case "price_desc":
+                comparator = Comparator.comparing(ComboCatalogItemResponse::getPrice, Comparator.nullsFirst(BigDecimal::compareTo)).reversed();
+                break;
+            case "discount":
+                comparator = Comparator.comparing((ComboCatalogItemResponse item) -> {
+                    if (item.getOriginalPrice() != null && item.getPrice() != null) {
+                        return item.getOriginalPrice().subtract(item.getPrice());
+                    }
+                    return BigDecimal.ZERO;
+                }, Comparator.nullsFirst(BigDecimal::compareTo)).reversed();
+                break;
+            case "best-selling":
+            case "bestselling":
+                comparator = Comparator.comparing(ComboCatalogItemResponse::getSoldQuantity, Comparator.nullsFirst(Integer::compareTo)).reversed();
+                break;
+            case "featured":
+            default:
+                comparator = Comparator.comparing((ComboCatalogItemResponse item) -> {
+                    Double rating = (item.getShop() != null && item.getShop().getRatingAverage() != null) 
+                            ? item.getShop().getRatingAverage() : 0.0;
+                    return rating;
+                }, Comparator.reverseOrder()).thenComparing(ComboCatalogItemResponse::getSoldQuantity, Comparator.nullsFirst(Integer::compareTo).reversed());
+                break;
+        }
+        items.sort(comparator);
+
+        // 4. In-memory Pagination
+        int totalElements = items.size();
+        int totalPages = (int) Math.ceil((double) totalElements / pageSize);
+        if (totalPages == 0) totalPages = 1;
+
+        int fromIndex = Math.min(pageIndex * pageSize, totalElements);
+        int toIndex = Math.min(fromIndex + pageSize, totalElements);
+        List<ComboCatalogItemResponse> pagedContent = items.subList(fromIndex, toIndex);
+
+        return PageResponse.<ComboCatalogItemResponse>builder()
+                .page(page)
+                .size(pageSize)
+                .totalElements(totalElements)
+                .totalPages(totalPages)
+                .first(page <= 1)
+                .last(page >= totalPages)
+                .content(pagedContent)
+                .build();
+    }
+
+    private ComboCatalogItemResponse mapBuildComboToCatalogItem(BuildCombo combo) {
+        BigDecimal price = combo.getPrice() != null ? combo.getPrice() : BigDecimal.ZERO;
+        BigDecimal originalPrice = price.multiply(BigDecimal.valueOf(1.6)).setScale(0, RoundingMode.HALF_UP);
+        int discountPercent = 38;
+        boolean isBulk = "BULK".equalsIgnoreCase(combo.getType()) || (combo.getComboName() != null && combo.getComboName().toLowerCase().contains("thùng"));
+        String category = isBulk ? "Thùng lớn" : "Combo";
+        String badge = isBulk ? "Thùng lớn 10kg" : (combo.getMealType() != null ? combo.getMealType().name() : "Combo tươi");
+        int sold = combo.getSoldQuantity() != null ? combo.getSoldQuantity() : 0;
+        int total = combo.getTotalQuantity() != null ? combo.getTotalQuantity() : 0;
+        int stock = Math.max(0, total - sold);
+
+        return ComboCatalogItemResponse.builder()
+                .id("combo-" + combo.getComboId())
+                .realId(combo.getComboId())
+                .itemType("BUILD_COMBO")
+                .name(combo.getComboName())
+                .price(price)
+                .originalPrice(originalPrice)
+                .discountPercent(discountPercent)
+                .unit(isBulk ? "thùng" : "combo")
+                .description(combo.getDescription() != null ? combo.getDescription() : combo.getCookingSuggestion())
+                .imageUrl(combo.getImageUrl())
+                .category(category)
+                .badgeHighlight(badge)
+                .soldQuantity(sold)
+                .stockQuantity(stock)
+                .region(combo.getRegion())
+                .shop(combo.getShop() != null ? productMapper.toShopSummaryResponse(combo.getShop()) : null)
+                .build();
+    }
+
+    private ComboCatalogItemResponse mapMysteryBoxToCatalogItem(MysteryBox box) {
+        BigDecimal price = box.getPrice() != null ? box.getPrice() : BigDecimal.ZERO;
+        BigDecimal originalPrice = price.multiply(BigDecimal.valueOf(2.0)).setScale(0, RoundingMode.HALF_UP);
+        int discountPercent = 50;
+        int sold = box.getSoldQuantity() != null ? box.getSoldQuantity() : 0;
+        int total = box.getTotalQuantity() != null ? box.getTotalQuantity() : 0;
+        int stock = Math.max(0, total - sold);
+
+        return ComboCatalogItemResponse.builder()
+                .id("mystery-" + box.getMysteryId())
+                .realId(box.getMysteryId())
+                .itemType("MYSTERY_BOX")
+                .name(box.getBoxType() != null ? box.getBoxType() : "Hộp Nông Sản Bí Ẩn")
+                .price(price)
+                .originalPrice(originalPrice)
+                .discountPercent(discountPercent)
+                .unit("hộp")
+                .description(box.getDescription() != null ? box.getDescription() : box.getNote())
+                .imageUrl(box.getImageUrl())
+                .category("Túi mù")
+                .badgeHighlight("Túi mù")
+                .soldQuantity(sold)
+                .stockQuantity(stock)
+                .region(box.getShop() != null && box.getShop().getAddress() != null ? box.getShop().getAddress() : null)
+                .shop(box.getShop() != null ? productMapper.toShopSummaryResponse(box.getShop()) : null)
+                .build();
+    }
+
     private User getAndValidateShopUser(Integer userId) {
         User shop = userRepository.findById(userId)
                 .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
@@ -414,7 +621,7 @@ public class BuildComboServiceImpl implements BuildComboService {
             throw new AppException(ErrorCode.USER_NOT_A_SHOP);
         }
 
-        if (shop.getStatus() != UserStatus.ACTIVE) {
+        if (shop.getStatus() != UserStatus.ACTIVE || Boolean.FALSE.equals(shop.getShopActive())) {
             throw new AppException(ErrorCode.SHOP_NOT_ACTIVE);
         }
 

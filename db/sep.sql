@@ -204,6 +204,7 @@ CREATE TABLE products (
     category_id INT,
     product_name VARCHAR(255) NOT NULL,
     unit VARCHAR(50),
+    origin VARCHAR(100),
     selling_price DECIMAL(18,2) NOT NULL,
     stock_quantity INT NOT NULL DEFAULT 0,
     description TEXT,
@@ -706,11 +707,11 @@ CREATE TABLE user_notifications (
 CREATE TABLE blogs (
     blog_id INT AUTO_INCREMENT PRIMARY KEY,
     shop_id INT NOT NULL,
-    title VARCHAR(50) NOT NULL,
+    title VARCHAR(255) NOT NULL,
     content TEXT,
     picture_url VARCHAR(500),
     create_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    status VARCHAR(50) DEFAULT 'ACTIVE',
+    status VARCHAR(50) DEFAULT 'PUBLISHED',
     category VARCHAR(100),
     views INT DEFAULT 0,
     CONSTRAINT fk_blogs_shop FOREIGN KEY (shop_id) REFERENCES users(id) ON DELETE CASCADE
@@ -907,7 +908,7 @@ ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description);
 INSERT INTO users (id, email, password, role_id, status, full_name, phone_number, address, shop_name, shop_active, bank_name, bank_account, bank_account_holder, rating_average, description, logo_url, achievement, license, vehicle_number, diet_preference, create_at) VALUES
 (1, 'admin@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 4, 'ACTIVE', 'Quản Trị Viên Hệ Thống', '0900000000', '1 Công Xã Paris, Phường Bến Nghé, Quận 1, TP. Hồ Chí Minh', NULL, 0, 'Vietcombank', '0011001234567', 'CAPNONG ADMIN', 5.0, 'Quản trị viên toàn hệ thống CapNong', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252968/brands/vxm3b2gvixlqzf7xocoy.jpg', 'SuperAdmin', NULL, NULL, NULL, NOW()),
 
-(2, 'buyer1@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 1, 'ACTIVE', 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', NULL, 0, 'VietinBank', '101888888888', 'NGO GIA SANG', 5.0, 'Khách hàng thân thiết', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252968/brands/vxm3b2gvixlqzf7xocoy.jpg', NULL, NULL, NULL, 'VEGETARIAN', NOW()),
+(2, 'buyer1@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 1, 'ACTIVE', 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', NULL, 0, 'VietinBank', '101888888888', 'NGO GIA SANG', 5.0, 'Khách hàng thân thiết', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252968/brands/vxm3b2gvixlqzf7xocoy.jpg', NULL, NULL, NULL, 'VEGETARIAN', NOW()),
 
 (3, 'buyer2@gmail.com', '$2a$12$lU/EpH6mhkL4ERuMRO2cjeeT1CPHxqAyDHGwnDctIWzojS6k/oG/K', 1, 'ACTIVE', 'Trần Thị Mai', '0911111112', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', NULL, 0, 'MBBank', '970422888888', 'TRAN THI MAI', 5.0, 'Khách hàng', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1774252968/brands/vxm3b2gvixlqzf7xocoy.jpg', NULL, NULL, NULL, 'VEGAN', NOW()),
 
@@ -927,8 +928,9 @@ INSERT INTO categories (category_id, name, description) VALUES
 (2, 'Củ', 'Các loại củ tươi ngon: cà rốt, khoai tây, khoai lang, củ cải, hành tỏi Đà Lạt.'),
 (3, 'Quả / Trái cây', 'Trái cây tươi đặc sản: chuối, bưởi da xanh, xoài cát, cam sành, dâu tây mọng nước.'),
 (4, 'Nông sản hữu cơ VietGAP', 'Nông sản canh tác tự nhiên đạt chuẩn chứng nhận an toàn thực phẩm.'),
-(5, 'Combo & Túi mù', 'Gói rau củ theo món ăn và túi mù nông sản tiết kiệm bảo vệ môi trường.')
-ON DUPLICATE KEY UPDATE name=VALUES(name);
+(5, 'Nấm tươi & Đậu organic', 'Các loại nấm tươi sạch giàu đạm thực vật và đậu hũ non organic tuyển chọn.'),
+(6, 'Đặc sản vùng miền', 'Nông sản đặc sản nức tiếng theo mùa: hạt sen Đồng Tháp, bơ sáp Đắk Lắk...')
+ON DUPLICATE KEY UPDATE name=VALUES(name), description=VALUES(description);
 
 -- 3.4 PRODUCTS (ĐƯỢC GẮN VỚI SHOP 4 VÀ SHOP 5)
 INSERT INTO products (product_id, shop_id, category_id, product_name, unit, selling_price, stock_quantity, description, status, expiry_date, discount_percent) VALUES
@@ -942,10 +944,10 @@ INSERT INTO products (product_id, shop_id, category_id, product_name, unit, sell
 (107, 4, 2, 'Khoai lang mật tím', 'kg', 28000, 75, 'Khoai lang mật tím dẻo ngọt, nướng hoặc hấp thơm lừng.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 15 DAY), 0),
 (108, 4, 3, 'Cà chua bi ngọt mọng nước', 'kg', 35000, 60, 'Cà chua chín cây đỏ mọng, giàu vitamin C và chất chống oxy hóa lycopene.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
 (109, 4, 3, 'Dâu tây giống Nhật Đà Lạt', 'kg', 180000, 30, 'Dâu tây đỏ mọng hái sáng sớm tại nhà kính Đà Lạt, ngọt thanh chua nhẹ.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 3 DAY), 15),
-(209, 4, 4, 'Nấm đùi gà hữu cơ Đà Lạt', 'khay', 32000, 80, 'Nấm đùi gà thịt dày dai ngọt, giàu đạm thực vật và khoáng chất, tuyệt hảo cho món xào nướng lẩu.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
-(210, 4, 4, 'Nấm rơm tươi Đồng Nai', 'khay', 28000, 60, 'Nấm rơm tròn búp tươi ngon, vị ngọt thanh tự nhiên, phù hợp nấu súp, canh chay, kho quẹt.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 4 DAY), 0),
-(211, 4, 4, 'Đậu hũ non organic đậu nành', 'hộp', 14000, 100, 'Đậu hũ non mềm mịn béo ngậy từ 100% đậu nành không biến đổi gen, giàu protein thực vật.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 6 DAY), 0),
-(214, 4, 1, 'Bông cải xanh (Broccoli) Đà Lạt', 'kg', 38000, 70, 'Bông cải xanh đậm màu tươi giòn, giàu chất chống oxy hóa và chất xơ cao.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 6 DAY), 0),
+(209, 4, 5, 'Nấm đùi gà hữu cơ Đà Lạt', 'khay', 32000, 80, 'Nấm đùi gà thịt dày dai ngọt, giàu đạm thực vật và khoáng chất, tuyệt hảo cho món xào nướng lẩu.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
+(210, 4, 5, 'Nấm rơm tươi Đồng Nai', 'khay', 28000, 60, 'Nấm rơm tròn búp tươi ngon, vị ngọt thanh tự nhiên, phù hợp nấu súp, canh chay, kho quẹt.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 4 DAY), 0),
+(211, 4, 5, 'Đậu hũ non organic đậu nành', 'hộp', 14000, 100, 'Đậu hũ non mềm mịn béo ngậy từ 100% đậu nành không biến đổi gen, giàu protein thực vật.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 6 DAY), 0),
+(214, 4, 4, 'Bông cải xanh (Broccoli) Đà Lạt', 'kg', 38000, 70, 'Bông cải xanh đậm màu tươi giòn, giàu chất chống oxy hóa và chất xơ cao.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 6 DAY), 0),
 (217, 4, 2, 'Bí ngòi xanh Đà Lạt', 'kg', 26000, 65, 'Bí ngòi xanh vỏ bóng giòn ngọt, ít calo giàu nước, phù hợp xào tỏi hoặc nấu canh.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
 (218, 4, 3, 'Ớt chuông đỏ ngọt Đà Lạt', 'kg', 42000, 55, 'Ớt chuông đỏ dày cùi giòn ngọt, giàu vitamin C gấp 3 lần cam, lý tưởng làm salad.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 8 DAY), 0),
 
@@ -958,10 +960,10 @@ INSERT INTO products (product_id, shop_id, category_id, product_name, unit, sell
 (206, 5, 3, 'Cam sành Tiền Giang', 'kg', 35000, 150, 'Cam sành vỏ mỏng mọng nước, vị chua ngọt tự nhiên giàu vitamin C giải khát.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 12 DAY), 0),
 (207, 5, 3, 'Xoài cát Hòa Lộc Tiền Giang', 'kg', 85000, 40, 'Xoài cát Hòa Lộc nức tiếng thịt vàng ươm, thơm ngát, vị ngọt đậm đà.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 8 DAY), 10),
 (208, 5, 3, 'Dưa hấu ruột đỏ ngọt lịm', 'kg', 14000, 180, 'Dưa hấu vỏ mỏng ruột đỏ đặc ruột, ngọt lịm giải nhiệt.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 14 DAY), 0),
-(212, 5, 2, 'Hạt sen tươi Đồng Tháp Mười', 'gói', 45000, 50, 'Hạt sen tươi bỏ tâm không đắng, vị bùi bở thơm mát, bổ tâm an thần, tốt cho giấc ngủ.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 10 DAY), 0),
+(212, 5, 6, 'Hạt sen tươi Đồng Tháp Mười', 'gói', 45000, 50, 'Hạt sen tươi bỏ tâm không đắng, vị bùi bở thơm mát, bổ tâm an thần, tốt cho giấc ngủ.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 10 DAY), 0),
 (213, 5, 2, 'Bắp ngọt vàng Tiền Giang', 'trái', 12000, 120, 'Bắp ngọt hạt đều căng mọng, vị ngọt tự nhiên đậm đà, luộc hay nấu canh đều ngon.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 8 DAY), 0),
-(215, 5, 3, 'Bơ sáp Đắk Lắk dẻo béo', 'kg', 45000, 90, 'Bơ sáp loại 1 thịt vàng dẻo quánh, giàu chất béo tốt không bão hòa và vitamin E.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
-(216, 5, 3, 'Chuối già Nam Mỹ hữu cơ', 'nải', 25000, 80, 'Chuối chín thơm ngon dẻo ngọt, nguồn kali và năng lượng lành mạnh tự nhiên.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 6 DAY), 0)
+(215, 5, 6, 'Bơ sáp Đắk Lắk dẻo béo', 'kg', 45000, 90, 'Bơ sáp loại 1 thịt vàng dẻo quánh, giàu chất béo tốt không bão hòa và vitamin E.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 7 DAY), 0),
+(216, 5, 4, 'Chuối già Nam Mỹ hữu cơ', 'nải', 25000, 80, 'Chuối chín thơm ngon dẻo ngọt, nguồn kali và năng lượng lành mạnh tự nhiên.', 'ACTIVE', DATE_ADD(CURRENT_DATE, INTERVAL 6 DAY), 0)
 ON DUPLICATE KEY UPDATE product_name=VALUES(product_name), selling_price=VALUES(selling_price);
 
 -- 3.5 MYSTERY BOXES & BUILD COMBOS (REFERENCED FROM EXE.SQL / SWD.SQL)
@@ -1168,31 +1170,31 @@ ON DUPLICATE KEY UPDATE payos_order_code=VALUES(payos_order_code);
 -- 3.11 ORDERS (ĐA DẠNG TRẠNG THÁI ĐỂ TEST CẢ 3 ROLES: BUYER, SHOP, SHIPPER)
 INSERT INTO orders (order_id, buyer_id, shop_id, shipper_id, checkout_batch_id, shipping_fee, recipient_name, recipient_phone, shipping_address, note, status, total_amount, payment_method, shipping_discount_amount, batch_discount_amount, shipping_latitude, shipping_longitude, shop_latitude, shop_longitude, created_at) VALUES
 -- Đơn 101: Trong Batch 1, trạng thái AWAITING_PAYMENT (Shop Đà Lạt) -> Test Resume Payment / Split Payment
-(101, 2, 4, NULL, 1, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao rau củ tươi trong giờ hành chính', 'AWAITING_PAYMENT', 100000, 'PAYOS', 0, 10000, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 2 HOUR)),
+(101, 2, 4, NULL, 1, 15000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao rau củ tươi trong giờ hành chính', 'AWAITING_PAYMENT', 100000, 'PAYOS', 0, 10000, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 2 HOUR)),
 
 -- Đơn 102: Trong Batch 1, trạng thái AWAITING_PAYMENT (Shop Miền Tây)
-(102, 2, 5, NULL, 1, 22000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao nhẹ tay giúp mình', 'AWAITING_PAYMENT', 97000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.8700, 106.8030, DATE_SUB(NOW(), INTERVAL 2 HOUR)),
+(102, 2, 5, NULL, 1, 22000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao nhẹ tay giúp mình', 'AWAITING_PAYMENT', 97000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.8700, 106.8030, DATE_SUB(NOW(), INTERVAL 2 HOUR)),
 
 -- Đơn 103: Đơn COD mới tạo (PENDING) -> Test Shop xác nhận đơn
-(103, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao buổi sáng', 'PENDING', 85000, 'COD', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 1 HOUR)),
+(103, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao buổi sáng', 'PENDING', 85000, 'COD', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 1 HOUR)),
 
 -- Đơn 104: Đơn đã xác nhận (CONFIRMED) -> Test Shop chuẩn bị hàng
-(104, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Đóng gói kỹ', 'CONFIRMED', 120000, 'COD', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
+(104, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Đóng gói kỹ', 'CONFIRMED', 120000, 'COD', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 3 HOUR)),
 
 -- Đơn 105: Đang giao hàng (SHIPPING) đã gán Shipper Hoàng (id: 6) -> TEST GOOGLE MAPS REALTIME TRACKING
-(105, 2, 4, 6, 2, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Gọi trước khi đến 10 phút', 'SHIPPING', 95000, 'PAYOS', 15000, 10000, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 30 MINUTE)),
+(105, 2, 4, 6, 2, 15000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Gọi trước khi đến 10 phút', 'SHIPPING', 95000, 'PAYOS', 15000, 10000, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 30 MINUTE)),
 
 -- Đơn 106: Đã giao thành công (DELIVERED) - Shop 2 -> Đã đánh giá (Bưởi da xanh)
-(106, 2, 5, 6, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao hàng thành công', 'DELIVERED', 135000, 'COD', 0, 15000, 10.7725, 106.6579, 10.8700, 106.8030, DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(106, 2, 5, 6, NULL, 15000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao hàng thành công', 'DELIVERED', 135000, 'COD', 0, 15000, 10.7725, 106.6579, 10.8700, 106.8030, DATE_SUB(NOW(), INTERVAL 1 DAY)),
 
 -- Đơn 107: Đã hủy (CANCELLED)
-(107, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Khách đổi ý', 'CANCELLED', 50000, 'COD', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 2 DAY)),
+(107, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Khách đổi ý', 'CANCELLED', 50000, 'COD', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 2 DAY)),
 
 -- Đơn 108: Đã giao thành công (DELIVERED) - Shop 1 -> 1 món ĐÃ đánh giá & 1 món CHƯA đánh giá để test nút Đánh giá
-(108, 2, 4, 6, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao trước 11h', 'DELIVERED', 62000, 'COD', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 2 DAY)),
+(108, 2, 4, 6, NULL, 15000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao trước 11h', 'DELIVERED', 62000, 'COD', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 2 DAY)),
 
 -- Đơn 109: Hoàn tất (COMPLETED) - Shop 1 -> Đã đánh giá, CHƯA có phản hồi từ shop (để Farmer test form reply)
-(109, 2, 4, 6, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Để ở bàn lễ tân', 'COMPLETED', 50000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 4 DAY)),
+(109, 2, 4, 6, NULL, 15000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Để ở bàn lễ tân', 'COMPLETED', 50000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 4 DAY)),
 
 -- Đơn 110: Đã giao (DELIVERED) - Shop 2 của Buyer 2 (Trần Thị Mai) -> Đã đánh giá 5 sao (Cam sành)
 (110, 3, 5, 6, NULL, 15000, 'Trần Thị Mai', '0911111112', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', 'Giao giờ hành chính', 'DELIVERED', 120000, 'PAYOS', 0, 0, 10.7721, 106.6983, 10.8700, 106.8030, DATE_SUB(NOW(), INTERVAL 3 DAY)),
@@ -1201,7 +1203,7 @@ INSERT INTO orders (order_id, buyer_id, shop_id, shipper_id, checkout_batch_id, 
 (111, 3, 4, 6, NULL, 15000, 'Trần Thị Mai', '0911111112', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', 'Giao cẩn thận', 'DELIVERED', 75000, 'COD', 0, 0, 10.7721, 106.6983, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 5 DAY)),
 
 -- Đơn 112: Đã giao (DELIVERED) - Shop 2 của Buyer 1 -> CHƯA đánh giá (Xoài cát Hòa Lộc để test đánh giá Shop 2)
-(112, 2, 5, 6, NULL, 15000, 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao buổi chiều', 'DELIVERED', 185000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.8700, 106.8030, DATE_SUB(NOW(), INTERVAL 1 DAY))
+(112, 2, 5, 6, NULL, 15000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao buổi chiều', 'DELIVERED', 185000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.8700, 106.8030, DATE_SUB(NOW(), INTERVAL 1 DAY))
 ON DUPLICATE KEY UPDATE status=VALUES(status);
 
 -- 3.12 ORDER DETAILS (CHI TIẾT MẶT HÀNG TỪNG ĐƠN: SẢN PHẨM, TÚI MÙ, COMBO)
@@ -1417,8 +1419,8 @@ ON DUPLICATE KEY UPDATE title=VALUES(title), content=VALUES(content), keywords=V
 
 -- 3.12 SAVED ADDRESSES (SỔ ĐỊA CHỈ NHẬN HÀNG)
 INSERT INTO saved_addresses (id, user_id, label, recipient_name, phone, address, latitude, longitude, is_default, is_active) VALUES
-(1, 2, 'Nhà', 'Ngô Gia Sang (Khách mua)', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 10.7725, 106.6579, 1, 1),
-(2, 2, 'Văn phòng', 'Ngô Gia Sang (Khách mua)', '0911111111', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', 10.7721, 106.6983, 0, 1),
+(1, 2, 'Nhà', 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 10.7725, 106.6579, 1, 1),
+(2, 2, 'Văn phòng', 'Ngô Gia Sang', '0911111111', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', 10.7721, 106.6983, 0, 1),
 (3, 3, 'Nhà', 'Trần Thị Mai', '0911111112', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', 10.7721, 106.6983, 1, 1)
 ON DUPLICATE KEY UPDATE address=VALUES(address), recipient_name=VALUES(recipient_name);
 
@@ -1428,11 +1430,31 @@ INSERT INTO reviews (review_id, buyer_id, shop_id, order_detail_id, product_id, 
 
 (2, 2, 4, 12, 108, NULL, NULL, 4.0, 'Cà chua bi mọng nước, vị chua ngọt thanh mát ăn sống làm salad rất thích. Vận chuyển hơi lâu một chút xíu nhưng bù lại rau củ vẫn giữ được độ tươi ngon.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916530/brands/xjiiaehe5evwybwhmpmu.jpg', DATE_SUB(NOW(), INTERVAL 3 DAY), NULL),
 
-(3, 3, 4, 14, 106, NULL, NULL, 3.0, 'Khoai tây bở bùi thơm ngon, tuy nhiên có 1 củ bị cọ xát hơi trầy vỏ ngoài trong quá trình vận chuyển. Shop lần sau bọc thêm xốp lưới giúp mình nhé.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916676/brands/bmgnazybi0rro8bnxhwp.jpg', DATE_SUB(NOW(), INTERVAL 4 DAY), 'Dạ nhà vườn thành thật xin lỗi chị Mai ạ! Bên em đã ghi nhận phản hồi và từ đơn sau sẽ bọc thêm xốp lưới chống dập cho củ ạ.'),
+(3, 3, 4, 14, 106, NULL, NULL, 4.0, 'Khoai tây bở bùi thơm ngon, vỏ mỏng ruột vàng ươm. Nấu canh sườn ngọt nước tự nhiên, rất hài lòng.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916676/brands/bmgnazybi0rro8bnxhwp.jpg', DATE_SUB(NOW(), INTERVAL 4 DAY), 'Dạ nhà vườn cảm ơn chị Mai đã tin dùng nông sản Đà Lạt của vườn ạ!'),
 
 (4, 3, 5, 13, 206, NULL, NULL, 5.0, 'Cam sành vỏ mỏng, tép mọng nước, vắt được rất nhiều nước ngọt thanh không bị đắng. 10 điểm chất lượng cho nhà vườn Miền Tây!', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916481/brands/s5ld5232nl4s4fwczawr.jpg', DATE_SUB(NOW(), INTERVAL 2 DAY), 'Dạ cảm ơn chị Mai nhiều ạ! Cam vườn nhà em cắt cuống lá hái trong ngày nên luôn tươi mọng nước ạ.'),
 
-(5, 2, 5, 9, 205, NULL, NULL, 5.0, 'Bưởi da xanh tép hồng đều, tróc múi dễ bóc, vị ngọt lịm không chua chút nào. Rất hài lòng và sẽ tiếp tục mua ủng hộ bà con nông dân!', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917344/brands/c2i9gkbkl8vx7iwulwsz.png', DATE_SUB(NOW(), INTERVAL 1 DAY), 'Vườn Xanh cảm ơn anh Sang đã tin dùng sản phẩm bưởi da xanh Bến Tre của tụi em ạ!')
+(5, 2, 5, 9, 205, NULL, NULL, 5.0, 'Bưởi da xanh tép hồng đều, tróc múi dễ bóc, vị ngọt lịm không chua chút nào. Rất hài lòng và sẽ tiếp tục mua ủng hộ bà con nông dân!', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917344/brands/c2i9gkbkl8vx7iwulwsz.png', DATE_SUB(NOW(), INTERVAL 1 DAY), 'Vườn Xanh cảm ơn anh Sang đã tin dùng sản phẩm bưởi da xanh Bến Tre của tụi em ạ!'),
+
+(6, 2, 4, NULL, NULL, 1, NULL, 5.0, 'Hộp củ bí ẩn mở ra quá bất ngờ luôn! Được 5kg củ gồm khoai lang tím, khoai tây vàng, củ dền và cà rốt tươi rói. Tiết kiệm được gần một nửa so với mua lẻ siêu thị.', 'https://images.unsplash.com/photo-1597362925123-77861d3fbac7?w=600&auto=format&fit=crop', DATE_SUB(NOW(), INTERVAL 1 DAY), 'Cảm ơn bạn đã trải nghiệm và ủng hộ Túi Mù Giải Cứu của vườn Đà Lạt ạ!'),
+
+(7, 3, 4, NULL, NULL, NULL, 15, 5.0, 'Set combo lẩu nấm thanh tịnh tươi ngon tuyệt vời, nấm đùi gà dai ngọt và đậu hũ non béo ngậy. Cả nhà 4 người ăn no nê mà chi phí cực kỳ hợp lý.', 'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=600&h=400&fit=crop', DATE_SUB(NOW(), INTERVAL 2 DAY), 'Dạ vườn rất vui vì gia đình mình có bữa lẩu ấm cúng sum vầy ạ!'),
+
+(8, 2, 4, NULL, 214, NULL, NULL, 5.0, 'Bông cải xanh Đà Lạt giòn ngọt, tán bông chặt và xanh mướt, luộc chấm kho quẹt ăn ngon hết sẩy. Đóng thùng giấy sạch sẽ giữ trọn độ ẩm.', 'https://images.unsplash.com/photo-1584270354949-c26b0d5b4a0c?w=600&auto=format&fit=crop', DATE_SUB(NOW(), INTERVAL 3 DAY), NULL),
+
+(9, 3, 5, NULL, NULL, NULL, 8, 5.0, 'Combo giải nhiệt mùa hè gồm dưa hấu đỏ đặc ruột, bưởi da xanh và cam sành mọng nước ngọt lịm. Trái cây tươi cắt ra thơm nức cả nhà.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917373/brands/h0mivuwgipa6hssaawfi.jpg', DATE_SUB(NOW(), INTERVAL 2 DAY), 'Cảm ơn chị Mai, vườn luôn cố gắng thu hoạch sáng sớm để gửi đi nhanh nhất ạ!'),
+
+(10, 2, 4, NULL, NULL, 2, NULL, 4.5, 'Hộp trái cây tươi ngon, có dâu tây với chuối chín tự nhiên thơm lừng. Rất ưng ý với mô hình giải cứu nông sản này, vừa rẻ vừa bảo vệ môi trường.', 'https://images.unsplash.com/photo-1619566636858-adf3ef46400b?w=400&h=300&fit=crop', DATE_SUB(NOW(), INTERVAL 3 DAY), NULL),
+
+(11, 3, 4, NULL, 209, NULL, NULL, 5.0, 'Nấm đùi gà cây to đều, mũ nấm khép búp giòn ngọt, xào sả ớt hay nướng bơ tỏi đều xuất sắc. Nấm organic ăn rất yên tâm.', 'https://images.unsplash.com/photo-1543339308-43e59d6b73a6?w=600&h=400&fit=crop', DATE_SUB(NOW(), INTERVAL 4 DAY), 'Dạ nấm hữu cơ được hái và giao ngay trong ngày nên giữ trọn vị giòn ngọt đó ạ!'),
+
+(12, 2, 5, NULL, 207, NULL, NULL, 5.0, 'Xoài cát Hòa Lộc quả to vỏ căng vàng ươm, thơm nức mũi, thịt dày hạt lép và ngọt lịm. Chuẩn đặc sản Tiền Giang chính gốc.', 'https://images.unsplash.com/photo-1553279768-865429fa0078?w=600&auto=format&fit=crop', DATE_SUB(NOW(), INTERVAL 1 DAY), 'Vườn Xanh cảm ơn anh Sang đã tin chọn xoài cát chín cây của vườn em ạ!'),
+
+(13, 3, 4, NULL, NULL, NULL, 2, 4.5, 'Combo salad eat clean rau tươi rói, ớt chuông ngọt không hăng, cà chua bi giòn tan mọng nước. Làm bữa sáng thanh nhẹ rất thích hợp.', 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917431/brands/yif2icgotbydg5qvzvbf.jpg', DATE_SUB(NOW(), INTERVAL 2 DAY), NULL),
+
+(14, 2, 5, NULL, NULL, 3, NULL, 5.0, 'Túi mù củ quả miền Tây rất nhiều món ngon: có bí đỏ hồ lô, hạt sen tươi và củ cải trắng. Shipper giao nhanh thùng giấy giữ tươi rất tốt.', 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=400&h=300&fit=crop', DATE_SUB(NOW(), INTERVAL 3 DAY), 'Cảm ơn anh Sang đã đồng hành và ủng hộ bà con nhà vườn miền Tây!'),
+
+(15, 3, 4, NULL, 104, NULL, NULL, 5.0, 'Cải bó xôi lá xanh mướt, tươi như vừa hái ngoài luống. Nấu cháo dinh dưỡng cho bé trộm vía bé ăn rất ngon miệng.', 'https://images.unsplash.com/photo-1576045057995-568f588f82fb?w=600&auto=format&fit=crop', DATE_SUB(NOW(), INTERVAL 5 DAY), 'Chúc bé mau ăn chóng lớn nhé, cảm ơn chị Mai đã luôn đồng hành cùng vườn ạ!')
 ON DUPLICATE KEY UPDATE rating_star=VALUES(rating_star), comment=VALUES(comment), reply_from_shop=VALUES(reply_from_shop);
 
 -- 3.17 REVIEW REACTIONS (LIKE / DISLIKE)
@@ -1441,7 +1463,13 @@ INSERT INTO review_reactions (id, review_id, buyer_id, reaction_type, created_at
 (2, 1, 2, 'LIKE', DATE_SUB(NOW(), INTERVAL 1 DAY)),
 (3, 2, 3, 'LIKE', DATE_SUB(NOW(), INTERVAL 2 DAY)),
 (4, 4, 2, 'LIKE', DATE_SUB(NOW(), INTERVAL 1 DAY)),
-(5, 5, 3, 'LIKE', DATE_SUB(NOW(), INTERVAL 1 DAY))
+(5, 5, 3, 'LIKE', DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(6, 6, 3, 'LIKE', DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(7, 7, 2, 'LIKE', DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(8, 9, 2, 'LIKE', DATE_SUB(NOW(), INTERVAL 2 DAY)),
+(9, 11, 2, 'LIKE', DATE_SUB(NOW(), INTERVAL 3 DAY)),
+(10, 12, 3, 'LIKE', DATE_SUB(NOW(), INTERVAL 1 DAY)),
+(11, 14, 3, 'LIKE', DATE_SUB(NOW(), INTERVAL 2 DAY))
 ON DUPLICATE KEY UPDATE reaction_type=VALUES(reaction_type);
 
 -- 3.18 REVIEW IMAGES (ĐÍNH KÈM ĐA ẢNH REVIEW)
@@ -1450,7 +1478,17 @@ INSERT INTO images (id, image_url, media_type, created_at, review_id) VALUES
 (1002, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916530/brands/xjiiaehe5evwybwhmpmu.jpg', 'PHOTO', DATE_SUB(NOW(), INTERVAL 3 DAY), 2),
 (1003, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916676/brands/bmgnazybi0rro8bnxhwp.jpg', 'PHOTO', DATE_SUB(NOW(), INTERVAL 4 DAY), 3),
 (1004, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773916481/brands/s5ld5232nl4s4fwczawr.jpg', 'PHOTO', DATE_SUB(NOW(), INTERVAL 2 DAY), 4),
-(1005, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917344/brands/c2i9gkbkl8vx7iwulwsz.png', 'PHOTO', DATE_SUB(NOW(), INTERVAL 1 DAY), 5)
+(1005, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917344/brands/c2i9gkbkl8vx7iwulwsz.png', 'PHOTO', DATE_SUB(NOW(), INTERVAL 1 DAY), 5),
+(1006, 'https://images.unsplash.com/photo-1597362925123-77861d3fbac7?w=600&auto=format&fit=crop', 'PHOTO', DATE_SUB(NOW(), INTERVAL 1 DAY), 6),
+(1007, 'https://images.unsplash.com/photo-1547592166-23ac45744acd?w=600&h=400&fit=crop', 'PHOTO', DATE_SUB(NOW(), INTERVAL 2 DAY), 7),
+(1008, 'https://images.unsplash.com/photo-1584270354949-c26b0d5b4a0c?w=600&auto=format&fit=crop', 'PHOTO', DATE_SUB(NOW(), INTERVAL 3 DAY), 8),
+(1009, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917373/brands/h0mivuwgipa6hssaawfi.jpg', 'PHOTO', DATE_SUB(NOW(), INTERVAL 2 DAY), 9),
+(1010, 'https://images.unsplash.com/photo-1619566636858-adf3ef46400b?w=400&h=300&fit=crop', 'PHOTO', DATE_SUB(NOW(), INTERVAL 3 DAY), 10),
+(1011, 'https://images.unsplash.com/photo-1543339308-43e59d6b73a6?w=600&h=400&fit=crop', 'PHOTO', DATE_SUB(NOW(), INTERVAL 4 DAY), 11),
+(1012, 'https://images.unsplash.com/photo-1553279768-865429fa0078?w=600&auto=format&fit=crop', 'PHOTO', DATE_SUB(NOW(), INTERVAL 1 DAY), 12),
+(1013, 'https://res.cloudinary.com/dfp44sbsj/image/upload/v1773917431/brands/yif2icgotbydg5qvzvbf.jpg', 'PHOTO', DATE_SUB(NOW(), INTERVAL 2 DAY), 13),
+(1014, 'https://images.unsplash.com/photo-1512621776951-a57141f2eefd?w=400&h=300&fit=crop', 'PHOTO', DATE_SUB(NOW(), INTERVAL 3 DAY), 14),
+(1015, 'https://images.unsplash.com/photo-1576045057995-568f588f82fb?w=600&auto=format&fit=crop', 'PHOTO', DATE_SUB(NOW(), INTERVAL 5 DAY), 15)
 ON DUPLICATE KEY UPDATE image_url=VALUES(image_url);
 
 -- 3.19 NOTIFICATIONS (THÔNG BÁO MẪU CHO BUYER & HỆ THỐNG)
@@ -1506,6 +1544,45 @@ INSERT INTO user_notifications (id, user_id, notification_id, is_read, is_delete
 (13, 3, 9, 1, 0),  -- Buyer 2: Đã đọc (Chào mừng)
 (14, 3, 10, 1, 0)  -- Buyer 2: Đã đọc (Xếp hạng)
 ON DUPLICATE KEY UPDATE is_read=VALUES(is_read), is_deleted=VALUES(is_deleted);
+
+-- 3.21 BLOGS & CHUYỆN NHÀ NÔNG (BÀI VIẾT MÙA VỤ & CÂU CHUYỆN NÔNG DÂN)
+INSERT INTO blogs (blog_id, shop_id, title, content, picture_url, create_at, status, category, views) VALUES
+-- 1. Chuyện nhà nông / Câu chuyện mùa vụ (STORY) - Đưa lên tiêu điểm Homepage (Shop 4 - Vườn Đà Lạt)
+(1, 4, 'Rau củ cong queo và câu chuyện giữ đất lành của lão nông Đơn Dương',
+'Trước đây khi thương lái vào vườn, họ chỉ nhặt những trái tròn trịa thẳng đuột. Những củ cà rốt chia nhánh hay quả cà chua cong vẹo bị gạt lại đổ đống, bán rẻ như cho hoặc phải ủ làm phân. Nhờ CapNong, người tiêu dùng thành phố hiểu rằng vị ngọt của rau củ không nằm ở ngoại hình. Bà con nông dân chúng tôi có thêm thu nhập ổn định và không còn xót lòng nhìn nông sản bị vứt bỏ trên đồng ruộng.',
+'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=900&auto=format&fit=crop',
+DATE_SUB(NOW(), INTERVAL 1 DAY), 'PUBLISHED', 'STORY', 385),
+
+-- 2. Chuyện nhà nông / Câu chuyện mùa vụ (STORY) - Shop 5 (Vườn Miền Tây)
+(2, 5, 'Mùa trái chín miền Tây: Nhật ký vườn sầu riêng & bưởi da xanh',
+'Về Bến Tre và Tiền Giang những ngày vào vụ, hương bưởi da xanh thơm ngát khắp các rặng kênh mương. Năm nay phù sa bồi đắp dồi dào giúp múi bưởi hồng hào, tép mọng nước và ngọt lịm. Bà con nông dân thu hái bằng kéo chuyên dụng, bọc từng trái trong túi giấy chống côn trùng từ lúc còn nhỏ để không phải phun xịt hóa chất. CapNong đã trực tiếp thu mua tận gốc và phân loại nghiêm ngặt để đưa những trái đặc sản tươi ngon nhất đến tay người tiêu dùng trong 24 giờ!',
+'https://images.unsplash.com/photo-1619566636858-adf3ef46400b?w=900&auto=format&fit=crop',
+DATE_SUB(NOW(), INTERVAL 3 DAY), 'PUBLISHED', 'STORY', 290),
+
+-- 3. Cẩm nang nhà nông (NHA_NONG) - Shop 4
+(3, 4, 'Bí quyết canh tác rau hữu cơ sạch tại thung lũng Đà Lạt',
+'Canh tác rau hữu cơ sạch không chỉ là phương pháp trồng trọt mà còn là triết lý sống hòa hợp với thiên nhiên. Vườn chúng tôi ủ phân vi sinh từ vỏ cà phê và rơm rạ trong 60 ngày để đất luôn tơi xốp, giàu mùn. Nước tưới đầu nguồn được lắng lọc tự nhiên, kiểm định định kỳ không nhiễm kim loại nặng. Trồng xen cúc vạn thọ xua đuổi sâu bọ tự nhiên, giữ trọn độ giòn ngọt và an toàn tuyệt đối cho bàn ăn gia đình bạn!',
+'https://images.unsplash.com/photo-1595974482597-4b8da8879bc5?w=900&auto=format&fit=crop',
+DATE_SUB(NOW(), INTERVAL 2 DAY), 'PUBLISHED', 'NHA_NONG', 215),
+
+-- 4. Sức khỏe & Dinh dưỡng (SUC_KHOE) - Shop 4
+(4, 4, 'Thực đơn thanh lọc detox 7 ngày từ rau củ quả tươi sạch',
+'Cơ thể mệt mỏi sau những ngày ăn uống nhiều dầu mỡ? Hãy cùng CapNong tái tạo năng lượng với thực đơn detox tự nhiên: Sáng uống nước ép cần tây táo xanh, trưa làm salad ớt chuông với cà chua bi hữu cơ cùng sốt mè rang, chiều thưởng thức sinh tố bơ sáp dẻo mịn. Chỉ sau 1 tuần, bạn sẽ cảm nhận rõ làn da sáng khỏe, hệ tiêu hóa nhẹ nhàng và tinh thần tràn đầy sảng khoái!',
+'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=900&auto=format&fit=crop',
+DATE_SUB(NOW(), INTERVAL 4 DAY), 'PUBLISHED', 'SUC_KHOE', 420),
+
+-- 5. Cẩm nang mẹo vặt (CAM_NANG) - Shop 5
+(5, 5, 'Bảo quản rau củ tươi lâu trong tủ lạnh - Mẹo từ nhà nông',
+'Nhiều gia đình mua rau về để tủ lạnh 2-3 ngày là héo úa hoặc úng nước. Kinh nghiệm từ nhà vườn: 1. Tuyệt đối không rửa rau trước khi cho vào tủ mát, chỉ rửa trước khi nấu. 2. Tách riêng chuối và cà chua vì chuối giải phóng ethylene làm rau củ chín ép mau hỏng. 3. Cắt bỏ cuống lá cà rốt ngay sau khi mua. 4. Bọc khăn giấy sạch thấm ẩm quanh rau củ để giữ tươi giòn suốt cả tuần!',
+'https://images.unsplash.com/photo-1542838132-92c53300491e?w=900&auto=format&fit=crop',
+DATE_SUB(NOW(), INTERVAL 5 DAY), 'PUBLISHED', 'CAM_NANG', 178),
+
+-- 6. Tin tức nền tảng (TIN_TUC_CAPNONG) - Shop 4
+(6, 4, 'Hành trình giải cứu 30 tấn nông sản Việt: Biến điều không hoàn hảo thành bữa ăn tử tế',
+'Tại sao một củ cà rốt có hai nhánh hay quả dưa hấu hơi méo lại bị bỏ rơi ngoài ruộng? Thực tế, hình thức bên ngoài không hề quyết định giá trị dinh dưỡng bên trong. Những củ quả xấu mã lớn lên tự nhiên, không dùng chất kích thích nên thường giòn ngọt và đượm vị hơn cả. CapNong trân quý từng giọt mồ hôi của nông dân và kết nối nông sản thuần tự nhiên đến mọi gia đình với giá tiết kiệm đến 40%!',
+'https://images.unsplash.com/photo-1500937386664-56d1dfef3854?w=900&auto=format&fit=crop',
+DATE_SUB(NOW(), INTERVAL 6 DAY), 'PUBLISHED', 'TIN_TUC_CAPNONG', 512)
+ON DUPLICATE KEY UPDATE title=VALUES(title), content=VALUES(content), picture_url=VALUES(picture_url), status=VALUES(status), category=VALUES(category), views=VALUES(views);
 
 SET FOREIGN_KEY_CHECKS = 1;
 

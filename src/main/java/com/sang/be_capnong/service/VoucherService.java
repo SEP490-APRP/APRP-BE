@@ -1,6 +1,7 @@
 package com.sang.be_capnong.service;
 
 import com.sang.be_capnong.dto.request.VoucherCreateRequest;
+import com.sang.be_capnong.dto.request.VoucherUpdateRequest;
 import com.sang.be_capnong.dto.response.ApiResponse;
 import com.sang.be_capnong.dto.response.VoucherResponse;
 
@@ -13,6 +14,7 @@ public interface VoucherService {
     VoucherResponse createVoucher(VoucherCreateRequest request, boolean isAdmin);
     PageResponse<VoucherResponse> getManagementVouchers(boolean isAdmin, int page, int size);
     VoucherResponse toggleVoucherStatus(int voucherId);
+    VoucherResponse updateVoucher(int voucherId, VoucherUpdateRequest request);
     ApiResponse<Void> deleteVoucher(int voucherId);
 
     // --- CHO BUYER ---
