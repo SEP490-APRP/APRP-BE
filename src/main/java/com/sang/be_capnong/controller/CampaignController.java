@@ -36,6 +36,20 @@ public class CampaignController {
         return ApiResponse.<PageResponse<CampaignResponse>>builder().result(campaignService.getPublicCampaigns(phase, page, size)).build();
     }
 
+    @Operation(summary = "Banner chiến dịch ở đầu trang chủ (công khai): số giây tự chuyển + chiến dịch theo thứ tự")
+    /** Công khai: ai quét tem QR trên thùng cũng xem được */
+    @GetMapping("/trace/{token}")
+    public ApiResponse<com.sang.be_capnong.dto.response.campaign.PackageTraceResponse> tracePackage(@PathVariable String token) {
+        return ApiResponse.<com.sang.be_capnong.dto.response.campaign.PackageTraceResponse>builder()
+                .result(campaignService.tracePackage(token)).build();
+    }
+
+    @GetMapping("/campaigns/home-banners")
+    public ApiResponse<com.sang.be_capnong.dto.response.campaign.HomeBannerConfigResponse> homeBanners() {
+        return ApiResponse.<com.sang.be_capnong.dto.response.campaign.HomeBannerConfigResponse>builder()
+                .result(campaignService.getHomeBanners(true)).build();
+    }
+
     @Operation(summary = "Chi tiết chiến dịch (công khai)")
     @GetMapping("/campaigns/{id}")
     public ApiResponse<CampaignResponse> campaign(@PathVariable int id) {

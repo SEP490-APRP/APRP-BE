@@ -40,6 +40,14 @@ public class ShipperCreationRequest {
     @NotBlank(message = "VEHICLE_NUMBER_REQUIRED")
     String vehicleNumber;
 
+    /** MOTORBIKE | VAN | TRUCK_1T | TRUCK_2T | TRUCK_5T */
+    String vehicleType;
+
+    /** Hạng giấy phép lái xe (A1, B, C1, C...), phải đủ điều kiện lái loại xe đã chọn */
+    String licenseClass;
+    /** Số giấy phép lái xe (12 chữ số) */
+    String license;
+
     String vehicleDocImageUrl;
 
     String bankAccount;

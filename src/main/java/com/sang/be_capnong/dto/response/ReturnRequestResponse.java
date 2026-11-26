@@ -33,11 +33,15 @@ public class ReturnRequestResponse {
     String buyerName;
     String buyerPhone;
     String buyerAddress;
+    Double buyerLatitude;
+    Double buyerLongitude;
 
     Integer shopId;
     String shopName;
     String shopPhone;
     String shopAddress;
+    Double shopLatitude;
+    Double shopLongitude;
 
     Integer shipperId;
     String shipperName;

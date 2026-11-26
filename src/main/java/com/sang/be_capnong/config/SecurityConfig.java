@@ -111,8 +111,12 @@ public class SecurityConfig {
             "/reviews/shop/{id:[0-9]+}/**",
             "/reviews/mystery-box/**",
             "/campaigns",
+            "/campaigns/home-banners",
             "/campaigns/{id:[0-9]+}",
             "/campaigns/{id:[0-9]+}/shipping-quote",
+
+            // Quét tem QR trên thùng hàng chiến dịch (mã ngẫu nhiên, không chứa SĐT / địa chỉ)
+            "/trace/*",
 
             // Phân giải link tiếp thị liên kết (Referral Link Resolve)
             "/referrals/resolve/**"

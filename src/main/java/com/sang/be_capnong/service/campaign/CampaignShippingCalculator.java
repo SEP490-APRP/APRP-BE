@@ -2,6 +2,7 @@ package com.sang.be_capnong.service.campaign;
 
 import com.sang.be_capnong.dto.response.campaign.CampaignShippingQuoteResponse;
 import com.sang.be_capnong.entity.Campaign;
+import com.sang.be_capnong.enums.VehicleType;
 import com.sang.be_capnong.service.GoogleMapService;
 import com.sang.be_capnong.util.GeoUtils;
 import lombok.RequiredArgsConstructor;
@@ -10,18 +11,14 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 
 /**
- * Phí giao hàng chiến dịch giải cứu: biết trước khi đặt, chỉ có thể giảm sau đó.
+ * Phí giao hàng chiến dịch giải cứu: cố định theo tổng kg của đơn, biết trước khi đặt.
  * <pre>
- * 1. Phí gốc theo khoảng cách từ điểm tập kết: < 5km 15k · 5–10km 20k · 10–20km 30k · > 20km 30k + 3k/km
- * 2. Giảm theo tổng kg của đơn: < halfKg trả đủ · từ halfKg giảm 50% · từ freeKg miễn phí trong bán kính
- *    freeRadiusKm (xa hơn giảm 50%)
- * 3. Tự đến điểm tập kết lấy: 0đ
- * 4. Gom đơn: phường có từ groupDiscountMinOrders đơn trở lên giảm thêm 50% phí giao (áp dụng lúc chốt)
+ * Đơn từ 50 kg: miễn phí · từ 30 kg tới dưới 50 kg: 50.000đ · dưới 30 kg: 70.000đ · tự đến điểm tập kết lấy: 0đ
  * </pre>
- * Các mốc kg / bán kính / số đơn lấy theo từng chiến dịch (null = mặc định).
+ * Riêng phí gốc theo khoảng cách ({@link #baseFee}) chỉ dùng để tính cước trả shipper giao chặng cuối;
+ * xe chở trên 1 tấn được cộng thêm {@link #vehicleSurcharge} mỗi đơn.
  */
 @Component
 @RequiredArgsConstructor
@@ -31,10 +28,12 @@ public class CampaignShippingCalculator {
     public static final String DELIVERY = "DELIVERY";
     public static final String PICKUP = "PICKUP";
 
-    public static final BigDecimal DEFAULT_HALF_KG = BigDecimal.TEN;
-    public static final BigDecimal DEFAULT_FREE_KG = BigDecimal.valueOf(20);
-    public static final double DEFAULT_FREE_RADIUS_KM = 10.0;
-    public static final int DEFAULT_GROUP_MIN_ORDERS = 5;
+    /** Từ mốc này miễn phí giao */
+    public static final BigDecimal FREE_KG = BigDecimal.valueOf(50);
+    /** Từ mốc này (tới dưới FREE_KG) thu MID_FEE, nhẹ hơn thu SMALL_FEE */
+    public static final BigDecimal MID_KG = BigDecimal.valueOf(30);
+    public static final BigDecimal MID_FEE = BigDecimal.valueOf(50_000);
+    public static final BigDecimal SMALL_FEE = BigDecimal.valueOf(70_000);
 
     private final GoogleMapService googleMapService;
 
@@ -46,29 +45,16 @@ public class CampaignShippingCalculator {
     private long fee10to20 = 30000;
     @Value("${capnong.campaign.ship.fee-per-km-over-20:3000}")
     private long feePerKmOver20 = 3000;
-
-    public static BigDecimal halfKg(Campaign c) {
-        return c.getShipHalfKg() != null && c.getShipHalfKg().signum() > 0 ? c.getShipHalfKg() : DEFAULT_HALF_KG;
-    }
-
-    public static BigDecimal freeKg(Campaign c) {
-        return c.getShipFreeKg() != null && c.getShipFreeKg().signum() > 0 ? c.getShipFreeKg() : DEFAULT_FREE_KG;
-    }
-
-    public static double freeRadiusKm(Campaign c) {
-        return c.getShipFreeRadiusKm() != null && c.getShipFreeRadiusKm() > 0 ? c.getShipFreeRadiusKm() : DEFAULT_FREE_RADIUS_KM;
-    }
-
-    public static int groupMinOrders(Campaign c) {
-        return c.getGroupDiscountMinOrders() != null && c.getGroupDiscountMinOrders() > 0
-                ? c.getGroupDiscountMinOrders() : DEFAULT_GROUP_MIN_ORDERS;
-    }
+    @Value("${capnong.campaign.ship.heavy-vehicle-over-kg:1000}")
+    private int heavyVehicleOverKg = 1000;
+    @Value("${capnong.campaign.ship.heavy-vehicle-surcharge:5000}")
+    private long heavyVehicleSurcharge = 5000;
 
     public static boolean pickupEnabled(Campaign c) {
         return c.getPickupEnabled() == null || c.getPickupEnabled();
     }
 
-    /** Phí gốc theo khoảng cách (chưa giảm) */
+    /** Phí theo khoảng cách: cước trả shipper giao chặng cuối */
     public BigDecimal baseFee(double km) {
         long fee;
         if (km < 5) fee = feeUnder5;
@@ -78,17 +64,16 @@ public class CampaignShippingCalculator {
         return BigDecimal.valueOf(fee);
     }
 
-    /** Phí giao sau khi giảm theo tổng kg (chưa tính giảm gom đơn) */
-    public BigDecimal fee(Campaign c, BigDecimal totalKg, double km) {
-        BigDecimal base = baseFee(km);
+    /** Phụ thu cước chặng cuối theo xe của shipper: xe chở trên 1 tấn được cộng thêm, người mua không phải trả */
+    public BigDecimal vehicleSurcharge(String vehicleType) {
+        return BigDecimal.valueOf(VehicleType.capacityKgOf(vehicleType) > heavyVehicleOverKg ? heavyVehicleSurcharge : 0);
+    }
+
+    /** Phí giao người mua trả, cố định theo tổng kg của đơn */
+    public BigDecimal fee(BigDecimal totalKg) {
         BigDecimal kg = totalKg == null ? BigDecimal.ZERO : totalKg;
-        if (kg.compareTo(freeKg(c)) >= 0) {
-            return km <= freeRadiusKm(c) ? BigDecimal.ZERO : half(base);
-        }
-        if (kg.compareTo(halfKg(c)) >= 0) {
-            return half(base);
-        }
-        return base;
+        if (kg.compareTo(FREE_KG) >= 0) return BigDecimal.ZERO;
+        return kg.compareTo(MID_KG) >= 0 ? MID_FEE : SMALL_FEE;
     }
 
     /** Khoảng cách đường đi từ điểm tập kết tới người mua; null nếu thiếu toạ độ */
@@ -109,15 +94,13 @@ public class CampaignShippingCalculator {
     }
 
     public CampaignShippingQuoteResponse quote(Campaign c, BigDecimal totalKg, String method, Double lat, Double lng, String address) {
-        BigDecimal half = halfKg(c);
-        BigDecimal free = freeKg(c);
         CampaignShippingQuoteResponse.CampaignShippingQuoteResponseBuilder b = CampaignShippingQuoteResponse.builder()
                 .fulfillmentMethod(PICKUP.equalsIgnoreCase(method) ? PICKUP : DELIVERY)
                 .totalKg(totalKg)
-                .halfShipKg(half)
-                .freeShipKg(free)
-                .freeShipRadiusKm(freeRadiusKm(c))
-                .groupDiscountMinOrders(groupMinOrders(c))
+                .halfShipKg(MID_KG)
+                .freeShipKg(FREE_KG)
+                .midShipFee(MID_FEE)
+                .smallShipFee(SMALL_FEE)
                 .pickupEnabled(pickupEnabled(c))
                 .collectionSiteName(c.getCollectionSiteName())
                 .collectionSiteAddress(c.getCollectionSiteAddress());
@@ -125,27 +108,24 @@ public class CampaignShippingCalculator {
             return b.shippingFee(BigDecimal.ZERO).baseFee(BigDecimal.ZERO).discountPercent(100)
                     .note("Tự đến điểm tập kết lấy hàng: miễn phí").build();
         }
-        Double km = distanceKm(c, lat, lng, address);
-        if (km == null) {
-            return b.note("Chọn địa chỉ giao hàng để tính phí").build();
-        }
-        BigDecimal base = baseFee(km);
-        BigDecimal fee = fee(c, totalKg, km);
-        int discount = base.signum() == 0 ? 0 : 100 - fee.multiply(BigDecimal.valueOf(100)).divide(base, 0, RoundingMode.HALF_UP).intValue();
         BigDecimal kg = totalKg == null ? BigDecimal.ZERO : totalKg;
-        // Gợi ý mua thêm để được giảm tiếp
+        BigDecimal fee = fee(kg);
+        // Gợi ý mua thêm để được mức phí thấp hơn
         BigDecimal nextKg = null;
         String nextLabel = null;
-        if (kg.compareTo(half) < 0) {
-            nextKg = half.subtract(kg);
-            nextLabel = "giảm 50% phí giao";
-        } else if (kg.compareTo(free) < 0 && km <= freeRadiusKm(c)) {
-            nextKg = free.subtract(kg);
+        if (kg.compareTo(MID_KG) < 0) {
+            nextKg = MID_KG.subtract(kg);
+            nextLabel = "phí giao còn 50.000đ";
+        } else if (kg.compareTo(FREE_KG) < 0) {
+            nextKg = FREE_KG.subtract(kg);
             nextLabel = "miễn phí giao hàng";
         }
-        return b.distanceKm(km).baseFee(base).shippingFee(fee).discountPercent(discount)
+        // Khoảng cách chỉ để tham khảo, không ảnh hưởng phí người mua trả
+        boolean hasAddress = (lat != null && lng != null) || (address != null && !address.isBlank());
+        return b.distanceKm(hasAddress ? distanceKm(c, lat, lng, address) : null)
+                .baseFee(fee).shippingFee(fee).discountPercent(fee.signum() == 0 ? 100 : 0)
                 .nextTierKg(nextKg).nextTierLabel(nextLabel)
-                .note(fee.signum() == 0 ? "Miễn phí giao hàng" : discount > 0 ? "Đã giảm " + discount + "% phí giao" : null)
+                .note(fee.signum() == 0 ? "Miễn phí giao hàng" : null)
                 .build();
     }
 
@@ -165,10 +145,5 @@ public class CampaignShippingCalculator {
             log.warn("[CampaignShip] Geocode failed for '{}': {}", address, e.getMessage());
             return null;
         }
-    }
-
-    private static BigDecimal half(BigDecimal v) {
-        // Làm tròn lên nghìn đồng
-        return v.divide(BigDecimal.valueOf(2000), 0, RoundingMode.CEILING).multiply(BigDecimal.valueOf(1000));
     }
 }

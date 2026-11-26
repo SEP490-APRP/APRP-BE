@@ -26,6 +26,10 @@ public class AdminCampaignController {
 
     CampaignService campaignService;
     com.sang.be_capnong.service.campaign.DamageClaimService damageClaimService;
+    com.sang.be_capnong.service.campaign.CampaignProposalService proposalService;
+    com.sang.be_capnong.service.campaign.ShipperCallService shipperCallService;
+    com.sang.be_capnong.service.campaign.HubTripService hubTripService;
+    com.sang.be_capnong.service.campaign.HubFeeConfigService feeConfigService;
 
     @Operation(summary = "Tạo chiến dịch (DRAFT)")
     @PostMapping("")
@@ -162,11 +166,26 @@ public class AdminCampaignController {
         return ApiResponse.<com.sang.be_capnong.dto.response.campaign.DamageClaimResponse>builder().result(damageClaimService.reject(claimId, request)).build();
     }
 
-    @Operation(summary = "Xử lý thiếu hàng: giữ hàng cho đơn cọc trước, giảm thùng hoặc huỷ đơn sau và hoàn cọc")
+    @Operation(summary = "Xem trước đơn sẽ bị giảm / huỷ nếu chốt phần thiếu")
+    @GetMapping("/{id}/shortfall-preview")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<com.sang.be_capnong.dto.response.campaign.ShortfallPreviewResponse> previewShortfall(@PathVariable int id) {
+        return ApiResponse.<com.sang.be_capnong.dto.response.campaign.ShortfallPreviewResponse>builder().result(campaignService.previewShortfall(id)).build();
+    }
+
+    @Operation(summary = "Chốt phần thiếu: giảm thùng hoặc huỷ đơn sao cho ít người mua bị ảnh hưởng nhất, hoàn cọc phần dư")
     @PostMapping("/{id}/resolve-shortfall")
     @PreAuthorize("hasRole('ADMIN')")
     public ApiResponse<CampaignResponse> resolveShortfall(@PathVariable int id) {
         return ApiResponse.<CampaignResponse>builder().result(campaignService.resolveShortfall(id)).build();
+    }
+
+    @Operation(summary = "Đánh dấu thùng đã đóng của một đơn")
+    @PutMapping("/pre-orders/{preOrderId}/crates")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<PreOrderResponse> packCrates(@PathVariable int preOrderId,
+                                                    @RequestBody com.sang.be_capnong.dto.request.campaign.PreOrderCrateRequest request) {
+        return ApiResponse.<PreOrderResponse>builder().result(campaignService.markPackedCrates(preOrderId, request)).build();
     }
 
     @Operation(summary = "Đóng gói, dán QR, gán khu giao (DEPOSIT_PAID -> PROCESSING)")
@@ -221,11 +240,105 @@ public class AdminCampaignController {
         return ApiResponse.<PreOrderResponse>builder().result(campaignService.retryPreOrder(preOrderId)).build();
     }
 
-    @Operation(summary = "Xe tới hub: PROCESSING -> READY")
-    @PostMapping("/{id}/dispatch-to-hub")
+    @Operation(summary = "Các chuyến xe chở hàng ra hub của chiến dịch (kèm tài xế đã nhận)")
+    @GetMapping("/{id}/hub-trips")
     @PreAuthorize("hasRole('ADMIN')")
-    public ApiResponse<CampaignResponse> dispatchToHub(@PathVariable int id) {
-        return ApiResponse.<CampaignResponse>builder().result(campaignService.dispatchToHub(id)).build();
+    public ApiResponse<List<com.sang.be_capnong.dto.response.hub.HubTripResponse>> hubTrips(@PathVariable int id) {
+        return ApiResponse.<List<com.sang.be_capnong.dto.response.hub.HubTripResponse>>builder().result(hubTripService.listForCampaign(id)).build();
+    }
+
+    @Operation(summary = "Đồng bộ kế hoạch xe chở hàng ra hub (tạo / cập nhật chuyến, chốt sau khi cân)")
+    @PutMapping("/{id}/hub-trips")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<List<com.sang.be_capnong.dto.response.hub.HubTripResponse>> syncHubTrips(
+            @PathVariable int id, @RequestBody com.sang.be_capnong.dto.request.hub.HubTripSyncRequest request) {
+        return ApiResponse.<List<com.sang.be_capnong.dto.response.hub.HubTripResponse>>builder().result(hubTripService.sync(id, request)).build();
+    }
+
+    @Operation(summary = "Kêu gọi shipper nhận chuyến giao chiến dịch (gửi thông báo), trả số shipper đã báo")
+    @PostMapping("/{id}/shipper-call")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<com.sang.be_capnong.dto.response.campaign.ShipperCallResult> shipperCall(@PathVariable int id, @RequestBody ShipperCallRequest request) {
+        return ApiResponse.<com.sang.be_capnong.dto.response.campaign.ShipperCallResult>builder().result(shipperCallService.callShippers(id, request)).build();
+    }
+
+    @Operation(summary = "Nhắc shipper tới nhận đơn còn chờ tại hub, trả số shipper đã báo")
+    @PostMapping("/{id}/hub-orders/notify")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<Integer> notifyHubShippers(@PathVariable int id,
+            @RequestBody com.sang.be_capnong.dto.request.campaign.HubNotifyRequest request) {
+        return ApiResponse.<Integer>builder().result(campaignService.notifyHubShippers(id, request)).build();
+    }
+
+    @Operation(summary = "Thông số tính cước xe chở hàng ra hub và cước giao chặng cuối (để FE ước tính chi phí)")
+    @GetMapping("/hub-trip-fee-config")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<java.util.Map<String, Object>> hubTripFeeConfig() {
+        return ApiResponse.<java.util.Map<String, Object>>builder().result(feeConfigService.config()).build();
+    }
+
+    @Operation(summary = "Cấu hình banner đầu trang chủ: chiến dịch gắn vào + số giây tự chuyển")
+    @GetMapping("/home-banners")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<com.sang.be_capnong.dto.response.campaign.HomeBannerConfigResponse> homeBanners() {
+        return ApiResponse.<com.sang.be_capnong.dto.response.campaign.HomeBannerConfigResponse>builder()
+                .result(campaignService.getHomeBanners(false)).build();
+    }
+
+    @Operation(summary = "Lưu banner đầu trang chủ (tối đa 10 chiến dịch, 3-30 giây)")
+    @PutMapping("/home-banners")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<com.sang.be_capnong.dto.response.campaign.HomeBannerConfigResponse> saveHomeBanners(@RequestBody HomeBannerConfigRequest request) {
+        return ApiResponse.<com.sang.be_capnong.dto.response.campaign.HomeBannerConfigResponse>builder()
+                .result(campaignService.updateHomeBanners(request)).build();
+    }
+
+    @Operation(summary = "Shop đã xác minh quanh điểm tập kết của chiến dịch (kèm số kg đã góp)")
+    @GetMapping("/{id}/nearby-shops")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<List<com.sang.be_capnong.dto.response.proposal.NearbyShopResponse>> nearbyShops(
+            @PathVariable int id, @RequestParam(required = false) Double radiusKm,
+            @RequestParam(defaultValue = "false") boolean sameCategory) {
+        return ApiResponse.<List<com.sang.be_capnong.dto.response.proposal.NearbyShopResponse>>builder()
+                .result(proposalService.adminNearbyShops(id, radiusKm, sameCategory)).build();
+    }
+
+    @Operation(summary = "Tìm shop theo tên / số điện thoại để nhập hộ lô hàng")
+    @GetMapping("/{id}/shop-search")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<List<com.sang.be_capnong.dto.response.proposal.NearbyShopResponse>> searchShops(
+            @PathVariable int id, @RequestParam(required = false) String q) {
+        return ApiResponse.<List<com.sang.be_capnong.dto.response.proposal.NearbyShopResponse>>builder()
+                .result(proposalService.adminSearchShops(id, q)).build();
+    }
+
+    @Operation(summary = "Mời shop góp hàng (gửi thông báo)")
+    @PostMapping("/{id}/invite-shops")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<Integer> inviteShops(@PathVariable int id, @RequestBody AdminCampaignInviteRequest request) {
+        return ApiResponse.<Integer>builder().result(proposalService.adminInviteShops(id, request)).build();
+    }
+
+    @Operation(summary = "Admin nhập hộ lô hàng cho shop đã đồng ý góp (duyệt luôn)")
+    @PostMapping("/{id}/registrations")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<FarmRegistrationResponse> addRegistration(@PathVariable int id, @RequestBody AdminFarmRegistrationRequest request) {
+        return ApiResponse.<FarmRegistrationResponse>builder().result(campaignService.adminAddRegistration(id, request)).build();
+    }
+
+    @Operation(summary = "Bổ sung hàng thiếu: nhận thêm kg từ shop trong chiến dịch, shop khác hoặc shop mới")
+    @PostMapping("/{id}/supplement")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<FarmRegistrationResponse> supplement(@PathVariable int id,
+            @RequestBody com.sang.be_capnong.dto.request.campaign.AdminSupplementRequest request) {
+        return ApiResponse.<FarmRegistrationResponse>builder().result(campaignService.supplementSupply(id, request)).build();
+    }
+
+    @Operation(summary = "Danh sách đơn đã đóng gói để in tem QR (cấp mã tem nếu chưa có)")
+    @PostMapping("/{id}/package-labels")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ApiResponse<List<PreOrderResponse>> packageLabels(@PathVariable int id) {
+        return ApiResponse.<List<PreOrderResponse>>builder().result(campaignService.preparePackageLabels(id)).build();
     }
 
     @Operation(summary = "Hoàn tất: giải ngân cọc, chi trả nhà vườn")

@@ -31,13 +31,21 @@ public class CampaignResponse {
     String bannerImageUrl;
     Boolean bannerOnHome;
     java.time.LocalDateTime bannerUpdatedAt;
+    /** Thứ tự trên banner đầu trang chủ; null = không gắn */
+    Integer homeSlideOrder;
+    /** Nông sản cần giải cứu */
+    String productName;
+    /** Tổng hàng cần giải cứu = lớn hơn giữa mục tiêu và tổng kg lô đã duyệt */
     BigDecimal targetVolumeKg;
+    /** Mục tiêu admin đặt khi tạo chiến dịch */
+    BigDecimal plannedTargetKg;
     BigDecimal minThresholdKg;
     BigDecimal rescuePricePerKg;
     BigDecimal depositPercent;
     LocalDateTime cutoffAt;
     LocalDate startDate;
     LocalDate endDate;
+    LocalDate finishDate;
     LocalDateTime publishAt;
     LocalDateTime farmCutoffAt;
     LocalDate deliveryDate;
@@ -48,8 +56,8 @@ public class CampaignResponse {
     /** Quy tắc phí giao (đã áp mặc định) */
     BigDecimal shipHalfKg;
     BigDecimal shipFreeKg;
-    Double shipFreeRadiusKm;
-    Integer groupDiscountMinOrders;
+    BigDecimal shipMidFee;
+    BigDecimal shipSmallFee;
     Boolean pickupEnabled;
     String status;
     /** Kg người mua đã cọc thành công */
@@ -76,14 +84,24 @@ public class CampaignResponse {
     BigDecimal shortfallVolumeKg;
     /** Số nhà vườn được phân bổ nhưng chưa cân nhận hàng */
     long intakePendingCount;
+    /** Báo cáo tổng kết công khai, chỉ có khi chiến dịch hoàn tất (số gộp, không có thông tin cá nhân) */
+    BigDecimal deliveredKg;
+    Long deliveredOrderCount;
+    /** Đơn đã cọc (không tính đơn huỷ / chưa cọc) */
+    Long totalOrderCount;
+    Long buyerCount;
     /** Đang kêu gọi nhà vườn bổ sung hàng cho phần thiếu */
     boolean topUpOpen;
+    /** Hàng tại điểm tập kết: hư hỏng, bổ sung, phần bị bớt; null khi chưa cân lô nào */
+    SupplySummaryResponse supply;
     LocalDateTime topUpCallAt;
     LocalDateTime topUpClosedAt;
     BigDecimal topUpKg;
     /** Kg còn cần bổ sung = thiếu - phần đã chia cho lô bổ sung chưa giao */
     BigDecimal topUpRemainingKg;
     LocalDateTime callPostedAt;
+    LocalDateTime shipperCalledAt;
+    Integer shipperCallTrips;
     LocalDateTime publishedAt;
     LocalDateTime evaluatedAt;
     LocalDateTime completedAt;

@@ -74,11 +74,11 @@ public class CampaignFarmRegistration {
     @Column(columnDefinition = "TEXT")
     String productImageUrls;
 
-    /** Giá nhà vườn đề xuất (đ/kg) để thương lượng với CapNong */
+    /** Giá thu mua lúc đăng ký (đ/kg), lấy theo giá chiến dịch */
     @Column(precision = 12, scale = 2)
     BigDecimal proposedPricePerKg;
 
-    /** Giá chốt sau thương lượng (Admin nhập khi duyệt); null = dùng giá đề xuất */
+    /** Giá thu mua áp dụng khi duyệt (= giá chiến dịch) */
     @Column(precision = 12, scale = 2)
     BigDecimal agreedPricePerKg;
 
@@ -105,6 +105,10 @@ public class CampaignFarmRegistration {
     /** Số kg đạt chuẩn được ghi nhận vào chiến dịch = cân thực tế - hư hỏng */
     @Column(precision = 12, scale = 2)
     BigDecimal acceptedWeightKg;
+
+    /** Trong số kg nhận, phần CapNong nhận bổ sung khi bị thiếu */
+    @Column(precision = 12, scale = 2)
+    BigDecimal supplementKg;
 
     /** Kết quả kiểm tra chất lượng tại điểm tập kết */
     Boolean qualityPassed;

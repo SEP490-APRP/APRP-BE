@@ -141,6 +141,14 @@ public class Order {
 
     LocalDateTime failedAt;
 
+    // ── Bằng chứng hoàn hàng về Shop sau khi giao thất bại ──
+    @Column(columnDefinition = "TEXT")
+    String returnToShopProofUrls;
+
+    LocalDateTime returnedToShopAt;
+
+    LocalDateTime returnConfirmedAt;
+
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true)
     List<OrderDetail> orderDetails;
 

@@ -8,7 +8,9 @@ READY ──(điều phối: quét shipper online quanh vườn, mời qua STOMP
       ──(GPS /app/shipper/location → /topic/order/{id}/location, kèm distanceKm + estimatedMinutes)
       ├─► DELIVERED (bắt buộc ảnh PoD) ──► CỘNG NGAY CƯỚC GIAO vào ví khả dụng Shipper (không cần chờ 24h)
       │                               ──► COMPLETED (khách bấm nhận hoặc hết 24h) ──► Quyết toán tiền hàng Shop & hoa hồng Affiliate
-      └─► FAILED (lý do + số cuộc gọi + ảnh) ──► hoàn kho, gỡ ký quỹ, ghi hoàn tiền nếu đã trả online
+      ├─► (SHIPPING chưa lấy hàng) FAILED (lý do + số cuộc gọi + ảnh) ──► hoàn kho ngay, gỡ ký quỹ, ghi hoàn tiền
+      └─► (PICKED_UP đã lấy hàng) RETURNING_TO_SHOP ──(PUT /orders/{id}/return-to-shop + ảnh bàn giao, <500m quanh Shop)──► RETURNED_TO_SHOP (mở khoá nhận đơn mới)
+                                                    ──(PUT /orders/{id}/confirm-return-received [@SHOP])──► FAILED (cộng lại tồn kho)
 ```
 
 ## 1. Trực tuyến và heartbeat
@@ -43,14 +45,14 @@ Kiểm tra theo thứ tự (lỗi thì rollback toàn bộ):
 | Khoá dòng đơn (`SELECT ... FOR UPDATE`), đơn đã có shipper khác | 7005 `ORDER_ALREADY_TAKEN` |
 | Đơn không ở READY | 7002 |
 | Shipper chưa online | 7006 `SHIPPER_NOT_ONLINE` |
-| Đang có đơn giao xuôi (SHIPPING/PICKED_UP) HOẶC đơn hoàn trả (RETURN_SHIPPING/RETURN_PICKED_UP) | 7004 `SHIPPER_HAS_ACTIVE_ORDER` |
+| Đang có đơn giao xuôi (SHIPPING/PICKED_UP/RETURNING_TO_SHOP) HOẶC đơn hoàn trả (RETURN_SHIPPING/RETURN_PICKED_UP) | 7004 `SHIPPER_HAS_ACTIVE_ORDER` |
 | Ví âm (nợ COD luồng cũ) | 16014 `WALLET_HAS_DEBT` |
 | Đơn COD, số dư khả dụng < `totalAmount` | 16013 `SHIPPER_COD_BALANCE_INSUFFICIENT`, `result = { required, available, missing }` |
 
 > **Ràng buộc "1 tài xế - 1 đơn tại 1 thời điểm" (Cross-task checking):**
 > Shipper chỉ được phép thực thi **duy nhất 1 nhiệm vụ giao vận** tại một thời điểm trên toàn hệ thống.
 > Kiểm tra chéo đồng thời 2 bảng:
-> 1. `orders`: `existsByShipper_IdAndStatusIn(shipperId, [SHIPPING, PICKED_UP])`
+> 1. `orders`: `existsByShipper_IdAndStatusIn(shipperId, [SHIPPING, PICKED_UP, RETURNING_TO_SHOP])`
 > 2. `return_requests`: `existsByShipper_IdAndStatusIn(shipperId, [RETURN_SHIPPING, RETURN_PICKED_UP])`
 > - Khi nhận đơn giao hàng mới (`PUT /orders/{id}/ship`): chặn nếu đang có đơn giao xuôi hoặc đơn hoàn trả đang thực thi.
 > - Khi nhận đơn hoàn hàng mới (`POST /return-requests/{id}/shipper-accept`): cũng áp dụng cùng kiểm tra chéo, chặn nếu đang giao đơn hàng thông thường hoặc đơn hoàn khác.
@@ -130,17 +132,43 @@ Không đổi API (`PUT /orders/{id}/pickup`). Đối soát làm ở giao diện
 - **Nhà vườn** (web `pages/farmer/Orders.tsx`, mobile `ShopOrderCard`, `shop/order/[id]`): đơn CONFIRMED / READY / SHIPPING hiện khung **"Mã dán lên túi hàng #123"** để ghi/dán lên túi.
 - **Tài xế** (web Dashboard, bản đồ, FakeGPS; mobile tab Đang giao): thẻ đơn hiện mã to rõ. Bấm "Đã lấy hàng" mở hộp **"Đối soát mã đơn #123 — Kiểm tra mã trên túi hàng trùng #123"**, xác nhận rồi mới gọi API.
 
+### 6.1. Giao thất bại & Hoàn hàng về Shop (`RETURNING_TO_SHOP → RETURNED_TO_SHOP → FAILED`)
+- **Chặng lấy hàng (`SHIPPING` → `FAILED`):**
+  - Lý do phía Shop: `SHOP_DONG_CUA | SHOP_CHUA_SAN_SANG | KHAC` (không yêu cầu `callAttempts`, bắt buộc ≥ 1 ảnh).
+  - Shipper báo không lấy được (`PUT /orders/{id}/fail`) → chuyển thẳng `FAILED`, **hoàn kho ngay**, hoàn 100% tiền (nếu PayOS/Ví), gỡ `codReserved`, tách tracking và Shipper nhận 0đ.
+- **Chặng giao khách (`PICKED_UP` → `RETURNING_TO_SHOP → RETURNED_TO_SHOP → FAILED`):**
+  1. Shipper báo giao thất bại (`PUT /orders/{id}/fail` với lý do phía Buyer: `KHONG_LIEN_LAC_DUOC` [≥ 3 cuộc gọi], `SAI_DIA_CHI`, `KHACH_TU_CHOI`, `KHAC` + ≥ 1 ảnh) → mở khóa `codReserved` (nếu COD) để tránh kẹt ký quỹ, nhưng **chưa hoàn kho, chưa hoàn tiền Buyer và chưa trả cước Shipper**. Đơn chuyển **`RETURNING_TO_SHOP`**, giữ tracking (`deliveryPhase = RETURN_TO_SHOP`) và **khóa không cho Shipper nhận đơn mới** tới khi trả xong hàng.
+  2. Shipper mang hàng về Vườn và bấm **"Đã trả hàng về Shop"** (`PUT /orders/{id}/return-to-shop`, bắt buộc ≥ 1 ảnh bàn giao, kiểm tra geofence 500m quanh Shop) → chuyển **`RETURNED_TO_SHOP`**, tách tracking và mở khóa cho Shipper nhận đơn mới.
+  3. Shop kiểm tra ảnh đối soát và bấm **"Xác nhận đã nhận lại hàng"** (`PUT /orders/{id}/confirm-return-received`) → BE gọi `restoreStock(order)` cộng lại tồn kho, đóng đơn về `FAILED` và gọi `WalletServiceImpl.settleFailedReturnOrder(orderId)`:
+     - **Shipper**: Gỡ `SHIPPER_INCOME_HOLD`, cộng **`shipperReceive = shippingFee − 3%`** (`SHIPPER_INCOME`) vào số dư khả dụng.
+     - **Đơn PayOS / Ví**: Hoàn tiền hàng cho Buyer (`totalAmount − shippingFee`, giữ lại phí ship chiều đi), cộng thẳng `BUYER_REFUND` / `ORDER_WALLET_REFUND` vào ví Buyer; Sàn thu 3% `PLATFORM_SHIPPER_FEE`.
+     - **Đơn COD**: Vì chưa thu tiền mặt của Buyer, ví Sàn (`PLATFORM`) tự động bù `shipperReceive` cho Shipper (`PLATFORM_FREESHIP_SUBSIDY`).
+- **Bảng chia tiền (`GET /wallets/orders/{id}/settlement`)**: `computeSplit` xử lý chuẩn cho đơn `FAILED` / `CANCELLED` (Shop `0đ`, Shipper `shipperReceive` nếu đã trả công, Sàn `+3%` hoặc `-shipperReceive` nếu bù COD), hiển thị đồng bộ trên Web & Mobile cho cả 4 vai trò (Shop, Shipper, Buyer, Admin).
+
+### 6.2. Đơn hoàn trả sau khi Buyer đã nhận hàng (`ReturnRequest`)
+Luồng thu hồi hàng khi Buyer yêu cầu trả hàng/hoàn tiền sau khi đã nhận đơn (`RETURN_SHIPPING → RETURN_PICKED_UP → RETURN_DELIVERED / COMPLETED`):
+- **Nhận đơn hoàn (`POST /returns/{id}/shipper/accept`)**: Kiểm tra chéo 1 đơn tại 1 thời điểm trên cả `orders` (`SHIPPING`, `PICKED_UP`, `RETURNING_TO_SHOP`) và `return_requests` (`RETURN_SHIPPING`, `RETURN_PICKED_UP`).
+- **Lấy hàng từ Buyer (`POST /returns/{id}/shipper/pickup`)**: Chụp ảnh bằng chứng (`proofImageUrl`), chuyển `RETURN_PICKED_UP`.
+- **Trả hàng về Shop (`POST /returns/{id}/shipper/deliver`)**: Chụp ảnh bàn giao tại Shop (`proofImageUrl`), chuyển `RETURN_DELIVERED → COMPLETED`, chạy `processReturnRefund` (hoàn tiền Buyer, trừ Shop, và trả `returnShippingFee − 3%` cho Shipper).
+- **Báo thất bại (`POST /returns/{id}/shipper/fail`)**: Chọn lý do + ghi chú + ảnh bằng chứng; ở chặng `RETURN_SHIPPING` → `RETURN_FAILED` (hoàn cước ship hoàn cho Shop nếu đã trừ ví), ở chặng `RETURN_PICKED_UP` → `DISPUTED` (chuyển Admin xử lý).
+- **UI Mobile đồng bộ với Đơn giao**:
+  - Có màn Chi tiết (`/shipper/return/[id]`) kèm nút **`Nhận đơn hoàn #id`**, và màn Bản đồ (`/shipper/return-tracking/[id]`) vẽ tuyến ngược chiều (`Shipper ➔ Khách` và `Khách ➔ Nhà vườn`) kèm `ReturnActionSheet` chụp ảnh/lý do.
+  - Chi tiết thông báo (`NotificationDetailBottomSheet`) nhận diện riêng thông báo **ĐƠN HOÀN TRẢ**, gọi `GET /returns/{id}`, cho phép xem chi tiết, nhận đơn nhanh hoặc mở bản đồ hoàn trả.
+
 ## 7. Theo dõi realtime và bảo mật vị trí
 
-- STOMP `/app/shipper/location` chỉ nhận từ **shipper được gán** khi đơn SHIPPING / PICKED_UP (chặn giả mạo vị trí và `gpsOff`).
+- STOMP `/app/shipper/location` chỉ nhận từ **shipper được gán** khi đơn SHIPPING / PICKED_UP / RETURNING_TO_SHOP (chặn giả mạo vị trí và `gpsOff`).
 - `ShipperLocationResponse` có thêm `distanceKm` (quãng còn lại tới điểm của chặng hiện tại), `estimatedMinutes` (25 km/h), `trackingActive` (cờ báo tracking đang chạy hay đã chốt), và `proofImageUrls` (danh sách ảnh PoD).
-- Chặng mặc định: SHIPPING → `TO_SHOP`, PICKED_UP → `TO_BUYER`, DELIVERED/COMPLETED → `DELIVERED`, FAILED → `FAILED`.
+- Chặng mặc định: SHIPPING → `TO_SHOP`, PICKED_UP → `TO_BUYER`, RETURNING_TO_SHOP → `RETURN_TO_SHOP`, DELIVERED/COMPLETED → `DELIVERED`, FAILED/RETURNED_TO_SHOP → `FAILED`.
 - **Bảo mật và chống rò rỉ GPS đơn cũ:**
   - Endpoint `GET /shippers/location/order/{orderId}` được bảo vệ chặt chẽ: chỉ Buyer của đơn, Shop của đơn, chính Shipper được gán hoặc Admin mới được xem toạ độ.
   - Khi đơn đã kết thúc (`DELIVERED`, `COMPLETED`, `CANCELLED`, `FAILED`): BE **không bao giờ** trả toạ độ realtime của tài xế (tránh lộ toạ độ khi shipper bắt đầu chạy đơn khác). Thay vào đó, BE trả về toạ độ điểm nhận hàng của khách (ghim tĩnh), `distanceKm = 0`, `estimatedMinutes = 0`, `deliveryPhase = "DELIVERED"`, `trackingActive = false` và kèm danh sách ảnh PoD.
   - Khi shipper hoàn thành đơn (`markOrderAsDelivered`) hoặc báo thất bại (`markOrderAsFailed`), BE tự động gỡ `order_id` khỏi `shipper_locations` (`detachOrderFromShipperLocation`) và broadcast frame WebSocket mang `{ trackingActive: false, orderStatus: ... }` lên `/topic/order/{id}/location` để client ngắt kết nối STOMP và ẩn icon xe.
 - Bản đồ mobile (`ShipperTrackingView`) hiện dòng **"Còn ~2,3 km · khoảng 6 phút"** dưới trạng thái chặng (`trackingRules.formatEta`). Dưới 1 km đổi sang mét, còn ≤ 1 phút hiện "sắp tới nơi", đã giao thì ẩn dòng km/phút và ẩn xe di chuyển. Mobile ẩn dòng này khi Buyer chưa được xem vị trí xe (chặng tới vườn).
 - **Quy hoạch nền tảng:** Toàn bộ nghiệp vụ tác nghiệp của Shipper (Bật/tắt trực tuyến, GPS Tracking di chuyển, Nhận đơn theo bán kính, Đối soát mã lấy hàng, Chụp ảnh bằng chứng giao hàng, Quản lý ví tiền) được triển khai độc quyền trên ứng dụng di động **Mobile App** (`APRP-Mobile`). Web (`APRP-FE`) không dùng cho shipper tác nghiệp.
+- **Điều hướng Bản đồ & Ràng buộc Demo Fake GPS (`DemoGpsControl`)**:
+  - **Thoát Bản đồ về `/shipper/delivering`** chỉ khi kết thúc lượt giao của Shipper (`deliver`, `return_shop`, `fail` ở `SHIPPING`, hoặc `deliver`/`fail` ở đơn hoàn trả). **Giữ nguyên trong Bản đồ** khi chuyển chặng (`pickup`, `fail` ở `PICKED_UP` → `RETURNING_TO_SHOP`, hoặc `pickup` ở đơn hoàn trả → `RETURN_PICKED_UP`).
+  - **Ràng buộc Demo Fake GPS theo trạng thái**: `SHIPPING` / `RETURN_SHIPPING` chỉ cho mô phỏng chặng 1; `PICKED_UP` / `RETURN_PICKED_UP` chỉ cho mô phỏng chặng 2; `RETURNING_TO_SHOP` chỉ cho mô phỏng quay về Vườn; các trạng thái kết thúc tự ẩn Demo Fake GPS.
 
 ## 8. Thông báo trạng thái
 
@@ -419,6 +447,4 @@ Phần kiểm tra ở mức API và công thức đã có unit test (BE: `Wallet
 ## 11. Ngoài phạm vi 3 bước của tài liệu (chưa làm)
 
 - Push khi app tắt (Expo push cần `expo-notifications` + development build). Hiện chỉ realtime khi app mở.
-- Trả một phần cước cho shipper khi giao thất bại (hiện không trả).
-- Shop xác nhận đã nhận lại hàng trước khi gỡ ký quỹ khi giao thất bại.
 

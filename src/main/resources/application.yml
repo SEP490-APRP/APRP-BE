@@ -16,6 +16,9 @@ capnong:
     # Nạp ví qua PayOS (VND)
     min-topup: ${CAPNONG_MIN_TOPUP:10000}
     max-topup: ${CAPNONG_MAX_TOPUP:20000000}
+  campaign:
+    # Phí dịch vụ nông dân riêng cho chiến dịch (% tiền hàng trả nhà vườn)
+    farmer-fee-rate: ${CAPNONG_CAMPAIGN_FARMER_FEE_RATE:0.30}
   dispatch:
     # Bán kính quét shipper từng đợt (km), tăng dần; hết đợt thì quét lại bán kính lớn nhất
     radii-km: ${CAPNONG_DISPATCH_RADII_KM:3,6,10}
