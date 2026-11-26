@@ -32,6 +32,10 @@ public class GoogleVisionModerationServiceImpl implements ImageModerationService
     final ObjectMapper objectMapper;
     final ImageDownloadService imageDownloadService;
 
+    // Nhãn quá chung chung (mọi món ăn/thịt/bánh đều có) — không dùng để đẩy điểm nông sản vượt ngưỡng
+    private static final Set<String> GENERIC_FOOD_LABELS = Set.of("FOOD", "INGREDIENT", "STAPLE FOOD");
+    private static final float COOKED_FOOD_REJECT_THRESHOLD = 75.0f;
+
     @Value("${google.vision.min-confidence:70.0}")
     float minConfidenceThreshold;
 
@@ -127,6 +131,7 @@ public class GoogleVisionModerationServiceImpl implements ImageModerationService
             // BƯỚC 1: Phân tích nhãn nông sản (LABEL_DETECTION)
             boolean isComboOrMysteryBox = isComboOrMysteryBoxContext(productName, categoryId);
             float highestAgriConfidence = 0.0f;
+            float highestSpecificAgriConfidence = 0.0f;
             float highestNonAgriConfidence = 0.0f;
             String topNonAgriName = null;
             float highestCookedFoodConfidence = 0.0f;
@@ -153,10 +158,16 @@ public class GoogleVisionModerationServiceImpl implements ImageModerationService
                     hasHumanOrBodyPresence = true;
                 }
 
-                // 2. Kiểm tra nhãn nông sản
-                if (AgriculturalProduceLabel.isAgricultural(description)) {
+                // 2. Kiểm tra nhãn nông sản (loại trừ nhãn quá chung FOOD/INGREDIENT khỏi điểm nông sản)
+                if (AgriculturalProduceLabel.isAgricultural(description) && !GENERIC_FOOD_LABELS.contains(upperDesc)) {
                     if (scorePercent > highestAgriConfidence) {
                         highestAgriConfidence = scorePercent;
+                    }
+                    boolean isSpecific = AgriculturalProduceLabel.findByLabel(description)
+                            .map(AgriculturalProduceLabel::isSpecificProduce)
+                            .orElse(false);
+                    if (isSpecific && scorePercent > highestSpecificAgriConfidence) {
+                        highestSpecificAgriConfidence = scorePercent;
                     }
                     matchedLabels.add(ModerationCheckResult.ModerationLabelItem.builder()
                             .labelName(description)
@@ -165,7 +176,7 @@ public class GoogleVisionModerationServiceImpl implements ImageModerationService
                             .build());
                 }
 
-                // 3. Kiểm tra thức ăn nhanh / thực phẩm chế biến sẵn
+                // 3. Kiểm tra thức ăn nhanh / thực phẩm chế biến sẵn / thịt
                 if (NonAgriculturalItem.isNonAgricultural(description)) {
                     if (scorePercent > highestNonAgriConfidence) {
                         highestNonAgriConfidence = scorePercent;
@@ -173,30 +184,32 @@ public class GoogleVisionModerationServiceImpl implements ImageModerationService
                     }
                 }
 
-                // 4. Nếu là Combo hoặc Túi mù: Nhận diện nhãn món ăn thành phẩm hoặc bao bì quà tặng
-                if (isComboOrMysteryBox) {
-                    if (CookedFoodLabel.isCookedFood(description)) {
-                        if (scorePercent > highestCookedFoodConfidence) {
-                            highestCookedFoodConfidence = scorePercent;
-                            topCookedFoodName = description;
-                        }
+                // 4. Nhận diện món ăn nấu chín (cho phép gắn cờ ở Combo/Túi mù, nhưng dùng để chặn ở nông sản thường)
+                if (CookedFoodLabel.isCookedFood(description) && !GENERIC_FOOD_LABELS.contains(upperDesc)) {
+                    if (scorePercent > highestCookedFoodConfidence) {
+                        highestCookedFoodConfidence = scorePercent;
+                        topCookedFoodName = description;
+                    }
+                    if (isComboOrMysteryBox) {
                         matchedLabels.add(ModerationCheckResult.ModerationLabelItem.builder()
                                 .labelName(description)
                                 .parentLabel("CookedDish")
                                 .confidence(BigDecimal.valueOf(scorePercent).setScale(2, RoundingMode.HALF_UP))
                                 .build());
                     }
-                    if (PackagingLabel.isPackaging(description)) {
-                        if (scorePercent > highestPackagingConfidence) {
-                            highestPackagingConfidence = scorePercent;
-                            topPackagingName = description;
-                        }
-                        matchedLabels.add(ModerationCheckResult.ModerationLabelItem.builder()
-                                .labelName(description)
-                                .parentLabel("Packaging")
-                                .confidence(BigDecimal.valueOf(scorePercent).setScale(2, RoundingMode.HALF_UP))
-                                .build());
+                }
+
+                // 5. Nếu là Combo hoặc Túi mù: Nhận diện nhãn bao bì quà tặng
+                if (isComboOrMysteryBox && PackagingLabel.isPackaging(description)) {
+                    if (scorePercent > highestPackagingConfidence) {
+                        highestPackagingConfidence = scorePercent;
+                        topPackagingName = description;
                     }
+                    matchedLabels.add(ModerationCheckResult.ModerationLabelItem.builder()
+                            .labelName(description)
+                            .parentLabel("Packaging")
+                            .confidence(BigDecimal.valueOf(scorePercent).setScale(2, RoundingMode.HALF_UP))
+                            .build());
                 }
             }
 
@@ -255,14 +268,27 @@ public class GoogleVisionModerationServiceImpl implements ImageModerationService
             }
 
             // BƯỚC 3: Đánh giá chất lượng & Phân loại 2 mức thông thường
-            // Nhánh 3.1: MỨC 1 - Thức ăn nhanh / chế biến sẵn (Chặn cứng)
-            if (highestNonAgriConfidence >= nonAgriThreshold && highestAgriConfidence < minConfidenceThreshold) {
+            // Nhánh 3.1: MỨC 1 - Thức ăn nhanh / thịt / chế biến sẵn (Chặn cứng nếu không có nông sản cụ thể chiếm ưu thế)
+            if (highestNonAgriConfidence >= nonAgriThreshold && highestSpecificAgriConfidence < minConfidenceThreshold) {
                 String nonAgriVi = NonAgriculturalItem.getVietnameseNameOrDefault(topNonAgriName);
                 return ModerationCheckResult.builder()
                         .isAgricultural(false)
                         .isFlagged(true)
                         .overallConfidence(BigDecimal.valueOf(highestNonAgriConfidence).setScale(2, RoundingMode.HALF_UP))
                         .rejectionReason("Ảnh sản phẩm là thực phẩm chế biến sẵn hoặc đồ uống (" + nonAgriVi + "), không phải nông sản tươi sống giải cứu.")
+                        .rawResponse(objectMapper.writeValueAsString(rawLabelList))
+                        .labels(matchedLabels)
+                        .build();
+            }
+
+            // Nhánh 3.1b: MỨC 1 - Món ăn nấu chín (chỉ áp dụng chặn cho nông sản thường, Combo/Túi mù đã xử lý ở Bước 2.2)
+            if (!isComboOrMysteryBox && highestCookedFoodConfidence >= COOKED_FOOD_REJECT_THRESHOLD && highestSpecificAgriConfidence < minConfidenceThreshold) {
+                String foodVi = CookedFoodLabel.getVietnameseNameOrDefault(topCookedFoodName);
+                return ModerationCheckResult.builder()
+                        .isAgricultural(false)
+                        .isFlagged(true)
+                        .overallConfidence(BigDecimal.valueOf(highestCookedFoodConfidence).setScale(2, RoundingMode.HALF_UP))
+                        .rejectionReason("Ảnh sản phẩm là món ăn đã chế biến (" + foodVi + "), không phải nông sản tươi sống giải cứu.")
                         .rawResponse(objectMapper.writeValueAsString(rawLabelList))
                         .labels(matchedLabels)
                         .build();
