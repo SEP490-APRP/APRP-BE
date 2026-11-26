@@ -164,24 +164,24 @@ INSERT INTO product_images (product_id, image_url, is_primary, display_order, is
 (210, 'https://images.unsplash.com/photo-1527325678964-54921661f888?w=600&auto=format&fit=crop', 1, 1, 1, 0),
 (211, 'https://images.unsplash.com/photo-1550258987-190a2d41a8ba?w=600&auto=format&fit=crop', 1, 1, 1, 0),
 (212, 'https://images.unsplash.com/photo-1594282486552-05b4d80fbb9f?w=600&auto=format&fit=crop', 1, 1, 1, 0),
-(213, 'https://images.unsplash.com/photo-1617112848923-cc2234396a8d?w=600&auto=format&fit=crop', 1, 1, 1, 0),
-(214, 'https://images.unsplash.com/photo-1536511135899-7921860086f6?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(213, 'https://images.unsplash.com/photo-1517282009859-f000ec3b26fe?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(214, 'https://images.unsplash.com/photo-1628556270448-4d4e4148e1b1?w=600&auto=format&fit=crop', 1, 1, 1, 0),
 (215, 'https://images.unsplash.com/photo-1533082879395-3410c7d15bf4?w=600&auto=format&fit=crop', 1, 1, 1, 0),
 (216, 'https://images.unsplash.com/photo-1537640538966-79f369143f8f?w=600&auto=format&fit=crop', 1, 1, 1, 0),
 (217, 'https://images.unsplash.com/photo-1560806887-1e4cd0b6cbd6?w=600&auto=format&fit=crop', 1, 1, 1, 0),
 (218, 'https://images.unsplash.com/photo-1567375698348-5d9d5ae99de0?w=600&auto=format&fit=crop', 1, 1, 1, 0),
 (219, 'https://images.unsplash.com/photo-1588252303782-cb80119abd6d?w=600&auto=format&fit=crop', 1, 1, 1, 0),
 (220, 'https://images.unsplash.com/photo-1582281298055-e25b84a30b0b?w=600&auto=format&fit=crop', 1, 1, 1, 0),
-(221, 'https://images.unsplash.com/photo-1597714026732-3907092c7304?w=600&auto=format&fit=crop', 1, 1, 1, 0),
-(222, 'https://images.unsplash.com/photo-1592417817098-8f3d6910985c?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(221, 'https://images.unsplash.com/photo-1546548970-71785318a17b?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(222, 'https://images.unsplash.com/photo-1588879462716-16e03eaeb72e?w=600&auto=format&fit=crop', 1, 1, 1, 0),
 (223, 'https://images.unsplash.com/photo-1628088062854-d1870b4553da?w=600&auto=format&fit=crop', 1, 1, 1, 0),
-(224, 'https://images.unsplash.com/photo-1550258987-190a2d41a8ba?w=600&auto=format&fit=crop', 1, 1, 1, 0),
-(225, 'https://images.unsplash.com/photo-1615485500704-8e990f9900f7?w=600&auto=format&fit=crop', 1, 1, 1, 0),
-(226, 'https://images.unsplash.com/photo-1596040033229-a9821ebd058d?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(224, 'https://images.unsplash.com/photo-1593105544559-ecb03bf76f82?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(225, 'https://images.unsplash.com/photo-1596797882870-8c33deeac224?w=600&auto=format&fit=crop', 1, 1, 1, 0),
+(226, 'https://images.unsplash.com/photo-1525385133512-2f3bdd039054?w=600&auto=format&fit=crop', 1, 1, 1, 0),
 (227, 'https://images.unsplash.com/photo-1525385133512-2f3bdd039054?w=600&auto=format&fit=crop', 1, 1, 1, 0),
 (228, 'https://images.unsplash.com/photo-1567375698348-5d9d5ae99de0?w=600&auto=format&fit=crop', 1, 1, 1, 0),
 (229, 'https://images.unsplash.com/photo-1551754655-cd27e38d2076?w=600&auto=format&fit=crop', 1, 1, 1, 0),
-(230, 'https://images.unsplash.com/photo-1615485290382-441e4d049cb5?w=600&auto=format&fit=crop', 1, 1, 1, 0)
+(230, 'https://images.unsplash.com/photo-1599940824399-b87987ceb72a?w=600&auto=format&fit=crop', 1, 1, 1, 0)
 ON DUPLICATE KEY UPDATE product_id=VALUES(product_id);
 
 
@@ -191,10 +191,11 @@ INSERT INTO carts (id, user_id) VALUES
 (2, 3)
 ON DUPLICATE KEY UPDATE user_id=VALUES(user_id);
 
-INSERT INTO cart_items (cart_id, product_id, quantity) VALUES
-(1, 101, 2),  -- Rau muống (Shop 1)
-(1, 105, 1),  -- Cà rốt (Shop 1)
-(1, 205, 1);  -- Bưởi da xanh (Shop 2)
+INSERT INTO cart_items (id, cart_id, product_id, quantity) VALUES
+(1, 1, 101, 2),  -- Rau muống (Shop 1)
+(2, 1, 105, 1),  -- Cà rốt (Shop 1)
+(3, 1, 205, 1)   -- Bưởi da xanh (Shop 2)
+ON DUPLICATE KEY UPDATE quantity=VALUES(quantity);
 
 -- 7. VOUCHERS
 INSERT INTO vouchers (voucher_id, shop_id, voucher_code, discount_value, max_discount, min_order_value, usage_limit, expiry_date, voucher_type, active) VALUES
