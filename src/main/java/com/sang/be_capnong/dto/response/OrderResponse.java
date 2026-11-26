@@ -60,5 +60,9 @@ public class OrderResponse {
     Integer failCallAttempts;
     List<String> failProofUrls;
     LocalDateTime failedAt;
+    List<String> returnToShopProofUrls;
+    LocalDateTime returnedToShopAt;
+    LocalDateTime returnConfirmedAt;
+    LocalDateTime shipperPaidAt;
     List<OrderDetailResponse> items;
 }
