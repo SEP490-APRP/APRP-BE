@@ -37,12 +37,14 @@ public class UserResponse {
     String logoUrl;
     String achievement;
     String license;
+    String licenseClass;
     String licenseImageUrl;
     Double shopLatitude;
     Double shopLongitude;
 
     // ===== SHIPPER FIELDS =====
     String vehicleNumber;
+    String vehicleType;
     String vehicleDocImageUrl;
 
     // ===== BUYER FIELDS =====

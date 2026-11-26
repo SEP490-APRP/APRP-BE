@@ -57,6 +57,15 @@ public interface CampaignService {
      */
     CampaignResponse resolveShortfall(int campaignId);
 
+    /** Đơn sẽ bị giảm / huỷ nếu chốt phần thiếu */
+    com.sang.be_capnong.dto.response.campaign.ShortfallPreviewResponse previewShortfall(int campaignId);
+
+    /** Các đơn đã đóng gói để in tem; đơn chưa có mã tem an toàn thì được cấp mã */
+    List<PreOrderResponse> preparePackageLabels(int campaignId);
+
+    /** Thông tin công khai của thùng hàng khi quét tem QR */
+    com.sang.be_capnong.dto.response.campaign.PackageTraceResponse tracePackage(String token);
+
     /** Mở kêu gọi nhà vườn bổ sung hàng cho phần thiếu (sau khi mọi nhà vườn đã giao) */
     CampaignResponse openTopUpCall(int campaignId);
 
@@ -66,8 +75,6 @@ public interface CampaignService {
     /** DEPOSIT_PAID -> PROCESSING: đóng gói, sinh mã QR, gán khu giao */
     PreOrderResponse packPreOrder(int preOrderId, PreOrderPackRequest request);
 
-    /** Xe tới hub: các đơn PROCESSING -> READY (READY_FOR_PICKUP) */
-    CampaignResponse dispatchToHub(int campaignId);
 
     /** Khách tự đến điểm tập kết đã nhận hàng và trả phần còn lại: PROCESSING -> DELIVERED */
     PreOrderResponse confirmPickup(int preOrderId);
@@ -123,6 +130,21 @@ public interface CampaignService {
 
     FarmRegistrationResponse registerFarm(int campaignId, FarmRegistrationRequest request);
 
+    /** Admin nhập hộ lô hàng cho shop đã đồng ý góp: tạo lô và duyệt luôn, báo cho shop */
+    FarmRegistrationResponse adminAddRegistration(int campaignId, AdminFarmRegistrationRequest request);
+
+    /**
+     * Nhận thêm hàng khi nhà vườn giao thiếu: shop đã có lô thì cộng thẳng số kg vào lô đó,
+     * shop chưa tham gia (hoặc shop hoàn toàn mới) thì tạo lô đã cân nhận.
+     */
+    FarmRegistrationResponse supplementSupply(int campaignId, com.sang.be_capnong.dto.request.campaign.AdminSupplementRequest request);
+
+    /** Banner đầu trang chủ. publicOnly = true: chỉ chiến dịch người dùng xem được (bỏ nháp chưa kêu gọi, đã huỷ, đã xong) */
+    com.sang.be_capnong.dto.response.campaign.HomeBannerConfigResponse getHomeBanners(boolean publicOnly);
+
+    /** Admin lưu danh sách chiến dịch gắn banner đầu trang chủ + số giây tự chuyển */
+    com.sang.be_capnong.dto.response.campaign.HomeBannerConfigResponse updateHomeBanners(HomeBannerConfigRequest request);
+
     List<FarmRegistrationResponse> getMyRegistrations();
 
     // ── Shipper ──
@@ -131,6 +153,31 @@ public interface CampaignService {
     List<PreOrderResponse> getMyShipperPreOrders();
 
     PreOrderResponse acceptPreOrder(int preOrderId);
+
+    /** Shipper đã kiểm đủ thùng tại hub, lấy hàng và bắt đầu giao */
+    PreOrderResponse pickupPreOrder(int preOrderId, com.sang.be_capnong.dto.request.campaign.PreOrderCrateRequest request);
+
+    /** Shipper bỏ nhận đơn chưa lấy */
+    PreOrderResponse releasePreOrder(int preOrderId);
+
+    /** Hub xác nhận đã nhận đủ các đơn xe tải giao tới; trả về số đơn vừa xác nhận */
+    int receiveAtHub(int hubId, com.sang.be_capnong.dto.request.campaign.PreOrderBatchRequest request);
+
+    /** Hub báo đơn nhận bị thiếu / hư */
+    PreOrderResponse reportHubIssue(int hubId, int preOrderId, com.sang.be_capnong.dto.request.hub.HubIssueRequest request);
+
+    /** Đơn giao tận nơi gắn với một hub (đang tới, chờ shipper, đang giao, đã giao), kèm mã QR thùng */
+    List<PreOrderResponse> getHubOrders(int hubId);
+
+    /** Đánh dấu thùng đã đóng; đủ mọi thùng thì đơn đóng gói xong */
+    PreOrderResponse markPackedCrates(int preOrderId, com.sang.be_capnong.dto.request.campaign.PreOrderCrateRequest request);
+
+    List<PreOrderResponse> acceptPreOrderBatch(com.sang.be_capnong.dto.request.campaign.PreOrderBatchRequest request);
+
+    com.sang.be_capnong.dto.response.campaign.ShipperCapacityResponse getShipperCapacity();
+
+    /** Trả số shipper đã được nhắc */
+    int notifyHubShippers(int campaignId, com.sang.be_capnong.dto.request.campaign.HubNotifyRequest request);
 
     PreOrderResponse deliverPreOrder(int preOrderId, PreOrderDeliveryRequest request);
 

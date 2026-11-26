@@ -20,14 +20,8 @@ public class FarmRegistrationRequest {
     LocalDate harvestDate;
     String note;
 
-    /** Sản phẩm có sẵn trong gian hàng (tuỳ chọn) */
-    Integer productId;
-    /** Tên sản phẩm (bắt buộc; lấy theo productId nếu bỏ trống) */
-    String productName;
     /** 1-5 ảnh minh hoạ lô hàng */
     List<String> productImageUrls;
-    /** Giá đề xuất đ/kg để thương lượng */
-    BigDecimal proposedPricePerKg;
     /** Phải true: nhà vườn cam kết giữ giá + số lượng + chất lượng đã khai */
     Boolean priceCommitted;
     /** DAYS_2_3 | DAYS_3_4 | DAYS_5_6 */

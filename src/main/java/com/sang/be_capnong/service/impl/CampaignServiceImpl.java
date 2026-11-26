@@ -4,6 +4,7 @@ import com.sang.be_capnong.dto.request.campaign.*;
 import com.sang.be_capnong.dto.response.PageResponse;
 import com.sang.be_capnong.dto.response.campaign.CampaignResponse;
 import com.sang.be_capnong.dto.response.campaign.FarmRegistrationResponse;
+import com.sang.be_capnong.dto.response.campaign.PackageTraceResponse;
 import com.sang.be_capnong.dto.response.campaign.PreOrderResponse;
 import com.sang.be_capnong.entity.*;
 import com.sang.be_capnong.enums.*;
@@ -74,11 +75,16 @@ public class CampaignServiceImpl implements CampaignService {
     private final CampaignShippingCalculator shippingCalculator;
     private final com.sang.be_capnong.repository.ShipperLocationRepository shipperLocationRepository;
     private final PayOS payOS;
+    private final com.sang.be_capnong.service.campaign.DeliveryHubService hubService;
+    private final com.sang.be_capnong.service.campaign.HubTripService hubTripService;
+    private final RoleRepository roleRepository;
+    private final org.springframework.security.crypto.password.PasswordEncoder passwordEncoder;
 
     @Value("${capnong.campaign.preorder-expire-minutes:15}")
     private int preOrderExpireMinutes;
 
-    @Value("${capnong.wallet.farmer-fee-rate:0.10}")
+    /** Phí dịch vụ nông dân của chiến dịch (đơn thường dùng capnong.wallet.farmer-fee-rate) */
+    @Value("${capnong.campaign.farmer-fee-rate:0.30}")
     private BigDecimal farmerFeeRate;
 
     /** Phí dịch vụ shipper (% cước), giống đơn thường */
@@ -101,6 +107,7 @@ public class CampaignServiceImpl implements CampaignService {
     @Transactional
     public CampaignResponse createCampaign(CampaignUpsertRequest request) {
         validateUpsert(request);
+        requirePublishNotPast(request.getPublishAt());
         LocalDateTime now = LocalDateTime.now();
         Campaign c = Campaign.builder()
                 .code(nextCode("CD"))
@@ -119,6 +126,8 @@ public class CampaignServiceImpl implements CampaignService {
         Campaign c = lockCampaign(campaignId);
         requireStatus(c, CampaignStatus.DRAFT);
         validateUpsert(request);
+        // Đã đăng lời kêu gọi rồi thì giờ đăng bài cũ được giữ nguyên
+        if (c.getCallPostedAt() == null) requirePublishNotPast(request.getPublishAt());
         BigDecimal oldPrice = c.getRescuePricePerKg();
         LocalDateTime oldCutoff = c.getCutoffAt();
         LocalDate oldDelivery = c.getDeliveryDate();
@@ -243,17 +252,8 @@ public class CampaignServiceImpl implements CampaignService {
         r.setStatus(decision);
         r.setReviewNote(request != null ? request.getNote() : null);
         if (decision == FarmRegistrationStatus.APPROVED) {
-            BigDecimal agreed = request != null ? request.getAgreedPricePerKg() : null;
-            if (agreed != null && agreed.signum() <= 0) {
-                throw new AppException(ErrorCode.CAMPAIGN_PRODUCT_INVALID);
-            }
-            // Giá trả nhà vườn không được vượt giá bán cho người mua, nếu không sàn lỗ trên từng kg
-            if (agreed != null && agreed.compareTo(c.getRescuePricePerKg()) > 0) {
-                throw new AppException(ErrorCode.CAMPAIGN_PRICE_ABOVE_RESCUE);
-            }
-            BigDecimal fallback = r.getProposedPricePerKg() == null ? c.getRescuePricePerKg()
-                    : r.getProposedPricePerKg().min(c.getRescuePricePerKg());
-            r.setAgreedPricePerKg(agreed != null ? agreed.setScale(2, RoundingMode.HALF_UP) : fallback);
+            // Giá thu mua cố định theo giá admin đăng trong bài chiến dịch, không thương lượng
+            r.setAgreedPricePerKg(c.getRescuePricePerKg().setScale(2, RoundingMode.HALF_UP));
             if (topUp) {
                 // Lô bổ sung chỉ được chia đúng phần còn thiếu, không hơn
                 BigDecimal need = topUpRemaining(c);
@@ -269,8 +269,7 @@ public class CampaignServiceImpl implements CampaignService {
                 "Lô " + plain(r.getSurplusVolumeKg()) + " kg của bạn trong chiến dịch \"" + c.getTitle() + "\" "
                         + (topUpApproved ? "đã được duyệt bổ sung. Bạn được chia " + plain(r.getAllocatedVolumeKg())
                                 + " kg, hãy mang đúng số này tới điểm tập kết."
-                        : decision == FarmRegistrationStatus.APPROVED ? "đã được duyệt với giá chốt " + plain(r.getAgreedPricePerKg())
-                                + "đ/kg. Nếu chưa đồng ý giá, hãy nhắn tin với CapNong để thương lượng lại."
+                        : decision == FarmRegistrationStatus.APPROVED ? "đã được duyệt, giá thu mua " + plain(r.getAgreedPricePerKg()) + "đ/kg."
                         : "bị từ chối" + noteSuffix(r.getReviewNote())));
         // Đã chia đủ phần thiếu thì tự đóng kêu gọi bổ sung
         if (topUpApproved && topUpRemaining(c).signum() <= 0) {
@@ -337,6 +336,7 @@ public class CampaignServiceImpl implements CampaignService {
             return false;
         }
         c.setFarmCutoffCheckedAt(now);
+        c.setMinThresholdKg(threshold(c, registrationRepository.sumApprovedSurplus(campaignId)));
         BigDecimal contributed = nz(registrationRepository.sumActiveSurplus(campaignId));
         if (contributed.compareTo(c.getMinThresholdKg()) >= 0) {
             c.setUpdatedAt(now);
@@ -374,6 +374,17 @@ public class CampaignServiceImpl implements CampaignService {
     public CampaignResponse startFulfilling(int campaignId) {
         Campaign c = lockCampaign(campaignId);
         requireStatus(c, CampaignStatus.THRESHOLD_MET);
+        // Chỉ gom hàng từ ngày bắt đầu chiến dịch (nhà vườn thu hoạch trước ngày này)
+        if (c.getStartDate() != null && java.time.LocalDate.now().isBefore(c.getStartDate())) {
+            throw new AppException(ErrorCode.CAMPAIGN_NOT_STARTED, null,
+                    java.util.Map.of("startDate", c.getStartDate().toString()));
+        }
+        // Dự toán và gọi xe trước rồi mới gom hàng; xe chưa nhận đủ vẫn gom được (chỉ lấy tại điểm tập kết thì không cần xe)
+        boolean needsTrucks = preOrderRepository.findByCampaign_CampaignIdAndStatusIn(campaignId, List.of(PreOrderStatus.DEPOSIT_PAID))
+                .stream().anyMatch(p -> !isPickup(p));
+        if (needsTrucks && !hubTripService.trucksCalled(campaignId)) {
+            throw new AppException(ErrorCode.CAMPAIGN_TRUCKS_NOT_READY);
+        }
         c.setStatus(CampaignStatus.FULFILLING);
         c.setUpdatedAt(LocalDateTime.now());
         campaignRepository.save(c);
@@ -416,7 +427,9 @@ public class CampaignServiceImpl implements CampaignService {
             throw new AppException(ErrorCode.CAMPAIGN_INTAKE_INVALID);
         }
         // Nhà vườn chỉ được mang tối đa đúng phần được chia; thiếu thì kêu gọi bổ sung sau khi mọi nhà vườn đã giao
-        if (r.getAllocatedVolumeKg() != null && request.getReceivedWeightKg().compareTo(r.getAllocatedVolumeKg()) > 0) {
+        // Sửa số cân của lô đã nhận bổ sung: số đã cân trước đó (gồm cả phần hư) vẫn hợp lệ
+        if (r.getAllocatedVolumeKg() != null
+                && request.getReceivedWeightKg().compareTo(r.getAllocatedVolumeKg().max(nz(r.getReceivedWeightKg()))) > 0) {
             throw new AppException(ErrorCode.CAMPAIGN_INTAKE_OVER_ALLOCATION);
         }
         // Vd: khai 100 kg, mang tới 100 kg nhưng 20 kg hư -> ghi nhận 80 kg đạt chuẩn vào chiến dịch
@@ -467,21 +480,16 @@ public class CampaignServiceImpl implements CampaignService {
     @Transactional
     public PreOrderResponse packPreOrder(int preOrderId, PreOrderPackRequest request) {
         PreOrder p = lockPreOrder(preOrderId);
-        requireStatus(p.getCampaign(), CampaignStatus.FULFILLING);
-        if (p.getStatus() != PreOrderStatus.DEPOSIT_PAID) {
-            throw new AppException(ErrorCode.PRE_ORDER_INVALID_STATUS);
-        }
-        // Không đóng gói vượt số kg đạt chuẩn đã nhận tại điểm tập kết
+        requirePackable(p);
         int campaignId = p.getCampaign().getCampaignId();
-        BigDecimal packed = nz(preOrderRepository.sumKgByStatuses(campaignId, PACKED_STATUSES));
-        if (packed.add(p.getTotalKg()).compareTo(acceptedVolume(campaignId)) > 0) {
-            throw new AppException(ErrorCode.CAMPAIGN_SHORTFALL);
-        }
+        p.setPackedCrates(null);
         LocalDateTime now = LocalDateTime.now();
         p.setSourceRegistration(pickSourceLot(campaignId, p.getTotalKg()));
         p.setStatus(PreOrderStatus.PROCESSING);
-        p.setQrCode("CAPNONG-" + p.getCode());
+        p.setQrCode(newPackageToken());
         p.setDeliveryZone(request != null ? request.getDeliveryZone() : null);
+        // Gán hub chặng cuối: admin chọn, không thì hub gần người mua nhất (đơn tự đến lấy không qua hub)
+        if (!isPickup(p)) p.setHub(resolveHub(p, request != null ? request.getHubId() : null));
         p.setPackedAt(now);
         p.setUpdatedAt(now);
         PreOrder saved = preOrderRepository.save(p);
@@ -499,6 +507,123 @@ public class CampaignServiceImpl implements CampaignService {
                             + ". Khi tới lấy, bạn đọc mã đơn " + saved.getCode() + " và trả " + plain(saved.getRemainingAmount()) + "đ còn lại.");
         }
         return toPreOrderResponse(saved);
+    }
+
+    @Override
+    @Transactional
+    public PreOrderResponse markPackedCrates(int preOrderId, com.sang.be_capnong.dto.request.campaign.PreOrderCrateRequest request) {
+        PreOrder p = lockPreOrder(preOrderId);
+        requirePackable(p);
+        java.util.TreeSet<Integer> crates = new java.util.TreeSet<>();
+        if (request != null && request.getCrates() != null) {
+            request.getCrates().stream().filter(n -> n != null && n >= 1 && n <= p.getCrateQuantity()).forEach(crates::add);
+        }
+        // Đủ mọi thùng là đơn đóng gói xong
+        if (crates.size() == p.getCrateQuantity()) return packPreOrder(preOrderId, null);
+        p.setPackedCrates(crates.isEmpty() ? null
+                : crates.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(",")));
+        p.setUpdatedAt(LocalDateTime.now());
+        return toPreOrderResponse(preOrderRepository.save(p));
+    }
+
+    /** Cân đủ lô và xử lý xong phần thiếu (bổ sung hoặc chốt bớt đơn) rồi mới đóng gói */
+    private void requirePackable(PreOrder p) {
+        requireStatus(p.getCampaign(), CampaignStatus.FULFILLING);
+        if (p.getStatus() != PreOrderStatus.DEPOSIT_PAID) {
+            throw new AppException(ErrorCode.PRE_ORDER_INVALID_STATUS);
+        }
+        int campaignId = p.getCampaign().getCampaignId();
+        if (intakePending(campaignId) > 0) {
+            throw new AppException(ErrorCode.CAMPAIGN_INTAKE_PENDING);
+        }
+        if (nz(preOrderRepository.sumKgByStatuses(campaignId, PAID_STATUSES)).compareTo(acceptedVolume(campaignId)) > 0) {
+            throw new AppException(ErrorCode.CAMPAIGN_SHORTFALL);
+        }
+    }
+
+    // ───────────── Tem QR thùng hàng ─────────────
+
+    private static final String PACKAGE_TOKEN_PREFIX = "CN";
+
+    /** Mã trên tem: ngẫu nhiên, không đoán được vì ai có mã đều xem được thông tin thùng */
+    private static String newPackageToken() {
+        return PACKAGE_TOKEN_PREFIX + UUID.randomUUID().toString().replace("-", "");
+    }
+
+    private static boolean isPackageToken(String token) {
+        return token != null && token.matches(PACKAGE_TOKEN_PREFIX + "[0-9a-f]{32}");
+    }
+
+    @Override
+    @Transactional
+    public List<PreOrderResponse> preparePackageLabels(int campaignId) {
+        Campaign c = findCampaign(campaignId);
+        Freshness f = freshness(c);
+        List<PreOrderResponse> labels = new ArrayList<>();
+        // Chỉ in tem cho thùng chưa tới tay người nhận
+        for (PreOrder p : preOrderRepository.findByCampaign_CampaignIdAndStatusIn(campaignId,
+                List.of(PreOrderStatus.PROCESSING, PreOrderStatus.READY, PreOrderStatus.SHIPPING))) {
+            if (!isPackageToken(p.getQrCode())) {
+                p.setQrCode(newPackageToken());
+                preOrderRepository.save(p);
+            }
+            labels.add(withPriority(toPreOrderResponse(p), p, f));
+        }
+        return labels;
+    }
+
+    @Override
+    @Transactional
+    public List<PreOrderResponse> getHubOrders(int hubId) {
+        hubService.find(hubId);
+        java.util.Map<Integer, java.util.Set<Integer>> onTheWay = new java.util.HashMap<>();
+        java.util.Map<Integer, Freshness> fresh = new java.util.HashMap<>();
+        List<PreOrderResponse> orders = new ArrayList<>();
+        for (PreOrder p : preOrderRepository.findByHub_HubIdAndStatusInOrderByReadyAtDescPreOrderIdAsc(hubId,
+                List.of(PreOrderStatus.PROCESSING, PreOrderStatus.READY, PreOrderStatus.SHIPPING, PreOrderStatus.DELIVERED, PreOrderStatus.FAILED))) {
+            if (isPickup(p)) continue;
+            // Đơn đóng gói trước đây chưa có mã tem thì cấp luôn để đối chiếu bằng QR
+            if (!isPackageToken(p.getQrCode())) {
+                p.setQrCode(newPackageToken());
+                preOrderRepository.save(p);
+            }
+            int campaignId = p.getCampaign().getCampaignId();
+            PreOrderResponse r = withPriority(toPreOrderResponse(p), p, fresh.computeIfAbsent(campaignId, k -> freshness(p.getCampaign())));
+            r.setOnTheWay(p.getStatus() == PreOrderStatus.READY
+                    && onTheWay.computeIfAbsent(campaignId, hubTripService::orderIdsOnTheWay).contains(p.getPreOrderId()));
+            orders.add(r);
+        }
+        return orders;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PackageTraceResponse tracePackage(String token) {
+        PreOrder p = (isPackageToken(token) ? preOrderRepository.findByQrCode(token) : Optional.<PreOrder>empty())
+                .orElseThrow(() -> new AppException(ErrorCode.PRE_ORDER_NOT_FOUND));
+        Campaign c = p.getCampaign();
+        PreOrderResponse info = withPriority(toPreOrderResponse(p), p, freshness(c));
+        CampaignFarmRegistration lot = p.getSourceRegistration();
+        return PackageTraceResponse.builder()
+                .orderCode(p.getCode())
+                .campaignTitle(c.getTitle())
+                .status(p.getStatus().name())
+                .hubStage(info.getHubStage())
+                .recipientName(p.getRecipientName())
+                .totalKg(p.getTotalKg())
+                .crateKg(p.getCrateSize().getKg())
+                .crateQuantity(p.getCrateQuantity())
+                .productName(info.getSourceProductName())
+                .farmName(info.getSourceShopName())
+                .harvestDate(info.getSourceHarvestDate())
+                .collectionSiteName(c.getCollectionSiteName())
+                .qualityPassed(lot != null && Boolean.TRUE.equals(lot.getQualityPassed()))
+                .checkedAt(lot != null ? lot.getIntakeAt() : null)
+                .shelfLifeTier(info.getShelfLifeTier())
+                .bestBefore(info.getDeliverBy())
+                .packedAt(p.getPackedAt())
+                .deliveredAt(p.getDeliveredAt())
+                .build();
     }
 
     @Override
@@ -563,7 +688,7 @@ public class CampaignServiceImpl implements CampaignService {
         return toPreOrderResponse(saved);
     }
 
-    /** Admin đổi giá / hạn chốt / ngày giao / điểm tập kết khi đã có nhà vườn đăng ký: báo từng shop, thương lượng qua tin nhắn */
+    /** Admin đổi giá / hạn chốt / ngày giao / điểm tập kết khi đã có nhà vườn đăng ký: cập nhật giá lô và báo từng shop */
     private void notifyFarmsOfChanges(Campaign c, BigDecimal oldPrice, LocalDateTime oldCutoff, LocalDate oldDelivery, String oldSite) {
         List<String> changes = new ArrayList<>();
         boolean priceChanged = oldPrice != null && c.getRescuePricePerKg() != null && oldPrice.compareTo(c.getRescuePricePerKg()) != 0;
@@ -576,14 +701,17 @@ public class CampaignServiceImpl implements CampaignService {
         for (CampaignFarmRegistration r : registrationRepository.findByCampaign_CampaignIdOrderByCreatedAtAsc(c.getCampaignId())) {
             if (r.getStatus() != FarmRegistrationStatus.PENDING && r.getStatus() != FarmRegistrationStatus.APPROVED) continue;
             String priceNote = "";
-            if (priceChanged && r.getStatus() == FarmRegistrationStatus.APPROVED && r.getAgreedPricePerKg() != null
-                    && r.getAgreedPricePerKg().compareTo(c.getRescuePricePerKg()) > 0) {
-                priceNote = " Giá đã chốt với bạn (" + plain(r.getAgreedPricePerKg()) + "đ/kg) cao hơn giá mới nên sẽ tính theo "
-                        + plain(c.getRescuePricePerKg()) + "đ/kg.";
+            if (priceChanged) {
+                BigDecimal price = c.getRescuePricePerKg().setScale(2, RoundingMode.HALF_UP);
+                r.setProposedPricePerKg(price);
+                if (r.getStatus() == FarmRegistrationStatus.APPROVED) r.setAgreedPricePerKg(price);
+                r.setUpdatedAt(LocalDateTime.now());
+                registrationRepository.save(r);
+                priceNote = " Lô của bạn tính theo giá mới " + plain(price) + "đ/kg.";
             }
             notify(r.getShop(), "Chiến dịch có thay đổi",
                     "Chiến dịch \"" + c.getTitle() + "\" vừa đổi " + String.join(", ", changes) + "." + priceNote
-                            + " Nếu chưa đồng ý, hãy nhắn tin với CapNong để thương lượng lại trước khi chốt.");
+                            + " Nếu có vướng mắc, hãy nhắn tin với CapNong.");
         }
     }
 
@@ -595,25 +723,6 @@ public class CampaignServiceImpl implements CampaignService {
 
     private static boolean isPickup(PreOrder p) {
         return CampaignShippingCalculator.PICKUP.equalsIgnoreCase(p.getFulfillmentMethod());
-    }
-
-    @Override
-    @Transactional
-    public CampaignResponse dispatchToHub(int campaignId) {
-        Campaign c = lockCampaign(campaignId);
-        requireStatus(c, CampaignStatus.FULFILLING);
-        LocalDateTime now = LocalDateTime.now();
-        for (PreOrder p : preOrderRepository.findByCampaign_CampaignIdAndStatusIn(campaignId, List.of(PreOrderStatus.PROCESSING))) {
-            if (isPickup(p)) continue; // khách tự đến điểm tập kết lấy, không chuyển cho shipper
-            p.setStatus(PreOrderStatus.READY);
-            p.setReadyAt(now);
-            p.setUpdatedAt(now);
-            preOrderRepository.save(p);
-            notify(p.getBuyer(), "Đơn đặt trước đã tới hub",
-                    "Đơn " + p.getCode() + " (" + plain(p.getTotalKg()) + " kg) đã tới hub " + nvl(p.getDeliveryZone(), "")
-                            + " và đang chờ shipper giao. Chuẩn bị " + plain(p.getRemainingAmount()) + "đ trả khi nhận hàng.");
-        }
-        return toCampaignResponse(c);
     }
 
     @Override
@@ -649,7 +758,7 @@ public class CampaignServiceImpl implements CampaignService {
             }
         }
 
-        // 2. Chi trả nhà vườn theo kg cân thực tế đạt chuẩn x giá chốt thương lượng (mặc định giá giải cứu), trừ phí dịch vụ nông dân
+        // 2. Chi trả nhà vườn theo kg cân thực tế đạt chuẩn x giá thu mua cố định của chiến dịch, trừ phí dịch vụ nông dân
         BigDecimal keepRate = BigDecimal.ONE.subtract(farmerFeeRate);
         for (CampaignFarmRegistration r : registrationRepository
                 .findByCampaign_CampaignIdAndStatusOrderByCreatedAtAsc(campaignId, FarmRegistrationStatus.APPROVED)) {
@@ -687,20 +796,16 @@ public class CampaignServiceImpl implements CampaignService {
         if (topUpOpen(c)) {
             c.setTopUpClosedAt(LocalDateTime.now());
         }
-        // Hàng còn lại cho các đơn chưa đóng gói = đạt chuẩn - đã đóng gói / giao
-        BigDecimal available = acceptedVolume(campaignId)
-                .subtract(nz(preOrderRepository.sumKgByStatuses(campaignId, PACKED_STATUSES)))
-                .max(BigDecimal.ZERO);
+        List<PreOrder> unpacked = preOrderRepository.findByCampaign_CampaignIdAndStatusOrderByDepositPaidAtAscPreOrderIdAsc(
+                campaignId, PreOrderStatus.DEPOSIT_PAID).stream().map(p -> lockPreOrder(p.getPreOrderId())).toList();
+        Map<Integer, Integer> keep = planShortfall(campaignId, unpacked);
+        BigDecimal removedKg = BigDecimal.ZERO;
         LocalDateTime now = LocalDateTime.now();
-        for (PreOrder p : preOrderRepository.findByCampaign_CampaignIdAndStatusOrderByDepositPaidAtAscPreOrderIdAsc(
-                campaignId, PreOrderStatus.DEPOSIT_PAID)) {
-            p = lockPreOrder(p.getPreOrderId());
+        for (PreOrder p : unpacked) {
+            Integer canServe = keep.get(p.getPreOrderId());
+            if (canServe == null) continue;
             BigDecimal crateKg = p.getCrateSize().kgDecimal();
-            int canServe = available.divide(crateKg, 0, RoundingMode.DOWN).min(BigDecimal.valueOf(p.getCrateQuantity())).intValue();
-            if (canServe >= p.getCrateQuantity()) {
-                available = available.subtract(p.getTotalKg());
-                continue;
-            }
+            removedKg = removedKg.add(crateKg.multiply(BigDecimal.valueOf(p.getCrateQuantity() - canServe)));
             CampaignDeposit d = depositRepository.findByPreOrderIdForUpdate(p.getPreOrderId()).orElse(null);
             if (canServe == 0) {
                 // Không còn hàng cho đơn này: huỷ và hoàn toàn bộ cọc
@@ -727,10 +832,8 @@ public class CampaignServiceImpl implements CampaignService {
             int oldQty = p.getCrateQuantity();
             BigDecimal newKg = crateKg.multiply(BigDecimal.valueOf(canServe));
             BigDecimal newTotal = p.getUnitPrice().multiply(newKg).setScale(0, RoundingMode.HALF_UP);
-            // Cọc tính trên tiền hàng + phí giao: tính lại phí giao theo số kg mới trước
-            BigDecimal newShipFee = !isPickup(p) && p.getShippingDistanceKm() != null
-                    ? shippingCalculator.fee(c, newKg, p.getShippingDistanceKm()) : nz(p.getShippingFee());
-            BigDecimal newDeposit = depositOf(newTotal, newShipFee, c.getDepositPercent());
+            // Thiếu hàng không phải lỗi người mua: giữ nguyên phí giao dù số kg giảm xuống mốc phí cao hơn
+            BigDecimal newDeposit = depositOf(newTotal, nz(p.getShippingFee()), c.getDepositPercent());
             BigDecimal refund = p.getDepositAmount().subtract(newDeposit).max(BigDecimal.ZERO);
             if (d != null && d.getStatus() == CampaignDepositStatus.HELD_IN_ESCROW && refund.signum() > 0) {
                 escrowService.refundDepositPart(d, refund);
@@ -743,21 +846,63 @@ public class CampaignServiceImpl implements CampaignService {
             p.setTotalKg(scale2(newKg));
             p.setTotalAmount(newTotal);
             p.setDepositAmount(newDeposit);
-            if (!isPickup(p) && p.getShippingDistanceKm() != null) {
-                p.setShippingFee(shippingCalculator.fee(c, newKg, p.getShippingDistanceKm()));
-            }
             p.setRemainingAmount(newTotal.subtract(newDeposit).add(nz(p.getShippingFee())).subtract(nz(p.getShippingDiscountAmount())).max(BigDecimal.ZERO));
             p.setShortfallRefundAmount(scale2(nz(p.getShortfallRefundAmount()).add(refund)));
             p.setUpdatedAt(now);
             preOrderRepository.save(p);
-            available = available.subtract(newKg);
             notify(p.getBuyer(), "Đơn đặt trước được giảm số thùng do thiếu hàng",
                     "Nhà vườn giao thiếu nên đơn " + p.getCode() + " còn " + canServe + "/" + oldQty + " thùng ("
                             + plain(newKg) + " kg). " + plain(refund) + "đ tiền cọc dư đã được hoàn vào ví CapNong. Khi nhận hàng bạn trả "
                             + plain(p.getRemainingAmount()) + "đ.");
         }
+        // Số kg đã bán giảm theo phần bị bớt
+        c.setBookedVolumeKg(scale2(nz(c.getBookedVolumeKg()).subtract(removedKg).max(BigDecimal.ZERO)));
         c.setUpdatedAt(now);
         return toCampaignResponse(campaignRepository.save(c));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public com.sang.be_capnong.dto.response.campaign.ShortfallPreviewResponse previewShortfall(int campaignId) {
+        Campaign c = findCampaign(campaignId);
+        requireStatus(c, CampaignStatus.FULFILLING);
+        if (intakePending(campaignId) > 0) {
+            throw new AppException(ErrorCode.CAMPAIGN_INTAKE_PENDING);
+        }
+        List<PreOrder> unpacked = preOrderRepository.findByCampaign_CampaignIdAndStatusOrderByDepositPaidAtAscPreOrderIdAsc(
+                campaignId, PreOrderStatus.DEPOSIT_PAID);
+        Map<Integer, Integer> keep = planShortfall(campaignId, unpacked);
+        List<com.sang.be_capnong.dto.response.campaign.ShortfallPreviewResponse.Item> items = new ArrayList<>();
+        BigDecimal removed = BigDecimal.ZERO;
+        BigDecimal refundTotal = BigDecimal.ZERO;
+        for (PreOrder p : unpacked) {
+            Integer crates = keep.get(p.getPreOrderId());
+            if (crates == null) continue;
+            BigDecimal crateKg = p.getCrateSize().kgDecimal();
+            removed = removed.add(crateKg.multiply(BigDecimal.valueOf(p.getCrateQuantity() - crates)));
+            CampaignDeposit d = depositRepository.findByPreOrder_PreOrderId(p.getPreOrderId()).orElse(null);
+            boolean held = d != null && d.getStatus() == CampaignDepositStatus.HELD_IN_ESCROW;
+            BigDecimal newTotal = p.getUnitPrice().multiply(crateKg.multiply(BigDecimal.valueOf(crates))).setScale(0, RoundingMode.HALF_UP);
+            BigDecimal refund = !held ? BigDecimal.ZERO
+                    : crates == 0 ? d.getAmount()
+                    : p.getDepositAmount().subtract(depositOf(newTotal, nz(p.getShippingFee()), c.getDepositPercent())).max(BigDecimal.ZERO);
+            refundTotal = refundTotal.add(refund);
+            items.add(com.sang.be_capnong.dto.response.campaign.ShortfallPreviewResponse.Item.builder()
+                    .preOrderId(p.getPreOrderId()).code(p.getCode()).recipientName(p.getRecipientName())
+                    .crateKg(crateKg.intValue()).oldCrates(p.getCrateQuantity()).newCrates(crates).refund(refund).build());
+        }
+        BigDecimal shortfall = nz(preOrderRepository.sumKgByStatuses(campaignId, PAID_STATUSES)).subtract(acceptedVolume(campaignId));
+        return com.sang.be_capnong.dto.response.campaign.ShortfallPreviewResponse.builder()
+                .shortfallKg(shortfall.max(BigDecimal.ZERO)).removedKg(removed).refundTotal(refundTotal).items(items).build();
+    }
+
+    /** Hàng còn lại cho các đơn chưa đóng gói = đạt chuẩn - đã đóng gói / giao; mã đơn bị giảm -> số thùng còn giữ */
+    private Map<Integer, Integer> planShortfall(int campaignId, List<PreOrder> unpacked) {
+        BigDecimal available = acceptedVolume(campaignId).subtract(nz(preOrderRepository.sumKgByStatuses(campaignId, PACKED_STATUSES)));
+        return com.sang.be_capnong.service.campaign.ShortfallPlanner.plan(unpacked.stream()
+                .map(p -> new com.sang.be_capnong.service.campaign.ShortfallPlanner.Demand(
+                        p.getPreOrderId(), p.getCrateSize().kgDecimal(), p.getCrateQuantity(), p.getDepositPaidAt()))
+                .toList(), available);
     }
 
     // ═════════════════════════ CÔNG KHAI / NGƯỜI MUA ═════════════════════════
@@ -801,6 +946,12 @@ public class CampaignServiceImpl implements CampaignService {
     public PreOrderResponse createPreOrder(int campaignId, PreOrderCreateRequest request) {
         User buyer = currentUser();
         boolean pickup = request != null && CampaignShippingCalculator.PICKUP.equalsIgnoreCase(request.getFulfillmentMethod());
+        if (request != null && request.getTotalKg() != null) {
+            com.sang.be_capnong.util.CrateSplitter.Split split = com.sang.be_capnong.util.CrateSplitter.split(request.getTotalKg())
+                    .orElseThrow(() -> new AppException(ErrorCode.PRE_ORDER_KG_INVALID));
+            request.setCrateSize(split.size());
+            request.setCrateQuantity(split.quantity());
+        }
         if (request == null || request.getCrateSize() == null || request.getCrateQuantity() == null
                 || request.getCrateQuantity() < 1 || (!pickup && isBlank(request.getShippingAddress()))
                 || isBlank(request.getRecipientName()) || isBlank(request.getRecipientPhone())) {
@@ -825,11 +976,11 @@ public class CampaignServiceImpl implements CampaignService {
         }
 
         BigDecimal total = c.getRescuePricePerKg().multiply(totalKg).setScale(0, RoundingMode.HALF_UP);
-        // Phí giao biết trước: tính ở server theo khoảng cách + tổng kg
+        // Phí giao cố định theo tổng kg; khoảng cách chỉ để tính cước trả shipper
         Double km = pickup ? null : shippingCalculator.distanceKm(c, request.getShippingLatitude(),
                 request.getShippingLongitude(), request.getShippingAddress());
         BigDecimal baseFee = km == null ? BigDecimal.ZERO : shippingCalculator.baseFee(km);
-        BigDecimal shipFee = km == null ? BigDecimal.ZERO : shippingCalculator.fee(c, totalKg, km);
+        BigDecimal shipFee = pickup ? BigDecimal.ZERO : shippingCalculator.fee(totalKg);
         // Cọc = % x (tiền hàng + phí giao); phần còn lại trả khi nhận hàng
         BigDecimal deposit = depositOf(total, shipFee, c.getDepositPercent());
         String address = pickup
@@ -976,9 +1127,17 @@ public class CampaignServiceImpl implements CampaignService {
     @Transactional(readOnly = true)
     public List<CampaignResponse> getOpenFarmCalls() {
         LocalDateTime now = LocalDateTime.now();
-        return campaignRepository.findOpenCalls().stream()
-                .filter(c -> topUpOpen(c) || c.getCutoffAt().isAfter(now))
-                .map(this::toCampaignResponse).toList();
+        List<Campaign> calls = new ArrayList<>(campaignRepository.findOpenCalls().stream()
+                .filter(c -> topUpOpen(c) || c.getCutoffAt().isAfter(now)).toList());
+        // Shop được rủ vào đề xuất đã duyệt: thấy trước chiến dịch dù lời kêu gọi chưa tới giờ đăng (chưa đăng ký được)
+        proposalMemberRepository.findByShop_IdAndRoleOrderByInvitedAtDesc(currentUser().getId(), ProposalMemberRole.INVITED).stream()
+                .filter(m -> m.getStatus() != ProposalMemberStatus.DECLINED && m.getStatus() != ProposalMemberStatus.REMOVED)
+                .map(m -> m.getProposal().getCampaign())
+                .filter(c -> c != null && c.getStatus() == CampaignStatus.DRAFT && c.getCallPostedAt() == null && c.getCutoffAt().isAfter(now))
+                .forEach(c -> {
+                    if (calls.stream().noneMatch(x -> x.getCampaignId() == c.getCampaignId())) calls.add(c);
+                });
+        return calls.stream().map(this::toCampaignResponse).toList();
     }
 
     @Override
@@ -1021,21 +1180,10 @@ public class CampaignServiceImpl implements CampaignService {
             throw new AppException(ErrorCode.CAMPAIGN_HARVEST_AFTER_CUTOFF);
         }
         // Nhà vườn được góp thêm lô mới cho cùng chiến dịch; mỗi lô là một đơn đăng ký riêng để duyệt / cân / chi trả
-        // Thông tin sản phẩm: tên, ảnh minh hoạ, giá đề xuất, cam kết, thời gian bảo quản
-        Product product = null;
-        if (request.getProductId() != null) {
-            product = productRepository.findById(request.getProductId())
-                    .orElseThrow(() -> new AppException(ErrorCode.CAMPAIGN_PRODUCT_NOT_OWNED));
-            if (product.getShop() == null || product.getShop().getId() != shop.getId()) {
-                throw new AppException(ErrorCode.CAMPAIGN_PRODUCT_NOT_OWNED);
-            }
-        }
-        String productName = !isBlank(request.getProductName()) ? request.getProductName().trim()
-                : product != null ? product.getProductName() : null;
+        // Tên nông sản và giá lấy theo chiến dịch, shop chỉ khai ảnh lô, thời gian bảo quản và cam kết
         List<String> images = request.getProductImageUrls() == null ? List.of()
                 : request.getProductImageUrls().stream().filter(u -> u != null && !u.isBlank()).map(String::trim).toList();
-        if (isBlank(productName) || productName.length() > 200 || images.isEmpty() || images.size() > 5
-                || request.getProposedPricePerKg() == null || request.getProposedPricePerKg().signum() <= 0
+        if (images.isEmpty() || images.size() > 5
                 || request.getShelfLifeTier() == null || !Boolean.TRUE.equals(request.getPriceCommitted())) {
             throw new AppException(ErrorCode.CAMPAIGN_PRODUCT_INVALID);
         }
@@ -1057,10 +1205,9 @@ public class CampaignServiceImpl implements CampaignService {
                 .surplusVolumeKg(scale2(request.getSurplusVolumeKg()))
                 .harvestDate(request.getHarvestDate())
                 .note(request.getNote())
-                .product(product)
-                .productName(productName)
+                .productName(campaignProduct(c))
                 .productImageUrls(String.join(",", images))
-                .proposedPricePerKg(request.getProposedPricePerKg().setScale(2, RoundingMode.HALF_UP))
+                .proposedPricePerKg(c.getRescuePricePerKg().setScale(2, RoundingMode.HALF_UP))
                 .priceCommitted(true)
                 .shelfLifeTier(request.getShelfLifeTier())
                 .status(FarmRegistrationStatus.PENDING)
@@ -1068,6 +1215,230 @@ public class CampaignServiceImpl implements CampaignService {
                 .updatedAt(now)
                 .build());
         return toRegistrationResponse(r);
+    }
+
+    @Override
+    @Transactional
+    public FarmRegistrationResponse adminAddRegistration(int campaignId, AdminFarmRegistrationRequest request) {
+        if (request == null || request.getShopId() == null || request.getSurplusVolumeKg() == null
+                || request.getSurplusVolumeKg().signum() <= 0 || request.getHarvestDate() == null
+                || request.getShelfLifeTier() == null) {
+            throw new AppException(ErrorCode.CAMPAIGN_REGISTRATION_INVALID);
+        }
+        User shop = userRepository.findById(request.getShopId()).orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+        if (!isRole(shop, "SHOP") || shop.getStatus() != UserStatus.ACTIVE || Boolean.FALSE.equals(shop.getShopActive())) {
+            throw new AppException(ErrorCode.CAMPAIGN_SHOP_NOT_VERIFIED);
+        }
+        Campaign c = lockCampaign(campaignId);
+        // Admin nhập hộ khi chiến dịch còn đang gom hàng (chưa đủ ngưỡng / chưa chốt); không bị chặn bởi hạn góp hàng
+        if (c.getStatus() != CampaignStatus.DRAFT && c.getStatus() != CampaignStatus.ACTIVE) {
+            throw new AppException(ErrorCode.CAMPAIGN_INVALID_STATUS);
+        }
+        // Cùng luật ngày thu hoạch như shop tự đăng ký
+        if (c.getStartDate() != null) {
+            if (!request.getHarvestDate().isBefore(c.getStartDate())) throw new AppException(ErrorCode.CAMPAIGN_HARVEST_NOT_BEFORE_START);
+        } else if (request.getHarvestDate().isAfter(c.getCutoffAt().toLocalDate())) {
+            throw new AppException(ErrorCode.CAMPAIGN_HARVEST_AFTER_CUTOFF);
+        }
+        BigDecimal price = c.getRescuePricePerKg();
+        String productName = campaignProduct(c);
+        LocalDateTime now = LocalDateTime.now();
+        String note = isBlank(request.getNote()) ? "CapNong nhập hộ theo xác nhận của shop" : "CapNong nhập hộ: " + request.getNote().trim();
+        if (note.length() > 500) note = note.substring(0, 500);
+        CampaignFarmRegistration r = registrationRepository.save(CampaignFarmRegistration.builder()
+                .campaign(c)
+                .shop(shop)
+                .surplusVolumeKg(scale2(request.getSurplusVolumeKg()))
+                .harvestDate(request.getHarvestDate())
+                .note(note)
+                .productName(productName)
+                .productImageUrls("")
+                .proposedPricePerKg(price.setScale(2, RoundingMode.HALF_UP))
+                .priceCommitted(true)
+                .shelfLifeTier(request.getShelfLifeTier())
+                .status(FarmRegistrationStatus.PENDING)
+                .createdAt(now)
+                .updatedAt(now)
+                .build());
+        notify(shop, "CapNong đã ghi nhận lô hàng của bạn",
+                "CapNong đã nhập hộ lô " + plain(r.getSurplusVolumeKg()) + " kg " + productName + " (thu hoạch "
+                        + request.getHarvestDate() + ") cho chiến dịch \"" + c.getTitle() + "\" theo xác nhận của bạn.");
+        // Shop đã đồng ý góp nên duyệt luôn
+        return reviewRegistration(r.getRegistrationId(), FarmRegistrationStatus.APPROVED,
+                CampaignNoteRequest.builder().note(note).build());
+    }
+
+    @Override
+    @Transactional
+    public FarmRegistrationResponse supplementSupply(int campaignId, AdminSupplementRequest request) {
+        if (request == null || request.getWeightKg() == null || request.getWeightKg().signum() <= 0
+                || (request.getShopId() == null) == (request.getNewShop() == null)) {
+            throw new AppException(ErrorCode.CAMPAIGN_SUPPLEMENT_INVALID);
+        }
+        Campaign c = lockCampaign(campaignId);
+        requireStatus(c, CampaignStatus.FULFILLING);
+        BigDecimal kg = scale2(request.getWeightKg());
+        // Sàn chỉ mua đúng phần người mua còn thiếu
+        if (kg.compareTo(topUpRemaining(c)) > 0) {
+            throw new AppException(ErrorCode.CAMPAIGN_TOP_UP_EXCEEDED);
+        }
+        User shop = request.getNewShop() != null ? createSupplierShop(request.getNewShop())
+                : userRepository.findById(request.getShopId()).orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+        List<CampaignFarmRegistration> lots = registrationRepository
+                .findByCampaign_CampaignIdAndStatusOrderByCreatedAtAsc(campaignId, FarmRegistrationStatus.APPROVED).stream()
+                .filter(x -> x.getShop() != null && x.getShop().getId() == shop.getId() && x.getPaidOutAt() == null)
+                .toList();
+        // Shop đã trong chiến dịch: cộng vào lô đã cân gần nhất, không thì lô chưa được chia kg
+        CampaignFarmRegistration r = lots.stream().filter(x -> x.getIntakeAt() != null).reduce((a, b) -> b)
+                .orElseGet(() -> lots.stream().filter(x -> nz(x.getAllocatedVolumeKg()).signum() == 0).reduce((a, b) -> b).orElse(null));
+        if (r == null && !lots.isEmpty()) {
+            throw new AppException(ErrorCode.CAMPAIGN_INTAKE_PENDING);
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (r == null) {
+            r = newSupplierLot(c, shop, now);
+        }
+        r.setSupplementKg(scale2((r.getSupplementKg() != null ? r.getSupplementKg()
+                : com.sang.be_capnong.service.campaign.SupplySummaryCalculator.notedSupplement(r.getIntakeNote())).add(kg)));
+        BigDecimal accepted = scale2(countedKg(r).add(kg));
+        r.setAcceptedWeightKg(accepted);
+        r.setReceivedWeightKg(scale2(nz(r.getReceivedWeightKg()).add(kg)));
+        r.setRejectedWeightKg(scale2(nz(r.getRejectedWeightKg())));
+        r.setQualityPassed(true);
+        r.setAllocatedVolumeKg(scale2(nz(r.getAllocatedVolumeKg()).max(accepted)));
+        r.setSurplusVolumeKg(scale2(nz(r.getSurplusVolumeKg()).max(r.getAllocatedVolumeKg())));
+        String note = (isBlank(r.getIntakeNote()) ? "" : r.getIntakeNote() + " · ")
+                + "Bổ sung " + plain(kg) + " kg ngày " + now.toLocalDate();
+        r.setIntakeNote(note.length() > 500 ? note.substring(note.length() - 500) : note);
+        r.setIntakeAt(now);
+        r.setUpdatedAt(now);
+        CampaignFarmRegistration saved = registrationRepository.save(r);
+        // Đã đủ phần thiếu thì đóng kêu gọi bổ sung đang mở
+        if (topUpOpen(c) && topUpRemaining(c).signum() <= 0) {
+            c.setTopUpClosedAt(now);
+            c.setUpdatedAt(now);
+            campaignRepository.save(c);
+        }
+        notify(shop, "CapNong đã nhận hàng bổ sung",
+                "CapNong đã nhận thêm " + plain(kg) + " kg cho chiến dịch \"" + c.getTitle() + "\", giá thu mua "
+                        + plain(effectivePrice(saved)) + "đ/kg. Tiền sẽ vào ví khi chiến dịch hoàn tất.");
+        return toRegistrationResponse(saved);
+    }
+
+    /** Lô cho shop chưa tham gia: đã thoả thuận trực tiếp nên duyệt luôn, kg được cộng khi cân nhận */
+    private CampaignFarmRegistration newSupplierLot(Campaign c, User shop, LocalDateTime now) {
+        if (!isRole(shop, "SHOP") || shop.getStatus() != UserStatus.ACTIVE || Boolean.FALSE.equals(shop.getShopActive())) {
+            throw new AppException(ErrorCode.CAMPAIGN_SHOP_NOT_VERIFIED);
+        }
+        BigDecimal price = c.getRescuePricePerKg();
+        return CampaignFarmRegistration.builder()
+                .campaign(c)
+                .shop(shop)
+                .surplusVolumeKg(BigDecimal.ZERO)
+                .harvestDate(now.toLocalDate())
+                .note("CapNong nhận bổ sung tại điểm tập kết")
+                .productName(campaignProduct(c))
+                .productImageUrls("")
+                .proposedPricePerKg(price.setScale(2, RoundingMode.HALF_UP))
+                .agreedPricePerKg(price.setScale(2, RoundingMode.HALF_UP))
+                .priceCommitted(true)
+                .shelfLifeTier(ShelfLifeTier.DAYS_3_4)
+                .status(FarmRegistrationStatus.APPROVED)
+                .reviewedAt(now)
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
+    }
+
+    /** Tạo tài khoản cho shop hoàn toàn mới để nhận tiền; mật khẩu ngẫu nhiên, shop đặt lại qua "Quên mật khẩu" */
+    private User createSupplierShop(AdminSupplementRequest.NewShop s) {
+        if (isBlank(s.getShopName()) || isBlank(s.getOwnerName()) || isBlank(s.getPhoneNumber())
+                || isBlank(s.getEmail()) || isBlank(s.getAddress())) {
+            throw new AppException(ErrorCode.CAMPAIGN_SUPPLEMENT_INVALID);
+        }
+        String phone = s.getPhoneNumber().trim();
+        String email = s.getEmail().trim();
+        if (!phone.matches("^(0|\\+84)[35789][0-9]{8}$")) throw new AppException(ErrorCode.PHONE_NUMBER_INVALID);
+        if (email.length() > 100 || !email.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) throw new AppException(ErrorCode.EMAIL_INVALID);
+        if (userRepository.existsByEmail(email)) throw new AppException(ErrorCode.USER_EXISTED);
+        if (userRepository.existsByPhoneNumber(phone)) throw new AppException(ErrorCode.PHONE_EXISTED);
+        Role role = roleRepository.findByName("SHOP").orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_FOUND));
+        LocalDateTime now = LocalDateTime.now();
+        return userRepository.save(User.builder()
+                .email(email)
+                .password(passwordEncoder.encode(UUID.randomUUID().toString()))
+                .shopName(s.getShopName().trim())
+                .fullName(s.getOwnerName().trim())
+                .phoneNumber(phone)
+                .address(s.getAddress().trim())
+                .bankName(trimToNull(s.getBankName()))
+                .bankAccount(trimToNull(s.getBankAccount()))
+                .bankAccountHolder(trimToNull(s.getBankAccountHolder()))
+                .status(UserStatus.ACTIVE)
+                .shopActive(true)
+                .ratingAverage(0.0)
+                .role(role)
+                .createAt(now)
+                .updateAt(now)
+                .build());
+    }
+
+    // ═══════════════════════ BANNER ĐẦU TRANG CHỦ ═══════════════════════
+
+    private static final int HOME_BANNER_DEFAULT_SECONDS = 6;
+    private static final int HOME_BANNER_MAX = 10;
+
+    @Override
+    @Transactional(readOnly = true)
+    public com.sang.be_capnong.dto.response.campaign.HomeBannerConfigResponse getHomeBanners(boolean publicOnly) {
+        List<Campaign> picked = campaignRepository.findByHomeSlideOrderIsNotNullOrderByHomeSlideOrderAsc();
+        // Số giây lưu trên chính các chiến dịch đang gắn banner (không cần bảng cấu hình riêng)
+        int seconds = picked.stream().map(Campaign::getHomeSlideSeconds).filter(Objects::nonNull)
+                .findFirst().orElse(HOME_BANNER_DEFAULT_SECONDS);
+        List<CampaignResponse> list = picked.stream()
+                .filter(c -> !publicOnly || isPublicOnHome(c))
+                .map(this::toCampaignResponse)
+                .toList();
+        return com.sang.be_capnong.dto.response.campaign.HomeBannerConfigResponse.builder()
+                .intervalSeconds(seconds).campaigns(list).build();
+    }
+
+    @Override
+    @Transactional
+    public com.sang.be_capnong.dto.response.campaign.HomeBannerConfigResponse updateHomeBanners(HomeBannerConfigRequest request) {
+        if (request == null) throw new AppException(ErrorCode.CAMPAIGN_HOME_BANNER_INVALID);
+        int seconds = request.getIntervalSeconds() == null ? HOME_BANNER_DEFAULT_SECONDS : request.getIntervalSeconds();
+        List<Integer> ids = request.getCampaignIds() == null ? List.of()
+                : new ArrayList<>(new LinkedHashSet<>(request.getCampaignIds().stream().filter(Objects::nonNull).toList()));
+        if (seconds < 3 || seconds > 30 || ids.size() > HOME_BANNER_MAX) {
+            throw new AppException(ErrorCode.CAMPAIGN_HOME_BANNER_INVALID);
+        }
+        // Bỏ gắn các chiến dịch không còn trong danh sách
+        for (Campaign c : campaignRepository.findByHomeSlideOrderIsNotNullOrderByHomeSlideOrderAsc()) {
+            if (!ids.contains(c.getCampaignId())) {
+                c.setHomeSlideOrder(null);
+                c.setHomeSlideSeconds(null);
+                campaignRepository.save(c);
+            }
+        }
+        for (int i = 0; i < ids.size(); i++) {
+            Campaign c = findCampaign(ids.get(i));
+            if (c.getStatus() == CampaignStatus.CANCELLED || c.getStatus() == CampaignStatus.COMPLETED) {
+                throw new AppException(ErrorCode.CAMPAIGN_INVALID_STATUS);
+            }
+            c.setHomeSlideOrder(i + 1);
+            c.setHomeSlideSeconds(seconds);
+            campaignRepository.save(c);
+        }
+        return getHomeBanners(false);
+    }
+
+    /** Người dùng thấy: đã đăng lời kêu gọi / đang mở bán / đủ ngưỡng / đang gom hàng */
+    private static boolean isPublicOnHome(Campaign c) {
+        return (c.getStatus() == CampaignStatus.DRAFT && c.getCallPostedAt() != null)
+                || c.getStatus() == CampaignStatus.ACTIVE
+                || c.getStatus() == CampaignStatus.THRESHOLD_MET
+                || c.getStatus() == CampaignStatus.FULFILLING;
     }
 
     @Override
@@ -1182,6 +1553,20 @@ public class CampaignServiceImpl implements CampaignService {
         return fallback != null ? fallback : (lots.isEmpty() ? null : lots.get(0));
     }
 
+    /** Hub giao chặng cuối: hub chỉ định > hub đã gán > hub gần người mua nhất > hub gần điểm tập kết nhất */
+    private com.sang.be_capnong.entity.DeliveryHub resolveHub(PreOrder p, Integer hubId) {
+        if (hubId != null) return hubService.find(hubId);
+        if (p.getHub() != null && p.getHub().isActive()) return p.getHub();
+        com.sang.be_capnong.entity.DeliveryHub near = hubService.nearest(p.getShippingLatitude(), p.getShippingLongitude());
+        if (near != null) return near;
+        Campaign c = p.getCampaign();
+        return hubService.nearest(c.getCollectionSiteLatitude(), c.getCollectionSiteLongitude());
+    }
+
+    private static String hubLabel(PreOrder p) {
+        return p.getHub() != null ? "hub " + p.getHub().getName() + " (" + p.getHub().getAddress() + ")" : "hub giao hàng";
+    }
+
     /** Khu giao = phường người mua chọn lúc đặt; đơn cũ không có thì lấy cụm áp chót của địa chỉ */
     private static String zoneOf(PreOrder p) {
         if (!isBlank(p.getDeliveryWard())) return p.getDeliveryWard().trim();
@@ -1230,15 +1615,17 @@ public class CampaignServiceImpl implements CampaignService {
         List<com.sang.be_capnong.dto.response.campaign.DispatchBoardResponse.ShipperOption> shippers = new ArrayList<>();
         for (User s : userRepository.findByRole_NameIn(List.of("SHIPPER"))) {
             if (s.getStatus() != null && s.getStatus() != com.sang.be_capnong.enums.UserStatus.ACTIVE) continue;
-            boolean online = shipperLocationRepository.findFirstByShipperOrderByUpdatedAtDesc(s)
-                    .map(l -> Boolean.TRUE.equals(l.getOnline()) && l.getLastSeenAt() != null
-                            && l.getLastSeenAt().isAfter(LocalDateTime.now().minusMinutes(10)))
-                    .orElse(false);
+            com.sang.be_capnong.entity.ShipperLocation loc = shipperLocationRepository.findFirstByShipperOrderByUpdatedAtDesc(s).orElse(null);
+            boolean online = loc != null && Boolean.TRUE.equals(loc.getOnline()) && loc.getLastSeenAt() != null
+                    && loc.getLastSeenAt().isAfter(LocalDateTime.now().minusMinutes(10));
             long active = preOrderRepository.findByShipper_IdOrderByUpdatedAtDesc(s.getId()).stream()
                     .filter(p -> p.getStatus() == PreOrderStatus.READY || p.getStatus() == PreOrderStatus.SHIPPING).count();
             shippers.add(com.sang.be_capnong.dto.response.campaign.DispatchBoardResponse.ShipperOption.builder()
                     .id(s.getId()).name(nvl(s.getFullName(), "Shipper #" + s.getId())).phone(s.getPhoneNumber())
-                    .vehicleNumber(s.getVehicleNumber()).online(online).activePreOrders(active).build());
+                    .vehicleNumber(s.getVehicleNumber()).vehicleType(s.getVehicleType())
+                    .vehicleCapacityKg(com.sang.be_capnong.enums.VehicleType.capacityKgOf(s.getVehicleType())).online(online).activePreOrders(active)
+                    .latitude(loc != null ? loc.getLatitude() : null).longitude(loc != null ? loc.getLongitude() : null)
+                    .locationUpdatedAt(loc != null ? loc.getUpdatedAt() : null).build());
         }
         shippers.sort(java.util.Comparator.comparing((com.sang.be_capnong.dto.response.campaign.DispatchBoardResponse.ShipperOption o) -> !o.isOnline())
                 .thenComparingLong(com.sang.be_capnong.dto.response.campaign.DispatchBoardResponse.ShipperOption::getActivePreOrders));
@@ -1268,8 +1655,18 @@ public class CampaignServiceImpl implements CampaignService {
                     .filter(u -> u.getRole() != null && "SHIPPER".equalsIgnoreCase(u.getRole().getName()))
                     .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
         }
+        com.sang.be_capnong.entity.DeliveryHub chosenHub = request.getHubId() != null ? hubService.find(request.getHubId()) : null;
+        if (shipper != null) {
+            // Gắn đơn cho shipper cũng phải vừa sức chở của xe
+            int shipperId = shipper.getId();
+            requireCapacity(shipper, preOrderRepository.findAllById(request.getPreOrderIds()).stream()
+                    .filter(p -> p.getShipper() == null || p.getShipper().getId() != shipperId)
+                    .map(p -> nz(p.getTotalKg())).reduce(BigDecimal.ZERO, BigDecimal::add));
+        }
         LocalDateTime now = LocalDateTime.now();
         int count = 0;
+        java.util.Set<String> hubNames = new java.util.LinkedHashSet<>();
+        java.util.Set<Integer> arrived = hubTripService.orderIdsArrived(campaignId);
         for (Integer id : request.getPreOrderIds()) {
             PreOrder p = lockPreOrder(id);
             if (p.getCampaign().getCampaignId() != campaignId || isPickup(p)) continue;
@@ -1277,19 +1674,38 @@ public class CampaignServiceImpl implements CampaignService {
             boolean reassign = p.getStatus() == PreOrderStatus.READY && p.getPickedUpAt() == null;
             if (!waiting && !reassign) continue;
             p.setDeliveryZone(zoneOf(p));
+            Integer oldHubId = p.getHub() != null ? p.getHub().getHubId() : null;
+            p.setHub(Boolean.TRUE.equals(request.getDirect()) ? null : chosenHub != null ? chosenHub : resolveHub(p, null));
+            // Đổi sang hub khác thì hub mới phải xác nhận lại
+            if (!java.util.Objects.equals(oldHubId, p.getHub() != null ? p.getHub().getHubId() : null)) {
+                p.setHubReceivedAt(null);
+                p.setHubReceivedBy(null);
+            }
+            if (shipper != null) requireReceived(p);
+            if (p.getHub() != null) hubNames.add(p.getHub().getName());
             p.setStatus(PreOrderStatus.READY);
             if (p.getReadyAt() == null || waiting) p.setReadyAt(now);
+            // Đổi shipper hoặc trả đơn về hub: gỡ ký quỹ của người đang giữ
+            if (p.getShipper() != null && (shipper == null || p.getShipper().getId() != shipper.getId())) {
+                escrowService.releaseShipperCod(p, "đơn được chuyển khỏi shipper");
+                p.setCodReservedAmount(null);
+            }
             p.setShipper(shipper);
             p.setUpdatedAt(now);
             preOrderRepository.save(p);
             count++;
-            notify(p.getBuyer(), "Đơn đặt trước đã tới hub",
-                    "Đơn " + p.getCode() + " đã ra hub giao hàng" + (shipper != null ? ", shipper " + nvl(shipper.getFullName(), "") + " sẽ giao tới bạn" : " và đang chờ shipper nhận")
+            // Xe chưa chở tới thì chưa báo "đã tới hub": người mua được báo khi tài xế giao tới nơi
+            boolean atHub = shipper != null || arrived.contains(p.getPreOrderId()) || Boolean.TRUE.equals(request.getDirect());
+            notify(p.getBuyer(), atHub ? "Đơn đặt trước đã tới hub" : "Đơn đặt trước sắp được chở ra hub",
+                    "Đơn " + p.getCode()
+                            + (atHub ? " đã tới " + hubLabel(p) + (shipper != null ? ", shipper " + nvl(shipper.getFullName(), "") + " sẽ giao tới bạn" : " và đang chờ shipper nhận")
+                            : " đã đóng gói, xe sẽ chở tới " + hubLabel(p) + (c.getEndDate() != null ? " từ ngày " + c.getEndDate().format(java.time.format.DateTimeFormatter.ofPattern("dd/MM")) : ""))
                             + ". Chuẩn bị " + plain(p.getRemainingAmount()) + "đ trả khi nhận hàng.");
         }
         if (shipper != null && count > 0) {
             notify(shipper, "Bạn được giao đơn chiến dịch",
-                    count + " đơn của chiến dịch \"" + c.getTitle() + "\" đang chờ bạn tại " + nvl(c.getCollectionSiteName(), "điểm tập kết")
+                    count + " đơn của chiến dịch \"" + c.getTitle() + "\" đang chờ bạn tại "
+                            + (hubNames.isEmpty() ? nvl(c.getCollectionSiteName(), "điểm tập kết") : "hub " + String.join(", ", hubNames))
                             + ". Mở mục Đơn chiến dịch để nhận hàng và giao.");
         }
         return getDispatchBoard(campaignId);
@@ -1321,9 +1737,12 @@ public class CampaignServiceImpl implements CampaignService {
     @Transactional(readOnly = true)
     public List<PreOrderResponse> getReadyForPickup() {
         java.util.Map<Integer, Freshness> cache = new java.util.HashMap<>();
+        java.util.Map<Integer, java.util.Set<Integer>> onTheWay = new java.util.HashMap<>();
+        // Chỉ đơn giao tận nơi mà hub đã xác nhận nhận hàng từ xe tải
         return preOrderRepository.findByStatusAndShipperIsNullOrderByReadyAtAsc(PreOrderStatus.READY).stream()
-                .map(p -> withPriority(toPreOrderResponse(p), p,
-                        cache.computeIfAbsent(p.getCampaign().getCampaignId(), k -> freshness(p.getCampaign()))))
+                .filter(p -> !isPickup(p) && (p.getHub() == null || p.getHubReceivedAt() != null)
+                        && !onTheWay.computeIfAbsent(p.getCampaign().getCampaignId(), hubTripService::orderIdsOnTheWay).contains(p.getPreOrderId()))
+                .map(p -> shipperView(p, cache))
                 .sorted(PRIORITY_ORDER).toList();
     }
 
@@ -1332,9 +1751,23 @@ public class CampaignServiceImpl implements CampaignService {
     public List<PreOrderResponse> getMyShipperPreOrders() {
         java.util.Map<Integer, Freshness> cache = new java.util.HashMap<>();
         return preOrderRepository.findByShipper_IdOrderByUpdatedAtDesc(currentUser().getId()).stream()
-                .map(p -> withPriority(toPreOrderResponse(p), p,
-                        cache.computeIfAbsent(p.getCampaign().getCampaignId(), k -> freshness(p.getCampaign()))))
+                .map(p -> shipperView(p, cache))
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public com.sang.be_capnong.dto.response.campaign.ShipperCapacityResponse getShipperCapacity() {
+        User shipper = currentUser();
+        com.sang.be_capnong.enums.VehicleType type = com.sang.be_capnong.enums.VehicleType.parse(shipper.getVehicleType());
+        if (type == null) type = com.sang.be_capnong.enums.VehicleType.MOTORBIKE;
+        return com.sang.be_capnong.dto.response.campaign.ShipperCapacityResponse.builder()
+                .vehicleType(type.name())
+                .vehicleLabel(type.getLabel())
+                .capacityKg(type.getCapacityKg())
+                .carryingKg(carryingKg(shipper))
+                .availableBalance(escrowService.shipperAvailable(shipper))
+                .build();
     }
 
     @Override
@@ -1342,23 +1775,227 @@ public class CampaignServiceImpl implements CampaignService {
     public PreOrderResponse acceptPreOrder(int preOrderId) {
         User shipper = currentUser();
         PreOrder p = lockPreOrder(preOrderId);
-        // Đơn trong hub chưa có ai nhận, hoặc đơn admin đã giao cho chính shipper này nhưng chưa lấy khỏi hub
-        boolean open = p.getShipper() == null;
-        boolean assignedToMe = p.getShipper() != null && p.getShipper().getId() == shipper.getId() && p.getPickedUpAt() == null;
-        if (p.getStatus() != PreOrderStatus.READY || !(open || assignedToMe)) {
-            throw new AppException(ErrorCode.PRE_ORDER_INVALID_STATUS);
+        requireClaimable(p, shipper);
+        requireCapacity(shipper, nz(p.getTotalKg()));
+        claim(p, shipper);
+        notifyClaimed(p, shipper);
+        return toPreOrderResponse(p);
+    }
+
+    @Override
+    @Transactional
+    public PreOrderResponse pickupPreOrder(int preOrderId, com.sang.be_capnong.dto.request.campaign.PreOrderCrateRequest request) {
+        User shipper = currentUser();
+        PreOrder p = lockPreOrder(preOrderId);
+        requireHeld(p, shipper);
+        requireReceived(p);
+        long checked = request == null || request.getCrates() == null ? 0 : request.getCrates().stream()
+                .filter(n -> n != null && n >= 1 && n <= p.getCrateQuantity()).distinct().count();
+        if (checked != p.getCrateQuantity()) {
+            throw new AppException(ErrorCode.HUB_PICKUP_BOXES_MISSING);
         }
+        // Đơn admin gắn cho shipper chưa ký quỹ: ký quỹ lúc lấy hàng
+        if (p.getCodReservedAmount() == null) p.setCodReservedAmount(escrowService.reserveShipperCod(p, shipper));
         LocalDateTime now = LocalDateTime.now();
-        // Ký quỹ tiền thu hộ trong ví shipper (giống đơn COD thường)
-        p.setCodReservedAmount(escrowService.reserveShipperCod(p, shipper));
-        p.setShipper(shipper);
         p.setStatus(PreOrderStatus.SHIPPING);
         p.setPickedUpAt(now);
         p.setUpdatedAt(now);
         preOrderRepository.save(p);
-        notify(p.getBuyer(), "Shipper đang giao đơn đặt trước",
-                "Đơn " + p.getCode() + " đã được shipper " + nvl(shipper.getFullName(), "") + " nhận tại hub và đang giao tới bạn.");
+        notifyShipping(p, shipper);
         return toPreOrderResponse(p);
+    }
+
+    @Override
+    @Transactional
+    public PreOrderResponse releasePreOrder(int preOrderId) {
+        User shipper = currentUser();
+        PreOrder p = lockPreOrder(preOrderId);
+        requireHeld(p, shipper);
+        escrowService.releaseShipperCod(p, "shipper bỏ nhận đơn");
+        p.setCodReservedAmount(null);
+        p.setShipper(null);
+        p.setUpdatedAt(LocalDateTime.now());
+        preOrderRepository.save(p);
+        return toPreOrderResponse(p);
+    }
+
+    @Override
+    @Transactional
+    public int receiveAtHub(int hubId, com.sang.be_capnong.dto.request.campaign.PreOrderBatchRequest request) {
+        com.sang.be_capnong.entity.DeliveryHub hub = hubService.find(hubId);
+        if (request == null || request.getPreOrderIds() == null || request.getPreOrderIds().isEmpty()) {
+            throw new AppException(ErrorCode.PRE_ORDER_BATCH_INVALID);
+        }
+        User admin = currentUser();
+        LocalDateTime now = LocalDateTime.now();
+        int count = 0;
+        for (Integer id : request.getPreOrderIds().stream().filter(java.util.Objects::nonNull).distinct().sorted().toList()) {
+            PreOrder p = lockPreOrder(id);
+            requireAtHub(p, hubId);
+            if (p.getHubReceivedAt() != null) continue;
+            p.setHubReceivedAt(now);
+            p.setHubReceivedBy(nvl(admin.getFullName(), "Quản trị viên"));
+            p.setHubIssueCrates(null);
+            p.setHubIssueNote(null);
+            p.setUpdatedAt(now);
+            preOrderRepository.save(p);
+            count++;
+            if (p.getShipper() != null) {
+                notify(p.getShipper(), "Hub đã nhận hàng, mời bạn tới lấy",
+                        "Đơn " + p.getCode() + " đã được hub " + hub.getName() + " xác nhận. Bạn tới lấy và kiểm đủ thùng.");
+            }
+        }
+        return count;
+    }
+
+    @Override
+    @Transactional
+    public PreOrderResponse reportHubIssue(int hubId, int preOrderId, com.sang.be_capnong.dto.request.hub.HubIssueRequest request) {
+        com.sang.be_capnong.entity.DeliveryHub hub = hubService.find(hubId);
+        PreOrder p = lockPreOrder(preOrderId);
+        requireAtHub(p, hubId);
+        if (request == null || request.getCrates() == null || request.getCrates() < 1 || request.getCrates() > p.getCrateQuantity()
+                || isBlank(request.getNote()) || request.getNote().trim().length() > 500) {
+            throw new AppException(ErrorCode.CAMPAIGN_INVALID_DATA);
+        }
+        p.setHubIssueCrates(request.getCrates());
+        p.setHubIssueNote(request.getNote().trim());
+        // Có vấn đề thì coi như chưa nhận đủ: shipper không lấy được tới khi hub xác nhận lại
+        p.setHubReceivedAt(null);
+        p.setHubReceivedBy(null);
+        p.setUpdatedAt(LocalDateTime.now());
+        preOrderRepository.save(p);
+        String message = "Hub " + hub.getName() + " báo đơn " + p.getCode() + " thiếu / hư " + request.getCrates() + " thùng" + noteSuffix(p.getHubIssueNote());
+        User driver = hubTripService.driverOf(p.getCampaign().getCampaignId(), preOrderId);
+        if (driver != null) notify(driver, "Hub báo thiếu / hư hàng", message);
+        if (p.getShipper() != null) notify(p.getShipper(), "Đơn tại hub tạm chưa lấy được", message);
+        return toPreOrderResponse(p);
+    }
+
+    /** Đơn giao tận nơi xe tải đã đưa tới đúng hub này, shipper chưa lấy đi */
+    private void requireAtHub(PreOrder p, int hubId) {
+        if (p.getStatus() != PreOrderStatus.READY || isPickup(p) || p.getPickedUpAt() != null
+                || p.getHub() == null || p.getHub().getHubId() != hubId) {
+            throw new AppException(ErrorCode.PRE_ORDER_INVALID_STATUS);
+        }
+        if (hubTripService.orderIdsOnTheWay(p.getCampaign().getCampaignId()).contains(p.getPreOrderId())) {
+            throw new AppException(ErrorCode.HUB_ORDER_NOT_ARRIVED);
+        }
+    }
+
+    private void requireReceived(PreOrder p) {
+        if (p.getHub() != null && p.getHubReceivedAt() == null) {
+            throw new AppException(ErrorCode.HUB_ORDER_NOT_RECEIVED);
+        }
+    }
+
+    /** Đơn shipper đang giữ (đã nhận hoặc admin gắn) mà chưa lấy khỏi hub */
+    private void requireHeld(PreOrder p, User shipper) {
+        if (p.getShipper() == null || p.getShipper().getId() != shipper.getId()) {
+            throw new AppException(ErrorCode.PRE_ORDER_NOT_OWNER);
+        }
+        if (p.getStatus() != PreOrderStatus.READY || p.getPickedUpAt() != null) {
+            throw new AppException(ErrorCode.PRE_ORDER_INVALID_STATUS);
+        }
+    }
+
+    @Override
+    @Transactional
+    public List<PreOrderResponse> acceptPreOrderBatch(com.sang.be_capnong.dto.request.campaign.PreOrderBatchRequest request) {
+        if (request == null || request.getPreOrderIds() == null || request.getPreOrderIds().isEmpty()) {
+            throw new AppException(ErrorCode.PRE_ORDER_BATCH_INVALID);
+        }
+        User shipper = currentUser();
+        // Khoá theo thứ tự mã đơn để hai shipper chọn trùng đơn không khoá chéo nhau
+        List<PreOrder> orders = request.getPreOrderIds().stream().filter(java.util.Objects::nonNull).distinct().sorted()
+                .map(this::lockPreOrder).toList();
+        if (orders.isEmpty() || orders.stream().map(p -> p.getHub() == null ? 0 : p.getHub().getHubId()).distinct().count() > 1) {
+            throw new AppException(ErrorCode.PRE_ORDER_BATCH_INVALID);
+        }
+        orders.forEach(p -> requireClaimable(p, shipper));
+        requireCapacity(shipper, orders.stream().map(p -> nz(p.getTotalKg())).reduce(BigDecimal.ZERO, BigDecimal::add));
+        // Ký quỹ đủ cho cả chuyến rồi mới báo người mua: thiếu tiền ở đơn nào thì huỷ cả chuyến
+        orders.forEach(p -> claim(p, shipper));
+        orders.forEach(p -> notifyClaimed(p, shipper));
+        return orders.stream().map(this::toPreOrderResponse).toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public int notifyHubShippers(int campaignId, com.sang.be_capnong.dto.request.campaign.HubNotifyRequest request) {
+        Campaign c = findCampaign(campaignId);
+        requireStatus(c, CampaignStatus.FULFILLING);
+        if (request == null || request.getHubId() == null || request.getShipperIds() == null) {
+            throw new AppException(ErrorCode.CAMPAIGN_INVALID_DATA);
+        }
+        com.sang.be_capnong.entity.DeliveryHub hub = hubService.find(request.getHubId());
+        java.util.Set<Integer> onTheWay = hubTripService.orderIdsOnTheWay(campaignId);
+        // Chỉ nhắc đơn hub đã xác nhận, đơn chưa xác nhận shipper chưa nhận được
+        List<PreOrder> waiting = preOrderRepository.findByStatusAndShipperIsNullOrderByReadyAtAsc(PreOrderStatus.READY).stream()
+                .filter(p -> p.getCampaign().getCampaignId() == campaignId && !isPickup(p) && p.getHub() != null
+                        && p.getHub().getHubId() == hub.getHubId() && p.getHubReceivedAt() != null && !onTheWay.contains(p.getPreOrderId()))
+                .toList();
+        if (waiting.isEmpty()) return 0;
+        BigDecimal kg = waiting.stream().map(p -> nz(p.getTotalKg())).reduce(BigDecimal.ZERO, BigDecimal::add);
+        String message = "Hub " + hub.getName() + " (" + hub.getAddress() + ") còn " + waiting.size() + " đơn, " + plain(kg)
+                + " kg của chiến dịch \"" + c.getTitle() + "\" đang chờ shipper. Mở mục Đơn chiến dịch để tạo chuyến giao.";
+        int sent = 0;
+        for (User s : userRepository.findAllById(request.getShipperIds())) {
+            if (s.getRole() == null || !"SHIPPER".equalsIgnoreCase(s.getRole().getName())) continue;
+            notify(s, "Đơn tại hub đang chờ bạn nhận", message);
+            sent++;
+        }
+        return sent;
+    }
+
+    private PreOrderResponse shipperView(PreOrder p, java.util.Map<Integer, Freshness> cache) {
+        return withPriority(toPreOrderResponse(p), p,
+                cache.computeIfAbsent(p.getCampaign().getCampaignId(), k -> freshness(p.getCampaign())));
+    }
+
+    /** Đơn hub đã xác nhận và chưa có ai nhận */
+    private void requireClaimable(PreOrder p, User shipper) {
+        if (p.getStatus() != PreOrderStatus.READY || isPickup(p) || p.getShipper() != null) {
+            throw new AppException(ErrorCode.PRE_ORDER_INVALID_STATUS);
+        }
+        if (hubTripService.orderIdsOnTheWay(p.getCampaign().getCampaignId()).contains(p.getPreOrderId())) {
+            throw new AppException(ErrorCode.HUB_ORDER_NOT_ARRIVED);
+        }
+        requireReceived(p);
+    }
+
+    private BigDecimal carryingKg(User shipper) {
+        return preOrderRepository.findByShipper_IdOrderByUpdatedAtDesc(shipper.getId()).stream()
+                // Tính cả đơn đã nhận nhưng chưa lấy khỏi hub
+                .filter(p -> p.getStatus() == PreOrderStatus.SHIPPING || p.getStatus() == PreOrderStatus.READY)
+                .map(p -> nz(p.getTotalKg())).reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    /** Tổng kg đang chở cộng thêm không được vượt sức chở của xe (chưa khai báo loại xe = xe máy) */
+    private void requireCapacity(User shipper, BigDecimal addKg) {
+        BigDecimal capacity = BigDecimal.valueOf(com.sang.be_capnong.enums.VehicleType.capacityKgOf(shipper.getVehicleType()));
+        if (carryingKg(shipper).add(addKg).compareTo(capacity) > 0) {
+            throw new AppException(ErrorCode.SHIPPER_OVER_CAPACITY);
+        }
+    }
+
+    private void claim(PreOrder p, User shipper) {
+        LocalDateTime now = LocalDateTime.now();
+        // Ký quỹ tiền thu hộ trong ví shipper (giống đơn COD thường)
+        p.setCodReservedAmount(escrowService.reserveShipperCod(p, shipper));
+        p.setShipper(shipper);
+        p.setUpdatedAt(now);
+        preOrderRepository.save(p);
+    }
+
+    private void notifyClaimed(PreOrder p, User shipper) {
+        notify(p.getBuyer(), "Shipper đã nhận đơn đặt trước",
+                "Shipper " + nvl(shipper.getFullName(), "") + " đã nhận đơn " + p.getCode() + ", sẽ lấy hàng tại " + hubLabel(p) + " rồi giao tới bạn.");
+    }
+
+    private void notifyShipping(PreOrder p, User shipper) {
+        notify(p.getBuyer(), "Shipper đang giao đơn đặt trước",
+                "Đơn " + p.getCode() + " đã được shipper " + nvl(shipper.getFullName(), "") + " nhận tại " + hubLabel(p) + " và đang giao tới bạn.");
     }
 
     @Override
@@ -1379,7 +2016,7 @@ public class CampaignServiceImpl implements CampaignService {
         escrowService.releaseShipperCod(p, "giao thành công");
         p.setCodReservedAmount(null);
         escrowService.shipperCashCollected(p);
-        BigDecimal earned = escrowService.payShipper(p, shipperBaseFee(p), shipperFeeRate, "giao");
+        BigDecimal earned = escrowService.payShipper(p, shipperGrossFee(p), shipperFeeRate, "giao");
         p.setShipperIncomeAmount(nz(p.getShipperIncomeAmount()).add(earned));
         preOrderRepository.save(p);
         notify(p.getBuyer(), "Đã giao đơn đặt trước", "Đơn " + p.getCode() + " đã giao thành công. Cảm ơn bạn đã cùng giải cứu nông sản!");
@@ -1398,7 +2035,7 @@ public class CampaignServiceImpl implements CampaignService {
         // Không thu được tiền: gỡ ký quỹ; shipper vẫn nhận một phần cước vì đã đi tới nơi
         escrowService.releaseShipperCod(p, "giao thất bại");
         p.setCodReservedAmount(null);
-        BigDecimal tripFee = shipperBaseFee(p).multiply(failedTripRate).setScale(0, RoundingMode.HALF_UP);
+        BigDecimal tripFee = shipperGrossFee(p).multiply(failedTripRate).setScale(0, RoundingMode.HALF_UP);
         BigDecimal earned = escrowService.payShipper(p, tripFee, shipperFeeRate, "lượt giao thất bại");
         p.setShipperIncomeAmount(nz(p.getShipperIncomeAmount()).add(earned));
         preOrderRepository.save(p);
@@ -1482,6 +2119,8 @@ public class CampaignServiceImpl implements CampaignService {
         }
         LocalDateTime now = LocalDateTime.now();
         c.setEvaluatedAt(now);
+        // Lưu lại ngưỡng đúng lúc chốt để về sau hiển thị đúng con số đã xét
+        c.setMinThresholdKg(threshold(c, registrationRepository.sumApprovedSurplus(campaignId)));
         if (nz(c.getBookedVolumeKg()).compareTo(c.getMinThresholdKg()) < 0) {
             log.info("[Campaign] {} unmet threshold: booked {} < min {}", c.getCode(), c.getBookedVolumeKg(), c.getMinThresholdKg());
             cancelAndRefund(c, "Không đạt ngưỡng " + plain(c.getMinThresholdKg()) + " kg lúc chốt (đã đặt "
@@ -1492,39 +2131,11 @@ public class CampaignServiceImpl implements CampaignService {
         c.setStatus(CampaignStatus.THRESHOLD_MET);
         c.setUpdatedAt(now);
         campaignRepository.save(c);
-        applyGroupShippingDiscount(c);
         for (PreOrder p : preOrderRepository.findByCampaign_CampaignIdAndStatusIn(campaignId, List.of(PreOrderStatus.DEPOSIT_PAID))) {
             notify(p.getBuyer(), "Chiến dịch đủ ngưỡng", "Chiến dịch \"" + c.getTitle() + "\" đã đủ sản lượng. Đơn "
                     + p.getCode() + " sẽ được gom và giao tới bạn.");
         }
         log.info("[Campaign] {} THRESHOLD_MET with {} kg", c.getCode(), c.getBookedVolumeKg());
-    }
-
-    /** Gom đơn: phường có từ N đơn giao tận nơi trở lên được giảm thêm 50% phí giao (trừ vào số trả khi nhận) */
-    private void applyGroupShippingDiscount(Campaign c) {
-        int min = CampaignShippingCalculator.groupMinOrders(c);
-        java.util.Map<String, List<PreOrder>> byWard = new java.util.LinkedHashMap<>();
-        for (PreOrder p : preOrderRepository.findByCampaign_CampaignIdAndStatusIn(c.getCampaignId(), List.of(PreOrderStatus.DEPOSIT_PAID))) {
-            if (isPickup(p) || isBlank(p.getDeliveryWard()) || nz(p.getShippingFee()).signum() <= 0) continue;
-            byWard.computeIfAbsent(p.getDeliveryWard().trim().toLowerCase(Locale.ROOT), k -> new ArrayList<>()).add(p);
-        }
-        LocalDateTime now = LocalDateTime.now();
-        byWard.forEach((ward, list) -> {
-            if (list.size() < min) return;
-            for (PreOrder p : list) {
-                BigDecimal discount = nz(p.getShippingFee()).divide(BigDecimal.valueOf(2000), 0, RoundingMode.FLOOR)
-                        .multiply(BigDecimal.valueOf(1000));
-                if (discount.signum() <= 0 || nz(p.getShippingDiscountAmount()).signum() > 0) continue;
-                p.setShippingDiscountAmount(discount);
-                p.setRemainingAmount(nz(p.getRemainingAmount()).subtract(discount).max(BigDecimal.ZERO));
-                p.setUpdatedAt(now);
-                preOrderRepository.save(p);
-                notify(p.getBuyer(), "Giảm phí giao nhờ gom đơn",
-                        list.size() + " đơn ở " + p.getDeliveryWard() + " cùng đặt chiến dịch \"" + c.getTitle()
-                                + "\" nên phí giao đơn " + p.getCode() + " được giảm " + plain(discount) + "đ. Khi nhận hàng bạn chỉ trả "
-                                + plain(p.getRemainingAmount()) + "đ.");
-            }
-        });
     }
 
     @Override
@@ -1649,9 +2260,44 @@ public class CampaignServiceImpl implements CampaignService {
         preOrderRepository.save(p);
     }
 
-    /** Kg còn nhận đặt = min(mục tiêu, tổng kg dư được duyệt) - đã cọc - đang chờ cọc */
+    /**
+     * Tên nông sản của chiến dịch. Chiến dịch tạo trước khi có ô này thì lấy theo đơn đề xuất của shop, rồi lô đã đăng ký,
+     * cuối cùng tách từ tiêu đề ("Giải cứu Thanh Long – Điểm tập kết ..."). Không dùng danh mục vì quá chung chung.
+     */
+    private String campaignProduct(Campaign c) {
+        if (!isBlank(c.getProductName())) return c.getProductName();
+        String name = proposalRepository.findByCampaign_CampaignId(c.getCampaignId()).stream()
+                .map(com.sang.be_capnong.entity.CampaignProposal::getProductName).filter(x -> !isBlank(x)).findFirst()
+                .or(() -> registrationRepository.findByCampaign_CampaignIdOrderByCreatedAtAsc(c.getCampaignId()).stream()
+                        .map(CampaignFarmRegistration::getProductName).filter(x -> !isBlank(x)).findFirst())
+                .orElseGet(() -> productFromTitle(c.getTitle()));
+        return name != null && name.length() > 200 ? name.substring(0, 200) : name;
+    }
+
+    private static String productFromTitle(String title) {
+        if (title == null) return null;
+        String name = title.replaceFirst("^\\s*\\[[^\\]]*]\\s*", "").replaceFirst("(?iu)^giải cứu\\s+", "")
+                .split("\\s+[–—-]\\s+", 2)[0].trim();
+        return name.isEmpty() ? title : name;
+    }
+
+    /** Ngưỡng tối thiểu để chiến dịch được giao = tỉ lệ này của tổng hàng cần giải cứu */
+    private static final BigDecimal THRESHOLD_RATE = new BigDecimal("0.5");
+
+    /** Tổng hàng cần giải cứu: mục tiêu admin đặt, nhà vườn góp nhiều hơn thì lấy hết phần góp */
+    private static BigDecimal goodsTarget(Campaign c, BigDecimal approved) {
+        return nz(c.getTargetVolumeKg()).max(nz(approved));
+    }
+
+    /** Chưa chốt đơn: ngưỡng = 50% tổng hàng (tăng theo lô được duyệt thêm). Đã chốt: giữ số đã dùng lúc chốt */
+    private static BigDecimal threshold(Campaign c, BigDecimal approved) {
+        if (c.getStatus() != CampaignStatus.DRAFT && c.getStatus() != CampaignStatus.ACTIVE) return c.getMinThresholdKg();
+        return scale2(goodsTarget(c, approved).multiply(THRESHOLD_RATE));
+    }
+
+    /** Kg còn nhận đặt = tổng kg dư được duyệt - đã cọc - đang chờ cọc (kể cả phần vượt mục tiêu) */
     private BigDecimal remainingVolume(Campaign c) {
-        BigDecimal cap = c.getTargetVolumeKg().min(nz(registrationRepository.sumApprovedSurplus(c.getCampaignId())));
+        BigDecimal cap = nz(registrationRepository.sumApprovedSurplus(c.getCampaignId()));
         BigDecimal used = nz(c.getBookedVolumeKg()).add(nz(preOrderRepository.sumPendingKg(c.getCampaignId())));
         return cap.subtract(used).max(BigDecimal.ZERO);
     }
@@ -1661,7 +2307,7 @@ public class CampaignServiceImpl implements CampaignService {
      * đầu của giao dịch, nên dù đã khoá dòng chiến dịch vẫn có thể không thấy đơn PENDING người khác vừa commit -> bán vượt.
      */
     private BigDecimal remainingVolumeForBooking(Campaign c) {
-        BigDecimal cap = c.getTargetVolumeKg().min(nz(registrationRepository.sumApprovedSurplusForUpdate(c.getCampaignId())));
+        BigDecimal cap = nz(registrationRepository.sumApprovedSurplusForUpdate(c.getCampaignId()));
         BigDecimal used = nz(c.getBookedVolumeKg()).add(nz(preOrderRepository.sumPendingKgForUpdate(c.getCampaignId())));
         return cap.subtract(used).max(BigDecimal.ZERO);
     }
@@ -1733,16 +2379,34 @@ public class CampaignServiceImpl implements CampaignService {
         return toCampaignResponse(campaignRepository.save(c));
     }
 
+    private com.sang.be_capnong.dto.response.campaign.SupplySummaryResponse supplySummary(Campaign c) {
+        List<CampaignFarmRegistration> lots = registrationRepository
+                .findByCampaign_CampaignIdAndStatusOrderByCreatedAtAsc(c.getCampaignId(), FarmRegistrationStatus.APPROVED);
+        if (lots.stream().noneMatch(r -> r.getIntakeAt() != null)) return null;
+        List<PreOrderStatus> statuses = new ArrayList<>(PAID_STATUSES);
+        statuses.add(PreOrderStatus.CANCELLED);
+        return com.sang.be_capnong.service.campaign.SupplySummaryCalculator.summarize(lots,
+                preOrderRepository.findByCampaign_CampaignIdAndStatusIn(c.getCampaignId(), statuses), c.getTopUpCallAt(), CampaignServiceImpl::countedKg);
+    }
+
     private long intakePending(int campaignId) {
         return registrationRepository.findByCampaign_CampaignIdAndStatusOrderByCreatedAtAsc(campaignId, FarmRegistrationStatus.APPROVED)
                 .stream().filter(r -> r.getAllocatedVolumeKg() != null && r.getAllocatedVolumeKg().signum() > 0 && r.getIntakeAt() == null)
                 .count();
     }
 
+    /** Ngày giờ đăng bài kêu gọi nhà vườn không được ở quá khứ (cho lệch 1 phút do thao tác) */
+    private static void requirePublishNotPast(LocalDateTime publishAt) {
+        if (publishAt != null && publishAt.isBefore(LocalDateTime.now().minusMinutes(1))) {
+            throw new AppException(ErrorCode.CAMPAIGN_PUBLISH_IN_PAST);
+        }
+    }
+
     private void validateUpsert(CampaignUpsertRequest r) {
+        if (r != null && (isBlank(r.getProductName()) || r.getProductName().trim().length() > 200)) {
+            throw new AppException(ErrorCode.CAMPAIGN_PRODUCT_NAME_REQUIRED);
+        }
         if (r == null || isBlank(r.getTitle()) || r.getTargetVolumeKg() == null || r.getTargetVolumeKg().signum() <= 0
-                || r.getMinThresholdKg() == null || r.getMinThresholdKg().signum() <= 0
-                || r.getMinThresholdKg().compareTo(r.getTargetVolumeKg()) > 0
                 || r.getRescuePricePerKg() == null || r.getRescuePricePerKg().signum() <= 0
                 || r.getDepositPercent() == null || r.getDepositPercent().signum() <= 0
                 || r.getDepositPercent().compareTo(BigDecimal.ONE) > 0
@@ -1755,8 +2419,13 @@ public class CampaignServiceImpl implements CampaignService {
                 || (r.getFarmCutoffAt() != null && r.getPublishAt() != null && !r.getFarmCutoffAt().isAfter(r.getPublishAt()))
                 || (r.getEndDate() != null && !r.getEndDate().isAfter(r.getCutoffAt().toLocalDate()))
                 || (r.getEndDate() != null && r.getStartDate() != null && r.getEndDate().isBefore(r.getStartDate()))
+                || (r.getFinishDate() != null && !r.getFinishDate().isAfter(r.getCutoffAt().toLocalDate()))
                 || (r.getDeliveryDate() != null && r.getDeliveryDate().isBefore(r.getCutoffAt().toLocalDate()))) {
             throw new AppException(ErrorCode.CAMPAIGN_INVALID_DATA);
+        }
+        // Kết thúc chiến dịch (giao xong) không trước kết thúc mở điểm tập kết
+        if (r.getFinishDate() != null && r.getEndDate() != null && r.getFinishDate().isBefore(r.getEndDate())) {
+            throw new AppException(ErrorCode.CAMPAIGN_FINISH_BEFORE_END);
         }
     }
 
@@ -1767,13 +2436,15 @@ public class CampaignServiceImpl implements CampaignService {
                 .orElseThrow(() -> new AppException(ErrorCode.CAMPAIGN_INVALID_DATA)));
         c.setSeason(r.getSeason());
         c.setCoverImageUrl(r.getCoverImageUrl());
+        c.setProductName(r.getProductName().trim());
         c.setTargetVolumeKg(scale2(r.getTargetVolumeKg()));
-        c.setMinThresholdKg(scale2(r.getMinThresholdKg()));
+        c.setMinThresholdKg(scale2(r.getTargetVolumeKg().multiply(THRESHOLD_RATE)));
         c.setRescuePricePerKg(r.getRescuePricePerKg().setScale(2, RoundingMode.HALF_UP));
         c.setDepositPercent(r.getDepositPercent().setScale(4, RoundingMode.HALF_UP));
         c.setCutoffAt(r.getCutoffAt());
         c.setStartDate(r.getStartDate());
         c.setEndDate(r.getEndDate());
+        c.setFinishDate(r.getFinishDate());
         c.setPublishAt(r.getPublishAt());
         // Đổi hạn chốt góp hàng thì kiểm tra lại đủ ngưỡng vào mốc mới
         if (!java.util.Objects.equals(c.getFarmCutoffAt(), r.getFarmCutoffAt())) c.setFarmCutoffCheckedAt(null);
@@ -1784,10 +2455,6 @@ public class CampaignServiceImpl implements CampaignService {
         c.setCollectionSiteAddress(r.getCollectionSiteAddress());
         c.setCollectionSiteLatitude(r.getCollectionSiteLatitude());
         c.setCollectionSiteLongitude(r.getCollectionSiteLongitude());
-        c.setShipHalfKg(r.getShipHalfKg());
-        c.setShipFreeKg(r.getShipFreeKg());
-        c.setShipFreeRadiusKm(r.getShipFreeRadiusKm());
-        c.setGroupDiscountMinOrders(r.getGroupDiscountMinOrders());
         c.setPickupEnabled(r.getPickupEnabled());
     }
 
@@ -1927,6 +2594,30 @@ public class CampaignServiceImpl implements CampaignService {
     }
 
     /** Cước gốc theo khoảng cách (trước mọi giảm giá cho người mua): sàn bù phần giảm, shipper luôn nhận đủ */
+    /**
+     * Cước gộp shipper nhận khi giao đơn: đơn đã gán hub thì tính theo khoảng cách hub -> người mua (chặng cuối, ngắn hơn),
+     * không vượt cước gốc điểm tập kết -> người mua; chưa có hub thì như cũ.
+     */
+    private BigDecimal shipperGrossFee(PreOrder p) {
+        // Đã lập kế hoạch xe ra hub: cước chặng cuối đã tính theo hub của chuyến
+        if (!isPickup(p) && p.getHub() != null && p.getHubDeliveryPay() != null) return p.getHubDeliveryPay();
+        BigDecimal base = shipperBaseFee(p);
+        if (isPickup(p) || p.getHub() == null || p.getHub().getLatitude() == null || p.getHub().getLongitude() == null
+                || p.getShippingLatitude() == null || p.getShippingLongitude() == null) {
+            return base;
+        }
+        double km = com.sang.be_capnong.util.GeoUtils.haversineKm(p.getHub().getLatitude(), p.getHub().getLongitude(),
+                p.getShippingLatitude(), p.getShippingLongitude()) * com.sang.be_capnong.util.GeoUtils.ROAD_FACTOR;
+        BigDecimal hubFee = shippingCalculator.baseFee(km);
+        return base.signum() > 0 ? hubFee.min(base) : hubFee;
+    }
+
+    /** Số shipper dự kiến nhận khi giao đơn (sau phí dịch vụ), để hiện trên thẻ đơn */
+    private BigDecimal shipperNetEstimate(PreOrder p) {
+        BigDecimal gross = shipperGrossFee(p);
+        return gross.subtract(gross.multiply(shipperFeeRate).setScale(0, RoundingMode.HALF_UP));
+    }
+
     private static BigDecimal shipperBaseFee(PreOrder p) {
         if (isPickup(p)) return BigDecimal.ZERO;
         return p.getShippingBaseFee() != null ? p.getShippingBaseFee() : nz(p.getShippingFee());
@@ -1949,15 +2640,22 @@ public class CampaignServiceImpl implements CampaignService {
     private CampaignResponse toCampaignResponse(Campaign c) {
         BigDecimal approved = nz(registrationRepository.sumApprovedSurplus(c.getCampaignId()));
         BigDecimal booked = nz(c.getBookedVolumeKg());
-        BigDecimal progress = c.getTargetVolumeKg().signum() > 0
-                ? booked.multiply(BigDecimal.valueOf(100)).divide(c.getTargetVolumeKg(), 1, RoundingMode.HALF_UP).min(BigDecimal.valueOf(100))
+        BigDecimal total = goodsTarget(c, approved);
+        BigDecimal progress = total.signum() > 0
+                ? booked.multiply(BigDecimal.valueOf(100)).divide(total, 1, RoundingMode.HALF_UP).min(BigDecimal.valueOf(100))
                 : BigDecimal.ZERO;
         // Số liệu cung - cầu chỉ có ý nghĩa khi đã chốt đủ ngưỡng
         boolean supply = c.getStatus() == CampaignStatus.FULFILLING || c.getStatus() == CampaignStatus.COMPLETED
                 || c.getStatus() == CampaignStatus.THRESHOLD_MET;
         BigDecimal sold = supply ? nz(preOrderRepository.sumKgByStatuses(c.getCampaignId(), PAID_STATUSES)) : BigDecimal.ZERO;
         BigDecimal accepted = supply ? acceptedVolume(c.getCampaignId()) : BigDecimal.ZERO;
+        boolean done = c.getStatus() == CampaignStatus.COMPLETED;
+        List<PreOrderStatus> delivered = List.of(PreOrderStatus.DELIVERED);
         return CampaignResponse.builder()
+                .deliveredKg(done ? nz(preOrderRepository.sumKgByStatuses(c.getCampaignId(), delivered)) : null)
+                .deliveredOrderCount(done ? preOrderRepository.countByCampaign_CampaignIdAndStatusIn(c.getCampaignId(), delivered) : null)
+                .totalOrderCount(done ? preOrderRepository.countByCampaign_CampaignIdAndStatusIn(c.getCampaignId(), PAID_STATUSES) : null)
+                .buyerCount(done ? preOrderRepository.countBuyersByStatuses(c.getCampaignId(), delivered) : null)
                 .campaignId(c.getCampaignId())
                 .code(c.getCode())
                 .title(c.getTitle())
@@ -1975,13 +2673,17 @@ public class CampaignServiceImpl implements CampaignService {
                 .bannerImageUrl(c.getBannerImageUrl())
                 .bannerOnHome(c.getBannerOnHome() == null || c.getBannerOnHome())
                 .bannerUpdatedAt(c.getBannerUpdatedAt())
-                .targetVolumeKg(c.getTargetVolumeKg())
-                .minThresholdKg(c.getMinThresholdKg())
+                .homeSlideOrder(c.getHomeSlideOrder())
+                .targetVolumeKg(total)
+                .plannedTargetKg(c.getTargetVolumeKg())
+                .productName(campaignProduct(c))
+                .minThresholdKg(threshold(c, approved))
                 .rescuePricePerKg(c.getRescuePricePerKg())
                 .depositPercent(c.getDepositPercent())
                 .cutoffAt(c.getCutoffAt())
                 .startDate(c.getStartDate())
                 .endDate(c.getEndDate())
+                .finishDate(c.getFinishDate())
                 .publishAt(c.getPublishAt())
                 .farmCutoffAt(c.getFarmCutoffAt())
                 .deliveryDate(c.getDeliveryDate())
@@ -1989,10 +2691,10 @@ public class CampaignServiceImpl implements CampaignService {
                 .collectionSiteAddress(c.getCollectionSiteAddress())
                 .collectionSiteLatitude(c.getCollectionSiteLatitude())
                 .collectionSiteLongitude(c.getCollectionSiteLongitude())
-                .shipHalfKg(CampaignShippingCalculator.halfKg(c))
-                .shipFreeKg(CampaignShippingCalculator.freeKg(c))
-                .shipFreeRadiusKm(CampaignShippingCalculator.freeRadiusKm(c))
-                .groupDiscountMinOrders(CampaignShippingCalculator.groupMinOrders(c))
+                .shipHalfKg(CampaignShippingCalculator.MID_KG)
+                .shipFreeKg(CampaignShippingCalculator.FREE_KG)
+                .shipMidFee(CampaignShippingCalculator.MID_FEE)
+                .shipSmallFee(CampaignShippingCalculator.SMALL_FEE)
                 .pickupEnabled(CampaignShippingCalculator.pickupEnabled(c))
                 .status(c.getStatus().name())
                 .bookedVolumeKg(booked)
@@ -2008,11 +2710,14 @@ public class CampaignServiceImpl implements CampaignService {
                 .shortfallVolumeKg(supply ? sold.subtract(accepted).max(BigDecimal.ZERO) : null)
                 .intakePendingCount(supply ? intakePending(c.getCampaignId()) : 0)
                 .topUpOpen(topUpOpen(c))
+                .supply(supply ? supplySummary(c) : null)
                 .topUpCallAt(c.getTopUpCallAt())
                 .topUpClosedAt(c.getTopUpClosedAt())
                 .topUpKg(c.getTopUpKg())
                 .topUpRemainingKg(c.getStatus() == CampaignStatus.FULFILLING ? topUpRemaining(c) : null)
                 .callPostedAt(c.getCallPostedAt())
+                .shipperCalledAt(c.getShipperCalledAt())
+                .shipperCallTrips(c.getShipperCallTrips())
                 .publishedAt(c.getPublishedAt())
                 .evaluatedAt(c.getEvaluatedAt())
                 .completedAt(c.getCompletedAt())
@@ -2022,7 +2727,7 @@ public class CampaignServiceImpl implements CampaignService {
                 .build();
     }
 
-    /** Giá chi trả cho nhà vườn: giá chốt → giá đề xuất → giá giải cứu của chiến dịch (đăng ký cũ chưa có giá) */
+    /** Giá chi trả cho nhà vườn: giá lưu trên lô (= giá chiến dịch; lô cũ có thể thấp hơn), không có thì giá chiến dịch */
     private static BigDecimal effectivePrice(CampaignFarmRegistration r) {
         BigDecimal rescue = r.getCampaign().getRescuePricePerKg();
         if (r.getAgreedPricePerKg() != null) return r.getAgreedPricePerKg().min(rescue);
@@ -2121,6 +2826,13 @@ public class CampaignServiceImpl implements CampaignService {
                 .shippingLongitude(p.getShippingLongitude())
                 .note(p.getNote())
                 .deliveryZone(p.getDeliveryZone())
+                .hubId(p.getHub() != null ? p.getHub().getHubId() : null)
+                .hubName(p.getHub() != null ? p.getHub().getName() : null)
+                .hubAddress(p.getHub() != null ? p.getHub().getAddress() : null)
+                .hubLatitude(p.getHub() != null ? p.getHub().getLatitude() : null)
+                .hubLongitude(p.getHub() != null ? p.getHub().getLongitude() : null)
+                .hubPhone(p.getHub() != null ? p.getHub().getPhone() : null)
+                .hubOpenHours(p.getHub() != null ? p.getHub().getOpenHours() : null)
                 .fulfillmentMethod(nvl(p.getFulfillmentMethod(), CampaignShippingCalculator.DELIVERY))
                 .deliveryWard(p.getDeliveryWard())
                 .shippingDistanceKm(p.getShippingDistanceKm())
@@ -2130,12 +2842,23 @@ public class CampaignServiceImpl implements CampaignService {
                 .pickupRemindedAt(p.getPickupRemindedAt())
                 .pickupRemindCount(p.getPickupRemindCount())
                 .shipperIncomeAmount(p.getShipperIncomeAmount())
+                .shipperEarnEstimate(isPickup(p) ? null : shipperNetEstimate(p))
                 .shippingDiscountAmount(p.getShippingDiscountAmount())
                 .collectionSiteName(p.getCampaign().getCollectionSiteName())
                 .collectionSiteAddress(p.getCampaign().getCollectionSiteAddress())
                 .qrCode(p.getQrCode())
                 .status(p.getStatus().name())
+                // Đã chốt ra hub chưa có nghĩa hàng đã tới: xem xe đang ở chặng nào
+                .hubStage(p.getStatus() == PreOrderStatus.READY && p.getHub() != null && p.getPickedUpAt() == null
+                        ? hubTripService.hubStageOf(p.getCampaign().getCampaignId(), p.getPreOrderId()) : null)
                 .shipperId(p.getShipper() != null ? p.getShipper().getId() : null)
+                .hubReceivedAt(p.getHubReceivedAt())
+                .hubReceivedBy(p.getHubReceivedBy())
+                .hubIssueCrates(p.getHubIssueCrates())
+                .hubIssueNote(p.getHubIssueNote())
+                .packedCrates(p.getStatus() != PreOrderStatus.DEPOSIT_PAID || isBlank(p.getPackedCrates()) ? List.of()
+                        : java.util.Arrays.stream(p.getPackedCrates().split(",")).map(Integer::valueOf)
+                                .filter(n -> n <= p.getCrateQuantity()).toList())
                 .shipperName(p.getShipper() != null ? p.getShipper().getFullName() : null)
                 .podImageUrl(p.getPodImageUrl())
                 .failReason(p.getFailReason())

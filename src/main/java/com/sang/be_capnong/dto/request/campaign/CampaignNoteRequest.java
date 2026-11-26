@@ -11,6 +11,4 @@ import lombok.experimental.FieldDefaults;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class CampaignNoteRequest {
     String note;
-    /** Chỉ dùng khi duyệt đăng ký nhà vườn: giá chốt sau thương lượng (đ/kg), bỏ trống = giữ giá đề xuất */
-    java.math.BigDecimal agreedPricePerKg;
 }

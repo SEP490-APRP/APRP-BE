@@ -20,11 +20,16 @@ import java.util.Optional;
 @Repository
 public interface PreOrderRepository extends JpaRepository<PreOrder, Integer> {
 
+    /** Tra thùng hàng theo mã trên tem QR */
+    Optional<PreOrder> findByQrCode(String qrCode);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select p from PreOrder p where p.preOrderId = :id")
     Optional<PreOrder> findByIdForUpdate(@Param("id") int id);
 
     List<PreOrder> findByCampaign_CampaignIdOrderByCreatedAtAsc(int campaignId);
+
+    List<PreOrder> findByHub_HubIdAndStatusInOrderByReadyAtDescPreOrderIdAsc(int hubId, Collection<PreOrderStatus> statuses);
 
     List<PreOrder> findByCampaign_CampaignIdAndStatusIn(int campaignId, Collection<PreOrderStatus> statuses);
 
@@ -62,4 +67,8 @@ public interface PreOrderRepository extends JpaRepository<PreOrder, Integer> {
     List<PreOrder> findByCampaign_CampaignIdAndStatusOrderByDepositPaidAtAscPreOrderIdAsc(int campaignId, PreOrderStatus status);
 
     long countByCampaign_CampaignIdAndStatusIn(int campaignId, Collection<PreOrderStatus> statuses);
+
+    /** Số người mua khác nhau có đơn ở các trạng thái này */
+    @Query("select count(distinct p.buyer.id) from PreOrder p where p.campaign.campaignId = :campaignId and p.status in :statuses")
+    long countBuyersByStatuses(@Param("campaignId") int campaignId, @Param("statuses") Collection<PreOrderStatus> statuses);
 }
