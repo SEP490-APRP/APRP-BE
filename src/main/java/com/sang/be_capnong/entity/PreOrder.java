@@ -83,6 +83,11 @@ public class PreOrder {
     @Column(length = 500)
     String note;
 
+    /** Hub (điểm trung chuyển gần người mua) nơi xe CapNong đưa thùng tới, shipper lấy hàng tại đây */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "hub_id")
+    DeliveryHub hub;
+
     /** Khu giao / hub được gán khi đóng gói */
     @Column(length = 100)
     String deliveryZone;
@@ -110,6 +115,10 @@ public class PreOrder {
     /** Đơn tự đến lấy: lần nhắc khách gần nhất và số lần đã nhắc */
     LocalDateTime pickupRemindedAt;
     Integer pickupRemindCount;
+    /** Cước gộp giao chặng cuối được chia từ phí giao người mua trả (chốt cùng kế hoạch xe ra hub) */
+    @Column(precision = 15, scale = 2)
+    BigDecimal hubDeliveryPay;
+
     /** Tổng cước đã trả cho shipper (sau phí dịch vụ), cộng dồn qua các lượt giao */
     @Column(precision = 15, scale = 2)
     BigDecimal shipperIncomeAmount;
@@ -145,8 +154,18 @@ public class PreOrder {
 
     LocalDateTime depositPaidAt;
     LocalDateTime packedAt;
+    /** Số thứ tự các thùng đã đóng khi đơn chưa đóng gói xong, vd "1,3" */
+    @Column(length = 1000)
+    String packedCrates;
     LocalDateTime readyAt;
     LocalDateTime pickedUpAt;
+    /** Hub xác nhận đã nhận đủ đơn từ xe tải: chưa có thì shipper chưa thấy đơn */
+    LocalDateTime hubReceivedAt;
+    String hubReceivedBy;
+    /** Hub báo thiếu / hư khi nhận */
+    Integer hubIssueCrates;
+    @Column(length = 500)
+    String hubIssueNote;
     LocalDateTime deliveredAt;
     LocalDateTime cancelledAt;
     LocalDateTime createdAt;

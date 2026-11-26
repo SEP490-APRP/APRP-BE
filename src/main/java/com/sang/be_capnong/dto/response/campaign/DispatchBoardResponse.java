@@ -53,8 +53,15 @@ public class DispatchBoardResponse {
         String name;
         String phone;
         String vehicleNumber;
+        /** Loại xe và sức chở (kg): lọc tài xế đủ tải cho chuyến chở hàng ra hub */
+        String vehicleType;
+        int vehicleCapacityKg;
         boolean online;
         /** Số đơn chiến dịch đang cầm (chưa giao xong) */
         long activePreOrders;
+        /** Vị trí gần nhất shipper báo về (null nếu chưa có) và thời điểm báo */
+        Double latitude;
+        Double longitude;
+        java.time.LocalDateTime locationUpdatedAt;
     }
 }

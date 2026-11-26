@@ -37,11 +37,39 @@ public class ShipperPreOrderController {
         return ApiResponse.<List<PreOrderResponse>>builder().result(campaignService.getMyShipperPreOrders()).build();
     }
 
+    @Operation(summary = "Sức chở, số kg đang chở và số dư ký quỹ được")
+    @GetMapping("/capacity")
+    @PreAuthorize("hasRole('SHIPPER')")
+    public ApiResponse<com.sang.be_capnong.dto.response.campaign.ShipperCapacityResponse> capacity() {
+        return ApiResponse.<com.sang.be_capnong.dto.response.campaign.ShipperCapacityResponse>builder().result(campaignService.getShipperCapacity()).build();
+    }
+
+    @Operation(summary = "Nhận một lần nhiều đơn cùng hub thành chuyến giao")
+    @PutMapping("/accept-batch")
+    @PreAuthorize("hasRole('SHIPPER')")
+    public ApiResponse<List<PreOrderResponse>> acceptBatch(@RequestBody PreOrderBatchRequest request) {
+        return ApiResponse.<List<PreOrderResponse>>builder().result(campaignService.acceptPreOrderBatch(request)).build();
+    }
+
     @Operation(summary = "Nhận đơn tại hub")
     @PutMapping("/{id}/accept")
     @PreAuthorize("hasRole('SHIPPER')")
     public ApiResponse<PreOrderResponse> accept(@PathVariable int id) {
         return ApiResponse.<PreOrderResponse>builder().result(campaignService.acceptPreOrder(id)).build();
+    }
+
+    @Operation(summary = "Đã kiểm đủ thùng tại hub, lấy hàng và bắt đầu giao")
+    @PutMapping("/{id}/pickup")
+    @PreAuthorize("hasRole('SHIPPER')")
+    public ApiResponse<PreOrderResponse> pickup(@PathVariable int id, @RequestBody PreOrderCrateRequest request) {
+        return ApiResponse.<PreOrderResponse>builder().result(campaignService.pickupPreOrder(id, request)).build();
+    }
+
+    @Operation(summary = "Bỏ nhận đơn chưa lấy khỏi hub")
+    @PutMapping("/{id}/release")
+    @PreAuthorize("hasRole('SHIPPER')")
+    public ApiResponse<PreOrderResponse> release(@PathVariable int id) {
+        return ApiResponse.<PreOrderResponse>builder().result(campaignService.releasePreOrder(id)).build();
     }
 
     @Operation(summary = "Giao thành công (ảnh POD), thu phần còn lại")

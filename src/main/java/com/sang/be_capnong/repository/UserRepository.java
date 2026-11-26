@@ -42,4 +42,10 @@ public interface UserRepository extends JpaRepository<User, Integer> {
                               @Param("minLng") double minLng, @Param("maxLng") double maxLng);
 
     List<User> findByStatusAndLockedAtBefore(UserStatus status, java.time.LocalDateTime time);
+
+    /** Admin tìm shop đang hoạt động theo tên gian hàng, họ tên hoặc số điện thoại */
+    @Query("select u from User u where u.role.name = 'SHOP' and u.status = com.sang.be_capnong.enums.UserStatus.ACTIVE "
+            + "and (lower(u.shopName) like lower(concat('%', :q, '%')) or lower(u.fullName) like lower(concat('%', :q, '%')) "
+            + "or u.phoneNumber like concat('%', :q, '%')) order by u.shopName")
+    List<User> searchActiveShops(@Param("q") String q, org.springframework.data.domain.Pageable pageable);
 }

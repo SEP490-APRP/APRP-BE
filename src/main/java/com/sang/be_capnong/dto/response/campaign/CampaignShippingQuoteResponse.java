@@ -29,8 +29,9 @@ public class CampaignShippingQuoteResponse {
     // ── Quy tắc của chiến dịch (để FE hiển thị bảng cách tính) ──
     BigDecimal halfShipKg;
     BigDecimal freeShipKg;
-    Double freeShipRadiusKm;
-    Integer groupDiscountMinOrders;
+    /** Phí cho đơn từ halfShipKg tới dưới freeShipKg, và cho đơn nhẹ hơn */
+    BigDecimal midShipFee;
+    BigDecimal smallShipFee;
     Boolean pickupEnabled;
     String collectionSiteName;
     String collectionSiteAddress;
