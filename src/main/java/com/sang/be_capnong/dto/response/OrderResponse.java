@@ -63,5 +63,6 @@ public class OrderResponse {
     List<String> returnToShopProofUrls;
     LocalDateTime returnedToShopAt;
     LocalDateTime returnConfirmedAt;
+    LocalDateTime shipperPaidAt;
     List<OrderDetailResponse> items;
 }

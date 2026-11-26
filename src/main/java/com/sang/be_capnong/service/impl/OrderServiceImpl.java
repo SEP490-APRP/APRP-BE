@@ -2044,6 +2044,7 @@ public class OrderServiceImpl implements OrderService {
                 .returnToShopProofUrls(splitUrls(order.getReturnToShopProofUrls()))
                 .returnedToShopAt(order.getReturnedToShopAt())
                 .returnConfirmedAt(order.getReturnConfirmedAt())
+                .shipperPaidAt(order.getShipperPaidAt())
                 .items(itemResponses)
                 .build();
     }

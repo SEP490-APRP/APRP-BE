@@ -821,8 +821,11 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         boolean isBuyer = request.getBuyer() != null && Objects.equals(request.getBuyer().getId(), currentUserId);
         boolean isShop = request.getShop() != null && Objects.equals(request.getShop().getId(), currentUserId);
         boolean isShipper = request.getShipper() != null && Objects.equals(request.getShipper().getId(), currentUserId);
+        boolean isAvailableForShipper = SecurityUtils.hasRole("SHIPPER")
+                && request.getStatus() == ReturnStatus.RETURN_SHIPPING
+                && request.getShipper() == null;
 
-        if (!isBuyer && !isShop && !isShipper) {
+        if (!isBuyer && !isShop && !isShipper && !isAvailableForShipper) {
             throw new AppException(ErrorCode.RETURN_UNAUTHORIZED);
         }
     }
