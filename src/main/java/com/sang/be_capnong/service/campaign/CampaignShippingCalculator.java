@@ -2,6 +2,7 @@ package com.sang.be_capnong.service.campaign;
 
 import com.sang.be_capnong.dto.response.campaign.CampaignShippingQuoteResponse;
 import com.sang.be_capnong.entity.Campaign;
+import com.sang.be_capnong.enums.VehicleType;
 import com.sang.be_capnong.service.GoogleMapService;
 import com.sang.be_capnong.util.GeoUtils;
 import lombok.RequiredArgsConstructor;
@@ -16,7 +17,8 @@ import java.math.BigDecimal;
  * <pre>
  * Đơn từ 50 kg: miễn phí · từ 30 kg tới dưới 50 kg: 50.000đ · dưới 30 kg: 70.000đ · tự đến điểm tập kết lấy: 0đ
  * </pre>
- * Riêng phí gốc theo khoảng cách ({@link #baseFee}) chỉ dùng để tính cước trả shipper giao chặng cuối.
+ * Riêng phí gốc theo khoảng cách ({@link #baseFee}) chỉ dùng để tính cước trả shipper giao chặng cuối;
+ * xe chở trên 1 tấn được cộng thêm {@link #vehicleSurcharge} mỗi đơn.
  */
 @Component
 @RequiredArgsConstructor
@@ -43,6 +45,10 @@ public class CampaignShippingCalculator {
     private long fee10to20 = 30000;
     @Value("${capnong.campaign.ship.fee-per-km-over-20:3000}")
     private long feePerKmOver20 = 3000;
+    @Value("${capnong.campaign.ship.heavy-vehicle-over-kg:1000}")
+    private int heavyVehicleOverKg = 1000;
+    @Value("${capnong.campaign.ship.heavy-vehicle-surcharge:5000}")
+    private long heavyVehicleSurcharge = 5000;
 
     public static boolean pickupEnabled(Campaign c) {
         return c.getPickupEnabled() == null || c.getPickupEnabled();
@@ -56,6 +62,11 @@ public class CampaignShippingCalculator {
         else if (km <= 20) fee = fee10to20;
         else fee = fee10to20 + (long) Math.ceil(km - 20) * feePerKmOver20;
         return BigDecimal.valueOf(fee);
+    }
+
+    /** Phụ thu cước chặng cuối theo xe của shipper: xe chở trên 1 tấn được cộng thêm, người mua không phải trả */
+    public BigDecimal vehicleSurcharge(String vehicleType) {
+        return BigDecimal.valueOf(VehicleType.capacityKgOf(vehicleType) > heavyVehicleOverKg ? heavyVehicleSurcharge : 0);
     }
 
     /** Phí giao người mua trả, cố định theo tổng kg của đơn */

@@ -112,6 +112,8 @@ public class CampaignServiceImpl implements CampaignService {
         Campaign c = Campaign.builder()
                 .code(nextCode("CD"))
                 .status(CampaignStatus.DRAFT)
+                // Banner trang chủ mặc định tắt, admin cấu hình xong mới bật
+                .bannerOnHome(false)
                 .createdBy(currentUser())
                 .createdAt(now)
                 .updatedAt(now)
@@ -1738,11 +1740,17 @@ public class CampaignServiceImpl implements CampaignService {
     public List<PreOrderResponse> getReadyForPickup() {
         java.util.Map<Integer, Freshness> cache = new java.util.HashMap<>();
         java.util.Map<Integer, java.util.Set<Integer>> onTheWay = new java.util.HashMap<>();
+        User me = currentUser();
         // Chỉ đơn giao tận nơi mà hub đã xác nhận nhận hàng từ xe tải
         return preOrderRepository.findByStatusAndShipperIsNullOrderByReadyAtAsc(PreOrderStatus.READY).stream()
                 .filter(p -> !isPickup(p) && (p.getHub() == null || p.getHubReceivedAt() != null)
                         && !onTheWay.computeIfAbsent(p.getCampaign().getCampaignId(), hubTripService::orderIdsOnTheWay).contains(p.getPreOrderId()))
-                .map(p -> shipperView(p, cache))
+                .map(p -> {
+                    // Đơn chưa ai nhận: cước dự kiến tính theo xe của tài xế đang xem
+                    PreOrderResponse r = shipperView(p, cache);
+                    r.setShipperEarnEstimate(shipperNetEstimate(p, me));
+                    return r;
+                })
                 .sorted(PRIORITY_ORDER).toList();
     }
 
@@ -2016,7 +2024,7 @@ public class CampaignServiceImpl implements CampaignService {
         escrowService.releaseShipperCod(p, "giao thành công");
         p.setCodReservedAmount(null);
         escrowService.shipperCashCollected(p);
-        BigDecimal earned = escrowService.payShipper(p, shipperGrossFee(p), shipperFeeRate, "giao");
+        BigDecimal earned = escrowService.payShipper(p, shipperGrossFee(p, p.getShipper()), shipperFeeRate, "giao");
         p.setShipperIncomeAmount(nz(p.getShipperIncomeAmount()).add(earned));
         preOrderRepository.save(p);
         notify(p.getBuyer(), "Đã giao đơn đặt trước", "Đơn " + p.getCode() + " đã giao thành công. Cảm ơn bạn đã cùng giải cứu nông sản!");
@@ -2035,7 +2043,7 @@ public class CampaignServiceImpl implements CampaignService {
         // Không thu được tiền: gỡ ký quỹ; shipper vẫn nhận một phần cước vì đã đi tới nơi
         escrowService.releaseShipperCod(p, "giao thất bại");
         p.setCodReservedAmount(null);
-        BigDecimal tripFee = shipperGrossFee(p).multiply(failedTripRate).setScale(0, RoundingMode.HALF_UP);
+        BigDecimal tripFee = shipperGrossFee(p, p.getShipper()).multiply(failedTripRate).setScale(0, RoundingMode.HALF_UP);
         BigDecimal earned = escrowService.payShipper(p, tripFee, shipperFeeRate, "lượt giao thất bại");
         p.setShipperIncomeAmount(nz(p.getShipperIncomeAmount()).add(earned));
         preOrderRepository.save(p);
@@ -2598,7 +2606,7 @@ public class CampaignServiceImpl implements CampaignService {
      * Cước gộp shipper nhận khi giao đơn: đơn đã gán hub thì tính theo khoảng cách hub -> người mua (chặng cuối, ngắn hơn),
      * không vượt cước gốc điểm tập kết -> người mua; chưa có hub thì như cũ.
      */
-    private BigDecimal shipperGrossFee(PreOrder p) {
+    private BigDecimal distanceShipperFee(PreOrder p) {
         // Đã lập kế hoạch xe ra hub: cước chặng cuối đã tính theo hub của chuyến
         if (!isPickup(p) && p.getHub() != null && p.getHubDeliveryPay() != null) return p.getHubDeliveryPay();
         BigDecimal base = shipperBaseFee(p);
@@ -2612,9 +2620,16 @@ public class CampaignServiceImpl implements CampaignService {
         return base.signum() > 0 ? hubFee.min(base) : hubFee;
     }
 
+    /** Cước gộp theo quãng đường cộng phụ thu theo xe của shipper (xe trên 1 tấn); phí dịch vụ trừ trên tổng này */
+    private BigDecimal shipperGrossFee(PreOrder p, User shipper) {
+        BigDecimal fee = distanceShipperFee(p);
+        if (isPickup(p) || shipper == null || fee.signum() <= 0) return fee;
+        return fee.add(shippingCalculator.vehicleSurcharge(shipper.getVehicleType()));
+    }
+
     /** Số shipper dự kiến nhận khi giao đơn (sau phí dịch vụ), để hiện trên thẻ đơn */
-    private BigDecimal shipperNetEstimate(PreOrder p) {
-        BigDecimal gross = shipperGrossFee(p);
+    private BigDecimal shipperNetEstimate(PreOrder p, User shipper) {
+        BigDecimal gross = shipperGrossFee(p, shipper);
         return gross.subtract(gross.multiply(shipperFeeRate).setScale(0, RoundingMode.HALF_UP));
     }
 
@@ -2842,7 +2857,7 @@ public class CampaignServiceImpl implements CampaignService {
                 .pickupRemindedAt(p.getPickupRemindedAt())
                 .pickupRemindCount(p.getPickupRemindCount())
                 .shipperIncomeAmount(p.getShipperIncomeAmount())
-                .shipperEarnEstimate(isPickup(p) ? null : shipperNetEstimate(p))
+                .shipperEarnEstimate(isPickup(p) ? null : shipperNetEstimate(p, p.getShipper()))
                 .shippingDiscountAmount(p.getShippingDiscountAmount())
                 .collectionSiteName(p.getCampaign().getCollectionSiteName())
                 .collectionSiteAddress(p.getCampaign().getCollectionSiteAddress())
