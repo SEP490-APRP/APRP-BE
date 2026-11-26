@@ -93,7 +93,7 @@ google:
     min-confidence: 70.0
     non-agri-threshold: 80.0
     max-labels: 30
-    max-file-size-bytes: 5242880
+    max-file-size-bytes: 10485760
     connect-timeout-seconds: 5
     read-timeout-seconds: 10
   maps:

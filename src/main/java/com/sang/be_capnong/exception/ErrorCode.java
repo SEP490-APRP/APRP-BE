@@ -86,6 +86,7 @@ public enum ErrorCode {
     AI_INAPPROPRIATE_CONTENT(3025, "Tên hoặc nội dung sản phẩm chứa từ khoá không phù hợp", HttpStatus.BAD_REQUEST),
     AI_RATE_LIMIT_EXCEEDED(3026, "Bạn gửi quá nhiều yêu cầu tạo mô tả AI. Vui lòng chờ một lát rồi thử lại", HttpStatus.TOO_MANY_REQUESTS),
     INVALID_STATUS(3027, "Trạng thái sản phẩm không hợp lệ (ACTIVE, PENDING, INACTIVE, REJECTED)", HttpStatus.BAD_REQUEST),
+    INVALID_PRODUCT_CATEGORY(3028, "Nông sản đơn lẻ không được chọn danh mục Combo & Túi mù", HttpStatus.BAD_REQUEST),
 
     // Upload & File errors
     FILE_INVALID(4001, "Tệp ảnh không hợp lệ", HttpStatus.BAD_REQUEST),

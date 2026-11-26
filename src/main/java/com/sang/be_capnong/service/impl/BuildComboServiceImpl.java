@@ -93,7 +93,7 @@ public class BuildComboServiceImpl implements BuildComboService {
         BuildCombo buildCombo = buildComboMapper.toBuildCombo(request);
         buildCombo.setShop(shop);
         buildCombo.setSoldQuantity(0);
-        buildCombo.setStatus("PENDING");
+        buildCombo.setStatus("ACTIVE");
 
         BuildCombo savedCombo = buildComboRepository.save(buildCombo);
 
@@ -330,8 +330,12 @@ public class BuildComboServiceImpl implements BuildComboService {
         }
 
         buildComboMapper.updateBuildCombo(buildCombo, request);
-        // Phương án B: Chuyển về PENDING để Admin duyệt lại mỗi khi chỉnh sửa combo
-        buildCombo.setStatus("PENDING");
+        // Tự động mở bán nếu còn tồn kho (các sản phẩm con đã được validate ACTIVE ở trên và ảnh bìa đã qua AI)
+        if (newUnsold <= 0 || "INACTIVE".equalsIgnoreCase(request.getStatus())) {
+            buildCombo.setStatus("INACTIVE");
+        } else {
+            buildCombo.setStatus("ACTIVE");
+        }
 
         BuildCombo updatedCombo = buildComboRepository.save(buildCombo);
 
@@ -363,21 +367,41 @@ public class BuildComboServiceImpl implements BuildComboService {
         }
 
         String normalizedStatus = (status != null && !status.isBlank()) ? status.trim().toUpperCase() : "ACTIVE";
+        if (!"ACTIVE".equals(normalizedStatus) && !"INACTIVE".equals(normalizedStatus)) {
+            throw new AppException(ErrorCode.INVALID_STATUS);
+        }
 
-        // Shop cannot self-activate combo directly if it is not already ACTIVE
-        if ("ACTIVE".equalsIgnoreCase(normalizedStatus) && !isAdmin) {
-            if (!"ACTIVE".equalsIgnoreCase(buildCombo.getStatus())) {
-                throw new AppException(ErrorCode.CANNOT_ACTIVATE_DIRECTLY);
-            }
+        List<ProductCombo> items = productComboRepository.findByBuildComboComboId(comboId);
+        if ("ACTIVE".equals(normalizedStatus)) {
+            validateComboReadyForActivation(buildCombo, items);
         }
 
         buildCombo.setStatus(normalizedStatus);
         BuildCombo savedCombo = buildComboRepository.save(buildCombo);
 
         BuildComboResponse response = buildComboMapper.toBuildComboResponse(savedCombo);
-        List<ProductCombo> items = productComboRepository.findByBuildComboComboId(comboId);
         response.setItems(buildComboMapper.toProductComboResponseList(items));
         return response;
+    }
+
+    private void validateComboReadyForActivation(BuildCombo buildCombo, List<ProductCombo> items) {
+        User shop = buildCombo.getShop();
+        if (shop == null || shop.getStatus() != UserStatus.ACTIVE || Boolean.FALSE.equals(shop.getShopActive())) {
+            throw new AppException(ErrorCode.SHOP_NOT_ACTIVE);
+        }
+
+        int sold = buildCombo.getSoldQuantity() != null ? buildCombo.getSoldQuantity() : 0;
+        int total = buildCombo.getTotalQuantity() != null ? buildCombo.getTotalQuantity() : 0;
+        if (total - sold <= 0) {
+            throw new AppException(ErrorCode.STOCK_INSUFFICIENT);
+        }
+
+        for (ProductCombo item : items) {
+            Product product = item.getProduct();
+            if (product == null || !"ACTIVE".equalsIgnoreCase(product.getStatus())) {
+                throw new AppException(ErrorCode.PRODUCT_NOT_ACTIVE);
+            }
+        }
     }
 
     @Override
@@ -597,7 +621,7 @@ public class BuildComboServiceImpl implements BuildComboService {
             throw new AppException(ErrorCode.USER_NOT_A_SHOP);
         }
 
-        if (shop.getStatus() != UserStatus.ACTIVE) {
+        if (shop.getStatus() != UserStatus.ACTIVE || Boolean.FALSE.equals(shop.getShopActive())) {
             throw new AppException(ErrorCode.SHOP_NOT_ACTIVE);
         }
 
