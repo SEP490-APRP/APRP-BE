@@ -1158,10 +1158,10 @@ public class OrderServiceImpl implements OrderService {
             throw new AppException(ErrorCode.SHIPPER_NOT_ONLINE);
         }
 
-        // Bắt buộc 1 đơn tại 1 thời điểm: Kiểm tra xem shipper đã có đơn đang giao hoặc đang lấy hàng chưa (cả đơn xuôi và đơn hoàn)
+        // Bắt buộc 1 đơn tại 1 thời điểm: Kiểm tra xem shipper đã có đơn đang giao, đang lấy hoặc đang hoàn về chưa
         boolean hasActiveShipping = orderRepository.existsByShipper_IdAndStatusIn(
                 currentUser.getId(), 
-                List.of(OrderStatus.SHIPPING, OrderStatus.PICKED_UP)
+                List.of(OrderStatus.SHIPPING, OrderStatus.PICKED_UP, OrderStatus.RETURNING_TO_SHOP)
         );
         boolean hasActiveReturn = returnRequestRepository.existsByShipper_IdAndStatusIn(
                 currentUser.getId(),
@@ -1481,32 +1481,155 @@ public class OrderServiceImpl implements OrderService {
         if (proofs.isEmpty()) {
             throw new AppException(ErrorCode.DELIVERY_PROOF_REQUIRED);
         }
+        boolean wasPickedUp = order.getStatus() == OrderStatus.PICKED_UP;
         order.setFailReason(request.getReason());
         order.setFailNote(note.isEmpty() ? null : note.substring(0, Math.min(note.length(), 500)));
         order.setFailCallAttempts(calls);
         order.setFailProofUrls(String.join("\n", proofs));
         order.setFailedAt(LocalDateTime.now());
 
-        // Giao hàng thất bại -> Hàng trả về shop -> Trả lại kho
-        restoreStock(order);
         restoreOrderVouchers(order);
 
-        // Đơn đã thanh toán online mà giao thất bại -> ghi nhận số tiền sàn phải hoàn cho Buyer
-        if (isPrepaidOnline(order)) {
-            order.setRefundAmount(amountDue(order));
-            order.setRefundReason("Giao hàng thất bại, đơn đã thanh toán online");
+        if (wasPickedUp) {
+            // Đã lấy hàng khỏi vườn: chuyển sang RETURNING_TO_SHOP.
+            // Mở khóa ký quỹ COD (nếu có) nhưng CHƯA hoàn tiền / chưa hủy holds cho tới khi Shop xác nhận đã nhận lại hàng.
+            walletService.releaseCodReserve(order.getOrderId(), "giao thất bại, đang hoàn hàng về shop");
+            order.setStatus(OrderStatus.RETURNING_TO_SHOP);
+            Order saved = orderRepository.save(order);
+            userService.handleDeliveryFailed(saved, request.getReason());
+            dispatchService.notifyStatusChangedAfterCommit(saved.getOrderId());
+            if (saved.getShop() != null) {
+                try {
+                    notificationService.sendNotificationToUser(
+                            saved.getShop(),
+                            "Đơn hàng giao thất bại - Đang hoàn về",
+                            "Đơn #" + saved.getOrderId() + " giao không thành công. Tài xế đang mang hàng hoàn về vườn.",
+                            "ORDER_STATUS",
+                            saved.getOrderId()
+                    );
+                } catch (Exception e) {
+                    log.warn("[Order] Failed to notify shop returning order #{}: {}", saved.getOrderId(), e.getMessage());
+                }
+            }
+            List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
+            return buildOrderResponse(saved, details);
         }
 
-        walletService.cancelHolds(order.getOrderId(), "giao hàng thất bại");
-        walletService.refundOrderWalletPayment(order.getOrderId(), "giao hàng thất bại");
-        // Đơn COD: trả lại tiền ký quỹ cho Shipper
-        walletService.releaseCodReserve(order.getOrderId(), "giao hàng thất bại");
+        // Chưa lấy hàng (SHIPPING): hoàn kho ngay, hoàn tiền 100% (nếu trả trước) và đóng đơn FAILED
+        if (isPrepaidOnline(order)) {
+            order.setRefundAmount(amountDue(order));
+            order.setRefundReason("Giao hàng thất bại tại điểm lấy hàng, đơn đã thanh toán online");
+        }
+        walletService.cancelHolds(order.getOrderId(), "giao hàng thất bại tại điểm lấy hàng");
+        walletService.refundOrderWalletPayment(order.getOrderId(), "giao hàng thất bại tại điểm lấy hàng");
+        walletService.releaseCodReserve(order.getOrderId(), "giao hàng thất bại tại điểm lấy hàng");
         referralService.handleOrderCancelled(order.getOrderId());
+        restoreStock(order);
         order.setStatus(OrderStatus.FAILED);
         Order saved = orderRepository.save(order);
-        // Xử lý phạt khách hàng nếu giao thất bại do lỗi chủ quan (Chống bom hàng)
-        userService.handleDeliveryFailed(saved, request.getReason());
         shipperService.detachOrderFromShipperLocation(saved.getOrderId());
+        dispatchService.notifyStatusChangedAfterCommit(saved.getOrderId());
+        List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
+        return buildOrderResponse(saved, details);
+    }
+
+    @Transactional
+    @Override
+    public OrderResponse returnOrderToShop(int orderId, DeliverOrderRequest request) {
+        Order order = findOrderById(orderId);
+        User currentUser = getCurrentUser();
+        if (order.getShipper() == null || !Objects.equals(order.getShipper().getId(), currentUser.getId())) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
+        if (order.getStatus() != OrderStatus.RETURNING_TO_SHOP) {
+            throw new AppException(ErrorCode.INVALID_ORDER_STATE);
+        }
+        List<String> proofs = cleanUrls(request != null ? request.getProofImageUrls() : null);
+        if (proofs.isEmpty()) {
+            throw new AppException(ErrorCode.DELIVERY_PROOF_REQUIRED);
+        }
+
+        Double shopLat = order.getShopLatitude();
+        Double shopLng = order.getShopLongitude();
+        if ((shopLat == null || shopLng == null) && order.getShop() != null && order.getShop().getAddress() != null) {
+            try {
+                double[] coords = googleMapService.geocodeAddress(order.getShop().getAddress());
+                if (coords != null && coords.length == 2) {
+                    shopLat = coords[0];
+                    shopLng = coords[1];
+                    order.setShopLatitude(shopLat);
+                    order.setShopLongitude(shopLng);
+                }
+            } catch (Exception ignored) {}
+        }
+
+        Double shipperLat = request != null ? request.getLatitude() : null;
+        Double shipperLng = request != null ? request.getLongitude() : null;
+        if (shipperLat == null || shipperLng == null) {
+            double[] lastPos = shipperService.getLastPosition(currentUser.getId());
+            if (lastPos != null && lastPos.length == 2) {
+                shipperLat = lastPos[0];
+                shipperLng = lastPos[1];
+            }
+        }
+
+        if (shopLat != null && shopLng != null && geofenceRadiusMeters > 0) {
+            if (shipperLat == null || shipperLng == null) {
+                throw new AppException(ErrorCode.DELIVERY_LOCATION_REQUIRED);
+            }
+            double dist = com.sang.be_capnong.util.GeoUtils.haversineMeters(shipperLat, shipperLng, shopLat, shopLng);
+            if (dist > geofenceRadiusMeters) {
+                throw new AppException(ErrorCode.DELIVERY_GEOFENCE_EXCEEDED,
+                        ErrorCode.DELIVERY_GEOFENCE_EXCEEDED.getMessage(),
+                        Map.of(
+                                "currentDistanceMeters", Math.round(dist),
+                                "allowedRadiusMeters", Math.round(geofenceRadiusMeters),
+                                "destinationAddress", order.getShop() != null && order.getShop().getAddress() != null ? order.getShop().getAddress() : ""
+                        ));
+            }
+        }
+
+        order.setReturnToShopProofUrls(String.join("\n", proofs));
+        order.setReturnedToShopAt(LocalDateTime.now());
+        order.setStatus(OrderStatus.RETURNED_TO_SHOP);
+        Order saved = orderRepository.save(order);
+        shipperService.detachOrderFromShipperLocation(saved.getOrderId());
+        dispatchService.notifyStatusChangedAfterCommit(saved.getOrderId());
+        if (saved.getShop() != null) {
+            try {
+                notificationService.sendNotificationToUser(
+                        saved.getShop(),
+                        "Tài xế đã trả hàng hoàn về vườn",
+                        "Tài xế đã bàn giao hàng hoàn đơn #" + saved.getOrderId() + ". Vui lòng kiểm tra và xác nhận đã nhận lại hàng.",
+                        "ORDER_STATUS",
+                        saved.getOrderId()
+                );
+            } catch (Exception e) {
+                log.warn("[Order] Failed to notify shop returned order #{}: {}", saved.getOrderId(), e.getMessage());
+            }
+        }
+        List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
+        return buildOrderResponse(saved, details);
+    }
+
+    @Transactional
+    @Override
+    public OrderResponse confirmReturnReceived(int orderId) {
+        Order order = findOrderById(orderId);
+        User currentUser = getCurrentUser();
+        if (order.getShop() == null || !Objects.equals(order.getShop().getId(), currentUser.getId())) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
+        if (order.getStatus() != OrderStatus.RETURNED_TO_SHOP) {
+            throw new AppException(ErrorCode.INVALID_ORDER_STATE);
+        }
+
+        restoreStock(order);
+        order.setReturnConfirmedAt(LocalDateTime.now());
+        order.setStatus(OrderStatus.FAILED);
+        Order saved = orderRepository.saveAndFlush(order);
+        walletService.settleFailedReturnOrder(saved.getOrderId());
+        referralService.handleOrderCancelled(saved.getOrderId());
         dispatchService.notifyStatusChangedAfterCommit(saved.getOrderId());
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
         return buildOrderResponse(saved, details);
@@ -1918,6 +2041,9 @@ public class OrderServiceImpl implements OrderService {
                 .failCallAttempts(order.getFailCallAttempts())
                 .failProofUrls(splitUrls(order.getFailProofUrls()))
                 .failedAt(order.getFailedAt())
+                .returnToShopProofUrls(splitUrls(order.getReturnToShopProofUrls()))
+                .returnedToShopAt(order.getReturnedToShopAt())
+                .returnConfirmedAt(order.getReturnConfirmedAt())
                 .items(itemResponses)
                 .build();
     }

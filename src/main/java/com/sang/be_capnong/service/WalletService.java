@@ -33,6 +33,15 @@ public interface WalletService {
     /** Đơn huỷ / giao thất bại: gỡ toàn bộ tiền tạm giữ của đơn */
     void cancelHolds(int orderId, String reason);
 
+    /**
+     * Quyết toán đơn giao thất bại đã hoàn hàng về Shop (PICKED_UP -> RETURNING_TO_SHOP -> RETURNED_TO_SHOP -> FAILED):
+     * - Trả cước giao cho Shipper (vì đã đi giao và trả hàng về Shop)
+     * - PayOS/Ví: hoàn tiền hàng (trừ phí ship), thu 3% phí shipper vào sàn
+     * - COD: sàn bù cước giao cho Shipper
+     * - Gỡ toàn bộ holds còn lại của Shop/Sàn.
+     */
+    void settleFailedReturnOrder(int orderId);
+
     /** Xử lý hoàn tiền cho người mua và khấu trừ tiền tạm giữ của shop khi yêu cầu hoàn hàng hoàn tất */
     void processReturnRefund(ReturnRequest returnRequest);
 

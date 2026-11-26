@@ -8,7 +8,9 @@ READY ──(điều phối: quét shipper online quanh vườn, mời qua STOMP
       ──(GPS /app/shipper/location → /topic/order/{id}/location, kèm distanceKm + estimatedMinutes)
       ├─► DELIVERED (bắt buộc ảnh PoD) ──► CỘNG NGAY CƯỚC GIAO vào ví khả dụng Shipper (không cần chờ 24h)
       │                               ──► COMPLETED (khách bấm nhận hoặc hết 24h) ──► Quyết toán tiền hàng Shop & hoa hồng Affiliate
-      └─► FAILED (lý do + số cuộc gọi + ảnh) ──► hoàn kho, gỡ ký quỹ, ghi hoàn tiền nếu đã trả online
+      ├─► (SHIPPING chưa lấy hàng) FAILED (lý do + số cuộc gọi + ảnh) ──► hoàn kho ngay, gỡ ký quỹ, ghi hoàn tiền
+      └─► (PICKED_UP đã lấy hàng) RETURNING_TO_SHOP ──(PUT /orders/{id}/return-to-shop + ảnh bàn giao, <500m quanh Shop)──► RETURNED_TO_SHOP (mở khoá nhận đơn mới)
+                                                    ──(PUT /orders/{id}/confirm-return-received [@SHOP])──► FAILED (cộng lại tồn kho)
 ```
 
 ## 1. Trực tuyến và heartbeat
@@ -43,14 +45,14 @@ Kiểm tra theo thứ tự (lỗi thì rollback toàn bộ):
 | Khoá dòng đơn (`SELECT ... FOR UPDATE`), đơn đã có shipper khác | 7005 `ORDER_ALREADY_TAKEN` |
 | Đơn không ở READY | 7002 |
 | Shipper chưa online | 7006 `SHIPPER_NOT_ONLINE` |
-| Đang có đơn giao xuôi (SHIPPING/PICKED_UP) HOẶC đơn hoàn trả (RETURN_SHIPPING/RETURN_PICKED_UP) | 7004 `SHIPPER_HAS_ACTIVE_ORDER` |
+| Đang có đơn giao xuôi (SHIPPING/PICKED_UP/RETURNING_TO_SHOP) HOẶC đơn hoàn trả (RETURN_SHIPPING/RETURN_PICKED_UP) | 7004 `SHIPPER_HAS_ACTIVE_ORDER` |
 | Ví âm (nợ COD luồng cũ) | 16014 `WALLET_HAS_DEBT` |
 | Đơn COD, số dư khả dụng < `totalAmount` | 16013 `SHIPPER_COD_BALANCE_INSUFFICIENT`, `result = { required, available, missing }` |
 
 > **Ràng buộc "1 tài xế - 1 đơn tại 1 thời điểm" (Cross-task checking):**
 > Shipper chỉ được phép thực thi **duy nhất 1 nhiệm vụ giao vận** tại một thời điểm trên toàn hệ thống.
 > Kiểm tra chéo đồng thời 2 bảng:
-> 1. `orders`: `existsByShipper_IdAndStatusIn(shipperId, [SHIPPING, PICKED_UP])`
+> 1. `orders`: `existsByShipper_IdAndStatusIn(shipperId, [SHIPPING, PICKED_UP, RETURNING_TO_SHOP])`
 > 2. `return_requests`: `existsByShipper_IdAndStatusIn(shipperId, [RETURN_SHIPPING, RETURN_PICKED_UP])`
 > - Khi nhận đơn giao hàng mới (`PUT /orders/{id}/ship`): chặn nếu đang có đơn giao xuôi hoặc đơn hoàn trả đang thực thi.
 > - Khi nhận đơn hoàn hàng mới (`POST /return-requests/{id}/shipper-accept`): cũng áp dụng cùng kiểm tra chéo, chặn nếu đang giao đơn hàng thông thường hoặc đơn hoàn khác.
@@ -130,11 +132,18 @@ Không đổi API (`PUT /orders/{id}/pickup`). Đối soát làm ở giao diện
 - **Nhà vườn** (web `pages/farmer/Orders.tsx`, mobile `ShopOrderCard`, `shop/order/[id]`): đơn CONFIRMED / READY / SHIPPING hiện khung **"Mã dán lên túi hàng #123"** để ghi/dán lên túi.
 - **Tài xế** (web Dashboard, bản đồ, FakeGPS; mobile tab Đang giao): thẻ đơn hiện mã to rõ. Bấm "Đã lấy hàng" mở hộp **"Đối soát mã đơn #123 — Kiểm tra mã trên túi hàng trùng #123"**, xác nhận rồi mới gọi API.
 
+### 6.1. Giao thất bại & Hoàn hàng về Shop (`RETURNING_TO_SHOP → RETURNED_TO_SHOP → FAILED`)
+- **Chưa lấy hàng (`SHIPPING`):** Shipper báo không lấy được (`PUT /orders/{id}/fail`) → chuyển thẳng `FAILED`, hoàn kho ngay, gỡ ký quỹ COD (nếu có) và tách tracking.
+- **Đã lấy hàng (`PICKED_UP`):**
+  1. Shipper báo giao thất bại (`PUT /orders/{id}/fail`) → hoàn tiền/gỡ ký quỹ COD, nhưng **chưa cộng lại tồn kho** và chuyển đơn sang **`RETURNING_TO_SHOP`**. Tracking giữ nguyên (`deliveryPhase = RETURN_TO_SHOP`) để Shop theo dõi tài xế mang hàng về, đồng thời **khóa không cho Shipper nhận đơn mới** tới khi trả xong hàng.
+  2. Shipper mang hàng về Vườn và bấm **"Đã trả hàng về Shop"** (`PUT /orders/{id}/return-to-shop`, bắt buộc ≥ 1 ảnh bàn giao, kiểm tra geofence 500m quanh Shop) → chuyển **`RETURNED_TO_SHOP`**, tách tracking và mở khóa cho Shipper nhận đơn mới.
+  3. Shop kiểm tra hàng và bấm **"Xác nhận đã nhận lại hàng"** (`PUT /orders/{id}/confirm-return-received`) → lúc này BE mới gọi `restoreStock(order)` cộng lại tồn kho và đóng đơn về `FAILED`.
+
 ## 7. Theo dõi realtime và bảo mật vị trí
 
-- STOMP `/app/shipper/location` chỉ nhận từ **shipper được gán** khi đơn SHIPPING / PICKED_UP (chặn giả mạo vị trí và `gpsOff`).
+- STOMP `/app/shipper/location` chỉ nhận từ **shipper được gán** khi đơn SHIPPING / PICKED_UP / RETURNING_TO_SHOP (chặn giả mạo vị trí và `gpsOff`).
 - `ShipperLocationResponse` có thêm `distanceKm` (quãng còn lại tới điểm của chặng hiện tại), `estimatedMinutes` (25 km/h), `trackingActive` (cờ báo tracking đang chạy hay đã chốt), và `proofImageUrls` (danh sách ảnh PoD).
-- Chặng mặc định: SHIPPING → `TO_SHOP`, PICKED_UP → `TO_BUYER`, DELIVERED/COMPLETED → `DELIVERED`, FAILED → `FAILED`.
+- Chặng mặc định: SHIPPING → `TO_SHOP`, PICKED_UP → `TO_BUYER`, RETURNING_TO_SHOP → `RETURN_TO_SHOP`, DELIVERED/COMPLETED → `DELIVERED`, FAILED/RETURNED_TO_SHOP → `FAILED`.
 - **Bảo mật và chống rò rỉ GPS đơn cũ:**
   - Endpoint `GET /shippers/location/order/{orderId}` được bảo vệ chặt chẽ: chỉ Buyer của đơn, Shop của đơn, chính Shipper được gán hoặc Admin mới được xem toạ độ.
   - Khi đơn đã kết thúc (`DELIVERED`, `COMPLETED`, `CANCELLED`, `FAILED`): BE **không bao giờ** trả toạ độ realtime của tài xế (tránh lộ toạ độ khi shipper bắt đầu chạy đơn khác). Thay vào đó, BE trả về toạ độ điểm nhận hàng của khách (ghim tĩnh), `distanceKm = 0`, `estimatedMinutes = 0`, `deliveryPhase = "DELIVERED"`, `trackingActive = false` và kèm danh sách ảnh PoD.
@@ -420,5 +429,4 @@ Phần kiểm tra ở mức API và công thức đã có unit test (BE: `Wallet
 
 - Push khi app tắt (Expo push cần `expo-notifications` + development build). Hiện chỉ realtime khi app mở.
 - Trả một phần cước cho shipper khi giao thất bại (hiện không trả).
-- Shop xác nhận đã nhận lại hàng trước khi gỡ ký quỹ khi giao thất bại.
 

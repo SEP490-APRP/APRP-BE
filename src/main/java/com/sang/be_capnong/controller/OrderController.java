@@ -179,8 +179,7 @@ public class OrderController {
     }
 
     @Operation(summary = "Shipper reports failed delivery",
-            description = "[SHIPPER only] SHIPPING / PICKED_UP → FAILED. Body { reason: KHONG_LIEN_LAC_DUOC|SAI_DIA_CHI|KHACH_TU_CHOI|KHAC, "
-                    + "note, callAttempts, proofImageUrls }. Hoàn kho, gỡ ký quỹ COD, ghi hoàn tiền nếu đã trả online.")
+            description = "[SHIPPER only] SHIPPING → FAILED; PICKED_UP → RETURNING_TO_SHOP. Body { reason, note, callAttempts, proofImageUrls }.")
     @PutMapping("/{id}/fail")
     @PreAuthorize("hasRole('SHIPPER')")
     public ApiResponse<OrderResponse> markOrderAsFailed(@PathVariable("id") int orderId,
@@ -188,6 +187,29 @@ public class OrderController {
         return ApiResponse.<OrderResponse>builder()
                 .result(orderService.markOrderAsFailed(orderId, request))
                 .message("Order delivery failed.")
+                .build();
+    }
+
+    @Operation(summary = "Shipper returns failed order to shop",
+            description = "[SHIPPER only] RETURNING_TO_SHOP → RETURNED_TO_SHOP. Bắt buộc >= 1 ảnh bàn giao tại Shop.")
+    @PutMapping("/{id}/return-to-shop")
+    @PreAuthorize("hasRole('SHIPPER')")
+    public ApiResponse<OrderResponse> returnOrderToShop(@PathVariable("id") int orderId,
+                                                        @RequestBody(required = false) com.sang.be_capnong.dto.request.DeliverOrderRequest request) {
+        return ApiResponse.<OrderResponse>builder()
+                .result(orderService.returnOrderToShop(orderId, request))
+                .message("Order returned to shop.")
+                .build();
+    }
+
+    @Operation(summary = "Shop confirms return received",
+            description = "[SHOP only] RETURNED_TO_SHOP → FAILED (đã nhận lại hàng & cộng lại tồn kho).")
+    @PutMapping("/{id}/confirm-return-received")
+    @PreAuthorize("hasRole('SHOP')")
+    public ApiResponse<OrderResponse> confirmReturnReceived(@PathVariable("id") int orderId) {
+        return ApiResponse.<OrderResponse>builder()
+                .result(orderService.confirmReturnReceived(orderId))
+                .message("Shop confirmed return received and stock restored.")
                 .build();
     }
 

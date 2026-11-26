@@ -19,78 +19,21 @@ SET collation_connection = utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 0;
 
--- 1. DROP ALL EXISTING TABLES
-DROP TABLE IF EXISTS plan_meal_items;
-DROP TABLE IF EXISTS plan_meals;
-DROP TABLE IF EXISTS plan_days;
-DROP TABLE IF EXISTS plan_generation_requests;
-DROP TABLE IF EXISTS build_plans;
-DROP TABLE IF EXISTS chat_messages;
-DROP TABLE IF EXISTS conversations;
-DROP TABLE IF EXISTS chat_bot;
-DROP TABLE IF EXISTS bot_knowledge;
-DROP TABLE IF EXISTS blogs;
-DROP TABLE IF EXISTS user_notifications;
-DROP TABLE IF EXISTS notifications;
-DROP TABLE IF EXISTS dispatch_offers;
-DROP TABLE IF EXISTS shipper_locations;
-DROP TABLE IF EXISTS images;
-DROP TABLE IF EXISTS review_reactions;
-DROP TABLE IF EXISTS reviews;
-DROP TABLE IF EXISTS return_requests;
-DROP TABLE IF EXISTS voucher_usages;
-DROP TABLE IF EXISTS voucher_users;
-DROP TABLE IF EXISTS vouchers;
-DROP TABLE IF EXISTS referral_commissions;
-DROP TABLE IF EXISTS referral_attributions;
-DROP TABLE IF EXISTS referral_clicks;
-DROP TABLE IF EXISTS referral_links;
-DROP TABLE IF EXISTS wallet_transactions;
-DROP TABLE IF EXISTS wallet_topups;
-DROP TABLE IF EXISTS withdraw_requests;
-DROP TABLE IF EXISTS wallets;
-DROP TABLE IF EXISTS transactions;
-DROP TABLE IF EXISTS payments;
-DROP TABLE IF EXISTS order_details;
-DROP TABLE IF EXISTS orders;
-DROP TABLE IF EXISTS checkout_batches;
-DROP TABLE IF EXISTS cart_items;
-DROP TABLE IF EXISTS carts;
-DROP TABLE IF EXISTS product_combo;
-DROP TABLE IF EXISTS build_combos;
-DROP TABLE IF EXISTS product_mystery;
-DROP TABLE IF EXISTS mystery_boxes;
-DROP TABLE IF EXISTS product_allergens;
-DROP TABLE IF EXISTS moderation_labels;
-DROP TABLE IF EXISTS moderation_results;
-DROP TABLE IF EXISTS nutrition_info;
-DROP TABLE IF EXISTS product_images;
-DROP TABLE IF EXISTS products;
-DROP TABLE IF EXISTS categories;
-DROP TABLE IF EXISTS profile_update_requests;
-DROP TABLE IF EXISTS user_health_conditions;
-DROP TABLE IF EXISTS user_allergies;
-DROP TABLE IF EXISTS health_conditions;
-DROP TABLE IF EXISTS allergens;
-DROP TABLE IF EXISTS otp_verification;
-DROP TABLE IF EXISTS invalidated_token;
-DROP TABLE IF EXISTS saved_addresses;
-DROP TABLE IF EXISTS users;
-DROP TABLE IF EXISTS roles;
+-- 1. GIỮ NGUYÊN CẤU TRÚC BẢNG (KHÔNG DROP TABLE ĐỂ KHÔNG PHẢI RESTART BE KHI RESET DATA)
 
 -- ==============================================================================
 -- 2. CREATE TABLES (MATCHING APRP-BE JPA ENTITIES)
 -- ==============================================================================
 
 -- 2.1 ROLES
-CREATE TABLE roles (
+CREATE TABLE IF NOT EXISTS roles (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL UNIQUE,
     description VARCHAR(500)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.2 USERS
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     email VARCHAR(255) NOT NULL UNIQUE,
     password VARCHAR(255) NOT NULL,
@@ -122,7 +65,7 @@ CREATE TABLE users (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.2b SAVED ADDRESSES (SỔ ĐỊA CHỈ KHÁCH HÀNG)
-CREATE TABLE saved_addresses (
+CREATE TABLE IF NOT EXISTS saved_addresses (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
     label VARCHAR(50),
@@ -139,13 +82,13 @@ CREATE TABLE saved_addresses (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.3 INVALIDATED TOKEN
-CREATE TABLE invalidated_token (
+CREATE TABLE IF NOT EXISTS invalidated_token (
     id VARCHAR(255) PRIMARY KEY,
     expiry_time DATETIME NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.4 OTP VERIFICATION
-CREATE TABLE otp_verification (
+CREATE TABLE IF NOT EXISTS otp_verification (
     id INT AUTO_INCREMENT PRIMARY KEY,
     email VARCHAR(255) NOT NULL,
     otp INT NOT NULL,
@@ -154,17 +97,17 @@ CREATE TABLE otp_verification (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.5 ALLERGENS & HEALTH CONDITIONS
-CREATE TABLE allergens (
+CREATE TABLE IF NOT EXISTS allergens (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE health_conditions (
+CREATE TABLE IF NOT EXISTS health_conditions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE user_allergies (
+CREATE TABLE IF NOT EXISTS user_allergies (
     id INT AUTO_INCREMENT PRIMARY KEY,
     buyer_id INT NOT NULL,
     allergen_id INT NOT NULL,
@@ -172,7 +115,7 @@ CREATE TABLE user_allergies (
     CONSTRAINT fk_user_allergies_allergen FOREIGN KEY (allergen_id) REFERENCES allergens(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE user_health_conditions (
+CREATE TABLE IF NOT EXISTS user_health_conditions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     buyer_id INT NOT NULL,
     condition_id INT NOT NULL,
@@ -180,7 +123,7 @@ CREATE TABLE user_health_conditions (
     CONSTRAINT fk_user_health_cond FOREIGN KEY (condition_id) REFERENCES health_conditions(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE profile_update_requests (
+CREATE TABLE IF NOT EXISTS profile_update_requests (
     id INT AUTO_INCREMENT PRIMARY KEY,
     buyer_id INT NOT NULL,
     raw_input_text TEXT,
@@ -191,14 +134,14 @@ CREATE TABLE profile_update_requests (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.6 CATEGORIES
-CREATE TABLE categories (
+CREATE TABLE IF NOT EXISTS categories (
     category_id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     description VARCHAR(500)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.7 PRODUCTS
-CREATE TABLE products (
+CREATE TABLE IF NOT EXISTS products (
     product_id INT AUTO_INCREMENT PRIMARY KEY,
     shop_id INT NOT NULL,
     category_id INT,
@@ -220,7 +163,7 @@ CREATE TABLE products (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.8 PRODUCT IMAGES
-CREATE TABLE product_images (
+CREATE TABLE IF NOT EXISTS product_images (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     product_id INT NOT NULL,
     image_url VARCHAR(500) NOT NULL,
@@ -234,7 +177,7 @@ CREATE TABLE product_images (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.9 NUTRITION INFO
-CREATE TABLE nutrition_info (
+CREATE TABLE IF NOT EXISTS nutrition_info (
     id INT AUTO_INCREMENT PRIMARY KEY,
     product_id INT NOT NULL UNIQUE,
     calories DECIMAL(10,2),
@@ -245,7 +188,7 @@ CREATE TABLE nutrition_info (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.10 CONTENT MODERATION (AI)
-CREATE TABLE moderation_results (
+CREATE TABLE IF NOT EXISTS moderation_results (
     id INT AUTO_INCREMENT PRIMARY KEY,
     product_id INT NOT NULL UNIQUE,
     is_flagged TINYINT(1) DEFAULT 0,
@@ -255,7 +198,7 @@ CREATE TABLE moderation_results (
     CONSTRAINT fk_moderation_product FOREIGN KEY (product_id) REFERENCES products(product_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE moderation_labels (
+CREATE TABLE IF NOT EXISTS moderation_labels (
     id INT AUTO_INCREMENT PRIMARY KEY,
     moderation_result_id INT NOT NULL,
     label_name VARCHAR(100),
@@ -264,7 +207,7 @@ CREATE TABLE moderation_labels (
     CONSTRAINT fk_moderation_labels_res FOREIGN KEY (moderation_result_id) REFERENCES moderation_results(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE product_allergens (
+CREATE TABLE IF NOT EXISTS product_allergens (
     id INT AUTO_INCREMENT PRIMARY KEY,
     product_id INT NOT NULL,
     allergen_id INT NOT NULL,
@@ -273,7 +216,7 @@ CREATE TABLE product_allergens (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.11 MYSTERY BOXES
-CREATE TABLE mystery_boxes (
+CREATE TABLE IF NOT EXISTS mystery_boxes (
     mystery_id INT AUTO_INCREMENT PRIMARY KEY,
     shop_id INT NOT NULL,
     box_type VARCHAR(50),
@@ -287,7 +230,7 @@ CREATE TABLE mystery_boxes (
     CONSTRAINT fk_mystery_shop FOREIGN KEY (shop_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE product_mystery (
+CREATE TABLE IF NOT EXISTS product_mystery (
     product_mystery_id INT AUTO_INCREMENT PRIMARY KEY,
     product_id INT NOT NULL,
     mystery_id INT NOT NULL,
@@ -297,7 +240,7 @@ CREATE TABLE product_mystery (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.12 BUILD COMBOS
-CREATE TABLE build_combos (
+CREATE TABLE IF NOT EXISTS build_combos (
     combo_id INT AUTO_INCREMENT PRIMARY KEY,
     shop_id INT NOT NULL,
     combo_name VARCHAR(255) NOT NULL,
@@ -314,7 +257,7 @@ CREATE TABLE build_combos (
     CONSTRAINT fk_combos_shop FOREIGN KEY (shop_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE product_combo (
+CREATE TABLE IF NOT EXISTS product_combo (
     product_combo_id INT AUTO_INCREMENT PRIMARY KEY,
     combo_id INT NOT NULL,
     product_id INT NOT NULL,
@@ -324,13 +267,13 @@ CREATE TABLE product_combo (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.13 CARTS & CART ITEMS
-CREATE TABLE carts (
+CREATE TABLE IF NOT EXISTS carts (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL UNIQUE,
     CONSTRAINT fk_carts_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE cart_items (
+CREATE TABLE IF NOT EXISTS cart_items (
     id INT AUTO_INCREMENT PRIMARY KEY,
     cart_id INT NOT NULL,
     product_id INT,
@@ -344,7 +287,7 @@ CREATE TABLE cart_items (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.14 CHECKOUT BATCHES
-CREATE TABLE checkout_batches (
+CREATE TABLE IF NOT EXISTS checkout_batches (
     id INT AUTO_INCREMENT PRIMARY KEY,
     buyer_id INT NOT NULL,
     payos_order_code VARCHAR(255),
@@ -360,7 +303,7 @@ CREATE TABLE checkout_batches (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.15 ORDERS
-CREATE TABLE orders (
+CREATE TABLE IF NOT EXISTS orders (
     order_id INT AUTO_INCREMENT PRIMARY KEY,
     buyer_id INT NOT NULL,
     shop_id INT NOT NULL,
@@ -403,6 +346,9 @@ CREATE TABLE orders (
     fail_call_attempts INT,
     fail_proof_urls TEXT,
     failed_at DATETIME,
+    return_to_shop_proof_urls TEXT,
+    returned_to_shop_at DATETIME,
+    return_confirmed_at DATETIME,
     rescued_weight DECIMAL(18,2) DEFAULT 0.00,
     CONSTRAINT fk_orders_buyer FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE,
     CONSTRAINT fk_orders_shop FOREIGN KEY (shop_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -411,7 +357,7 @@ CREATE TABLE orders (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.16 ORDER DETAILS
-CREATE TABLE order_details (
+CREATE TABLE IF NOT EXISTS order_details (
     order_detail_id INT AUTO_INCREMENT PRIMARY KEY,
     order_id INT NOT NULL,
     product_id INT,
@@ -428,7 +374,7 @@ CREATE TABLE order_details (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.17 PAYMENTS
-CREATE TABLE payments (
+CREATE TABLE IF NOT EXISTS payments (
     payment_id INT AUTO_INCREMENT PRIMARY KEY,
     order_id INT,
     payment_date DATETIME,
@@ -445,7 +391,7 @@ CREATE TABLE payments (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.18 TRANSACTIONS
-CREATE TABLE transactions (
+CREATE TABLE IF NOT EXISTS transactions (
     transaction_id INT AUTO_INCREMENT PRIMARY KEY,
     payment_id INT NOT NULL,
     payment_gateway VARCHAR(50),
@@ -459,7 +405,7 @@ CREATE TABLE transactions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.19 WALLETS
-CREATE TABLE wallets (
+CREATE TABLE IF NOT EXISTS wallets (
     wallet_id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
     status VARCHAR(16) DEFAULT 'ACTIVE',
@@ -476,7 +422,7 @@ CREATE TABLE wallets (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.19.1 WALLET TOPUPS
-CREATE TABLE wallet_topups (
+CREATE TABLE IF NOT EXISTS wallet_topups (
     id INT AUTO_INCREMENT PRIMARY KEY,
     wallet_id INT NOT NULL,
     amount DECIMAL(18,2) NOT NULL,
@@ -489,7 +435,7 @@ CREATE TABLE wallet_topups (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.20 WITHDRAW REQUESTS
-CREATE TABLE withdraw_requests (
+CREATE TABLE IF NOT EXISTS withdraw_requests (
     request_id INT AUTO_INCREMENT PRIMARY KEY,
     wallet_id INT NOT NULL,
     admin_id INT,
@@ -517,7 +463,7 @@ CREATE TABLE withdraw_requests (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.20.1 WALLET TRANSACTIONS (SỔ CÁI BIẾN ĐỘNG VÍ & QUYẾT TOÁN HOA HỒNG)
-CREATE TABLE wallet_transactions (
+CREATE TABLE IF NOT EXISTS wallet_transactions (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     wallet_id INT NOT NULL,
     order_id INT NULL,
@@ -535,7 +481,7 @@ CREATE TABLE wallet_transactions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.21 VOUCHERS
-CREATE TABLE vouchers (
+CREATE TABLE IF NOT EXISTS vouchers (
     voucher_id INT AUTO_INCREMENT PRIMARY KEY,
     shop_id INT NOT NULL,
     voucher_code VARCHAR(20) NOT NULL,
@@ -558,7 +504,7 @@ CREATE TABLE vouchers (
     CONSTRAINT fk_vouchers_shop FOREIGN KEY (shop_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE voucher_users (
+CREATE TABLE IF NOT EXISTS voucher_users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
     voucher_id INT NOT NULL,
@@ -569,7 +515,7 @@ CREATE TABLE voucher_users (
     CONSTRAINT fk_vouch_users_vouch FOREIGN KEY (voucher_id) REFERENCES vouchers(voucher_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE voucher_usages (
+CREATE TABLE IF NOT EXISTS voucher_usages (
     id INT AUTO_INCREMENT PRIMARY KEY,
     order_id INT NOT NULL,
     user_id INT NOT NULL,
@@ -582,7 +528,7 @@ CREATE TABLE voucher_usages (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.22 RETURN REQUESTS
-CREATE TABLE return_requests (
+CREATE TABLE IF NOT EXISTS return_requests (
     return_id INT AUTO_INCREMENT PRIMARY KEY,
     order_detail_id INT NOT NULL,
     shop_id INT NOT NULL,
@@ -606,7 +552,7 @@ CREATE TABLE return_requests (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.23 REVIEWS & REACTIONS
-CREATE TABLE reviews (
+CREATE TABLE IF NOT EXISTS reviews (
     review_id INT AUTO_INCREMENT PRIMARY KEY,
     buyer_id INT NOT NULL,
     shop_id INT,
@@ -627,7 +573,7 @@ CREATE TABLE reviews (
     CONSTRAINT fk_reviews_combo FOREIGN KEY (combo_id) REFERENCES build_combos(combo_id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE review_reactions (
+CREATE TABLE IF NOT EXISTS review_reactions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     review_id INT NOT NULL,
     buyer_id INT NOT NULL,
@@ -639,7 +585,7 @@ CREATE TABLE review_reactions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.24 IMAGES (POLYMORPHIC FOR WITHDRAW / RETURN / REVIEW)
-CREATE TABLE images (
+CREATE TABLE IF NOT EXISTS images (
     id INT AUTO_INCREMENT PRIMARY KEY,
     image_url VARCHAR(500) NOT NULL,
     media_type ENUM('IMAGE', 'PHOTO', 'VIDEO') DEFAULT 'PHOTO',
@@ -654,7 +600,7 @@ CREATE TABLE images (
 
 
 -- 2.25 SHIPPER LOCATIONS
-CREATE TABLE shipper_locations (
+CREATE TABLE IF NOT EXISTS shipper_locations (
     id INT AUTO_INCREMENT PRIMARY KEY,
     order_id INT,
     shipper_id INT NOT NULL,
@@ -669,7 +615,7 @@ CREATE TABLE shipper_locations (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.25.1 DISPATCH OFFERS
-CREATE TABLE dispatch_offers (
+CREATE TABLE IF NOT EXISTS dispatch_offers (
     id INT AUTO_INCREMENT PRIMARY KEY,
     order_id INT NOT NULL,
     shipper_id INT NOT NULL,
@@ -682,7 +628,7 @@ CREATE TABLE dispatch_offers (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.26 NOTIFICATIONS
-CREATE TABLE notifications (
+CREATE TABLE IF NOT EXISTS notifications (
     noti_id INT AUTO_INCREMENT PRIMARY KEY,
     admin_id INT,
     title VARCHAR(50),
@@ -693,7 +639,7 @@ CREATE TABLE notifications (
     CONSTRAINT fk_notif_admin FOREIGN KEY (admin_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE user_notifications (
+CREATE TABLE IF NOT EXISTS user_notifications (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
     notification_id INT NOT NULL,
@@ -704,7 +650,7 @@ CREATE TABLE user_notifications (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.27 BLOGS
-CREATE TABLE blogs (
+CREATE TABLE IF NOT EXISTS blogs (
     blog_id INT AUTO_INCREMENT PRIMARY KEY,
     shop_id INT NOT NULL,
     title VARCHAR(255) NOT NULL,
@@ -718,7 +664,7 @@ CREATE TABLE blogs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.28 CHAT & BOT
-CREATE TABLE conversations (
+CREATE TABLE IF NOT EXISTS conversations (
     id INT AUTO_INCREMENT PRIMARY KEY,
     room_key VARCHAR(255),
     user1_id INT NOT NULL,
@@ -729,7 +675,7 @@ CREATE TABLE conversations (
     CONSTRAINT fk_conv_u2 FOREIGN KEY (user2_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE chat_messages (
+CREATE TABLE IF NOT EXISTS chat_messages (
     id INT AUTO_INCREMENT PRIMARY KEY,
     conversation_id INT NOT NULL,
     sender_id INT NOT NULL,
@@ -740,7 +686,7 @@ CREATE TABLE chat_messages (
     CONSTRAINT fk_msg_sender FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE chat_bot (
+CREATE TABLE IF NOT EXISTS chat_bot (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
     role VARCHAR(10),
@@ -749,7 +695,7 @@ CREATE TABLE chat_bot (
     CONSTRAINT fk_bot_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE bot_knowledge (
+CREATE TABLE IF NOT EXISTS bot_knowledge (
     id INT AUTO_INCREMENT PRIMARY KEY,
     type VARCHAR(50),
     title VARCHAR(255),
@@ -761,7 +707,7 @@ CREATE TABLE bot_knowledge (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.29 BUILD PLANS & MEALS (AI NUTRITION)
-CREATE TABLE build_plans (
+CREATE TABLE IF NOT EXISTS build_plans (
     plan_id INT AUTO_INCREMENT PRIMARY KEY,
     buyer_id INT NOT NULL,
     plan_name VARCHAR(255),
@@ -776,7 +722,7 @@ CREATE TABLE build_plans (
     CONSTRAINT fk_plan_buyer FOREIGN KEY (buyer_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE plan_days (
+CREATE TABLE IF NOT EXISTS plan_days (
     id INT AUTO_INCREMENT PRIMARY KEY,
     plan_id INT NOT NULL,
     day_index INT,
@@ -784,7 +730,7 @@ CREATE TABLE plan_days (
     CONSTRAINT fk_plday_plan FOREIGN KEY (plan_id) REFERENCES build_plans(plan_id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE plan_meals (
+CREATE TABLE IF NOT EXISTS plan_meals (
     id INT AUTO_INCREMENT PRIMARY KEY,
     plan_day_id INT NOT NULL,
     meal_type ENUM('BREAKFAST', 'LUNCH', 'DINNER', 'SNACK'),
@@ -793,7 +739,7 @@ CREATE TABLE plan_meals (
     CONSTRAINT fk_plmeal_day FOREIGN KEY (plan_day_id) REFERENCES plan_days(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE plan_meal_items (
+CREATE TABLE IF NOT EXISTS plan_meal_items (
     id INT AUTO_INCREMENT PRIMARY KEY,
     plan_meal_id INT NOT NULL,
     combo_id INT,
@@ -806,7 +752,7 @@ CREATE TABLE plan_meal_items (
     CONSTRAINT fk_plitem_combo FOREIGN KEY (combo_id) REFERENCES build_combos(combo_id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE TABLE plan_generation_requests (
+CREATE TABLE IF NOT EXISTS plan_generation_requests (
     id INT AUTO_INCREMENT PRIMARY KEY,
     plan_id INT,
     buyer_id INT NOT NULL,
@@ -818,7 +764,7 @@ CREATE TABLE plan_generation_requests (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.30 REFERRAL LINKS (TIẾP THỊ LIÊN KẾT: LINK GIỚI THIỆU SẢN PHẨM / GIAN HÀNG)
-CREATE TABLE referral_links (
+CREATE TABLE IF NOT EXISTS referral_links (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     referral_code VARCHAR(32) NOT NULL,
     referrer_id INT NOT NULL,
@@ -835,7 +781,7 @@ CREATE TABLE referral_links (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.31 REFERRAL CLICKS (LỊCH SỬ NHẤP LINK TIẾP THỊ)
-CREATE TABLE referral_clicks (
+CREATE TABLE IF NOT EXISTS referral_clicks (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     referral_link_id BIGINT NOT NULL,
     ip_address VARCHAR(45) NULL,
@@ -848,7 +794,7 @@ CREATE TABLE referral_clicks (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.32 REFERRAL ATTRIBUTIONS (GHI NHẬN CHUYỂN ĐỔI 7 NGÀY - CAPPED MULTI-CONVERSION)
-CREATE TABLE referral_attributions (
+CREATE TABLE IF NOT EXISTS referral_attributions (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     buyer_id INT NOT NULL,
     referral_link_id BIGINT NOT NULL,
@@ -867,7 +813,7 @@ CREATE TABLE referral_attributions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- 2.33 REFERRAL COMMISSIONS (HOA HỒNG TIẾP THỊ LIÊN KẾT THEO TỪNG DÒNG HÀNG)
-CREATE TABLE referral_commissions (
+CREATE TABLE IF NOT EXISTS referral_commissions (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     order_id INT NOT NULL,
     order_detail_id INT NOT NULL,
@@ -892,7 +838,68 @@ CREATE TABLE referral_commissions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ==============================================================================
--- 3. SEED DATA (CHỌN LỌC TỪ SWD.SQL & EXE.SQL, TƯƠNG THÍCH HOÀN TOÀN)
+-- 3. RESET DATA (TRUNCATE TABLES - AN TOÀN KHI BE ĐANG CHẠY)
+-- ==============================================================================
+TRUNCATE TABLE plan_meal_items;
+TRUNCATE TABLE plan_meals;
+TRUNCATE TABLE plan_days;
+TRUNCATE TABLE plan_generation_requests;
+TRUNCATE TABLE build_plans;
+TRUNCATE TABLE chat_messages;
+TRUNCATE TABLE conversations;
+TRUNCATE TABLE chat_bot;
+TRUNCATE TABLE bot_knowledge;
+TRUNCATE TABLE blogs;
+TRUNCATE TABLE user_notifications;
+TRUNCATE TABLE notifications;
+TRUNCATE TABLE dispatch_offers;
+TRUNCATE TABLE shipper_locations;
+TRUNCATE TABLE images;
+TRUNCATE TABLE review_reactions;
+TRUNCATE TABLE reviews;
+TRUNCATE TABLE return_requests;
+TRUNCATE TABLE voucher_usages;
+TRUNCATE TABLE voucher_users;
+TRUNCATE TABLE vouchers;
+TRUNCATE TABLE referral_commissions;
+TRUNCATE TABLE referral_attributions;
+TRUNCATE TABLE referral_clicks;
+TRUNCATE TABLE referral_links;
+TRUNCATE TABLE wallet_transactions;
+TRUNCATE TABLE wallet_topups;
+TRUNCATE TABLE withdraw_requests;
+TRUNCATE TABLE wallets;
+TRUNCATE TABLE transactions;
+TRUNCATE TABLE payments;
+TRUNCATE TABLE order_details;
+TRUNCATE TABLE orders;
+TRUNCATE TABLE checkout_batches;
+TRUNCATE TABLE cart_items;
+TRUNCATE TABLE carts;
+TRUNCATE TABLE product_combo;
+TRUNCATE TABLE build_combos;
+TRUNCATE TABLE product_mystery;
+TRUNCATE TABLE mystery_boxes;
+TRUNCATE TABLE product_allergens;
+TRUNCATE TABLE moderation_labels;
+TRUNCATE TABLE moderation_results;
+TRUNCATE TABLE nutrition_info;
+TRUNCATE TABLE product_images;
+TRUNCATE TABLE products;
+TRUNCATE TABLE categories;
+TRUNCATE TABLE profile_update_requests;
+TRUNCATE TABLE user_health_conditions;
+TRUNCATE TABLE user_allergies;
+TRUNCATE TABLE health_conditions;
+TRUNCATE TABLE allergens;
+TRUNCATE TABLE otp_verification;
+TRUNCATE TABLE invalidated_token;
+TRUNCATE TABLE saved_addresses;
+TRUNCATE TABLE users;
+TRUNCATE TABLE roles;
+
+-- ==============================================================================
+-- 4. SEED DATA (CHỌN LỌC TỪ SWD.SQL & EXE.SQL, TƯƠNG THÍCH HOÀN TOÀN)
 -- ==============================================================================
 
 -- 3.1 ROLES
@@ -1203,7 +1210,10 @@ INSERT INTO orders (order_id, buyer_id, shop_id, shipper_id, checkout_batch_id, 
 (111, 3, 4, 6, NULL, 15000, 'Trần Thị Mai', '0911111112', 'Chợ Bến Thành, Đường Lê Lợi, Phường Bến Thành, Quận 1, TP. Hồ Chí Minh', 'Giao cẩn thận', 'DELIVERED', 75000, 'COD', 0, 0, 10.7721, 106.6983, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 5 DAY)),
 
 -- Đơn 112: Đã giao (DELIVERED) - Shop 2 của Buyer 1 -> CHƯA đánh giá (Xoài cát Hòa Lộc để test đánh giá Shop 2)
-(112, 2, 5, 6, NULL, 15000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao buổi chiều', 'DELIVERED', 185000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.8700, 106.8030, DATE_SUB(NOW(), INTERVAL 1 DAY))
+(112, 2, 5, 6, NULL, 15000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Giao buổi chiều', 'DELIVERED', 185000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.8700, 106.8030, DATE_SUB(NOW(), INTERVAL 1 DAY)),
+
+-- Đơn 113: Đơn PayOS đã thanh toán & Shop đã duyệt (CONFIRMED) -> Chờ đóng gói để test nhanh luồng PayOS
+(113, 2, 4, NULL, NULL, 15000, 'Ngô Gia Sang', '0911111111', '268 Lý Thường Kiệt, Phường 14, Quận 10, TP. Hồ Chí Minh', 'Đơn PayOS chờ đóng gói', 'CONFIRMED', 95000, 'PAYOS', 0, 0, 10.7725, 106.6579, 10.8506, 106.7719, DATE_SUB(NOW(), INTERVAL 20 MINUTE))
 ON DUPLICATE KEY UPDATE status=VALUES(status);
 
 -- 3.12 ORDER DETAILS (CHI TIẾT MẶT HÀNG TỪNG ĐƠN: SẢN PHẨM, TÚI MÙ, COMBO)
@@ -1222,13 +1232,16 @@ INSERT INTO order_details (order_detail_id, order_id, product_id, mystery_id, co
 (12, 109, 108, NULL, NULL, 1, 35000, 'PRODUCT'),       -- Cà chua bi ngọt (Đơn 109, đã đánh giá 4 sao, CHƯA có phản hồi từ shop)
 (13, 110, 206, NULL, NULL, 3, 35000, 'PRODUCT'),       -- Cam sành Tiền Giang (Đơn 110, đã đánh giá 5 sao)
 (14, 111, 106, NULL, NULL, 2, 30000, 'PRODUCT'),       -- Khoai tây vàng Đà Lạt (Đơn 111, đã đánh giá 3 sao)
-(15, 112, 207, NULL, NULL, 2, 85000, 'PRODUCT')        -- Xoài cát Hòa Lộc (Đơn 112, CHƯA ĐÁNH GIÁ -> Test nút Đánh giá)
+(15, 112, 207, NULL, NULL, 2, 85000, 'PRODUCT'),       -- Xoài cát Hòa Lộc (Đơn 112, CHƯA ĐÁNH GIÁ -> Test nút Đánh giá)
+(16, 113, 105, NULL, NULL, 2, 25000, 'PRODUCT'),       -- Cà rốt Đà Lạt (Đơn 113 PayOS chờ đóng gói)
+(17, 113, 106, NULL, NULL, 1, 30000, 'PRODUCT')        -- Khoai tây vàng Đà Lạt (Đơn 113 PayOS chờ đóng gói)
 ON DUPLICATE KEY UPDATE quantity=VALUES(quantity);
 
 -- 3.13 PAYMENTS (LIÊN KẾT THANH TOÁN VỚI ĐƠN HÀNG)
 INSERT INTO payments (payment_id, order_id, payment_date, amount, payment_gateway, status, payos_order_code, checkout_url, qr_code_url, created_at) VALUES
 (1, 101, NULL, 197000, 'PAYOS', 'PENDING', '1791793001', 'https://pay.payos.vn/web/test1791793001', 'https://qr.payos.vn/test1791793001.png', DATE_SUB(NOW(), INTERVAL 2 HOUR)),
-(2, 105, DATE_SUB(NOW(), INTERVAL 35 MINUTE), 95000, 'PAYOS', 'PAID', '1791793002', 'https://pay.payos.vn/web/test1791793002', 'https://qr.payos.vn/test1791793002.png', DATE_SUB(NOW(), INTERVAL 40 MINUTE))
+(2, 105, DATE_SUB(NOW(), INTERVAL 35 MINUTE), 95000, 'PAYOS', 'PAID', '1791793002', 'https://pay.payos.vn/web/test1791793002', 'https://qr.payos.vn/test1791793002.png', DATE_SUB(NOW(), INTERVAL 40 MINUTE)),
+(3, 113, DATE_SUB(NOW(), INTERVAL 18 MINUTE), 95000, 'PAYOS', 'PAID', '1791793003', 'https://pay.payos.vn/web/test1791793003', 'https://qr.payos.vn/test1791793003.png', DATE_SUB(NOW(), INTERVAL 20 MINUTE))
 ON DUPLICATE KEY UPDATE status=VALUES(status);
 
 -- 3.14 VOUCHER USAGES (LỊCH SỬ SỬ DỤNG MÃ)
