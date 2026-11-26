@@ -437,7 +437,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         // Bắt buộc 1 đơn tại 1 thời điểm: Shipper không được nhận đơn hoàn nếu đang có đơn giao xuôi hoặc đơn hoàn khác đang chạy
         boolean hasActiveForward = orderRepository.existsByShipper_IdAndStatusIn(
-                currentUserId, List.of(OrderStatus.SHIPPING, OrderStatus.PICKED_UP)
+                currentUserId, List.of(OrderStatus.SHIPPING, OrderStatus.PICKED_UP, OrderStatus.RETURNING_TO_SHOP)
         );
         boolean hasActiveReturn = returnRequestRepository.existsByShipper_IdAndStatusIn(
                 currentUserId, List.of(ReturnStatus.RETURN_SHIPPING, ReturnStatus.RETURN_PICKED_UP)
