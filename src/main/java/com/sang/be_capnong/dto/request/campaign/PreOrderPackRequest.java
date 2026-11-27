@@ -11,4 +11,6 @@ import lombok.experimental.FieldDefaults;
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class PreOrderPackRequest {
     String deliveryZone;
+    /** Hub chuyển thùng tới; bỏ trống thì hệ thống chọn hub gần người mua nhất */
+    Integer hubId;
 }

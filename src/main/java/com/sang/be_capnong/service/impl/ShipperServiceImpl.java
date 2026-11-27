@@ -151,7 +151,9 @@ public class ShipperServiceImpl implements ShipperService {
         }
         return orderRepository.findById(orderId)
                 .filter(o -> o.getShipper() != null && o.getShipper().getId() == userId)
-                .filter(o -> o.getStatus() == OrderStatus.SHIPPING || o.getStatus() == OrderStatus.PICKED_UP)
+                .filter(o -> o.getStatus() == OrderStatus.SHIPPING
+                        || o.getStatus() == OrderStatus.PICKED_UP
+                        || o.getStatus() == OrderStatus.RETURNING_TO_SHOP)
                 .isPresent();
     }
 
@@ -324,6 +326,7 @@ public class ShipperServiceImpl implements ShipperService {
         if (status == null) return "TO_SHOP";
         return switch (status) {
             case PICKED_UP -> "TO_BUYER";
+            case RETURNING_TO_SHOP -> "RETURN_TO_SHOP";
             case DELIVERED, COMPLETED -> "DELIVERED";
             default -> "TO_SHOP";
         };
@@ -407,6 +410,7 @@ public class ShipperServiceImpl implements ShipperService {
         boolean isFinished = order != null && (order.getStatus() == OrderStatus.DELIVERED
                 || order.getStatus() == OrderStatus.COMPLETED
                 || order.getStatus() == OrderStatus.FAILED
+                || order.getStatus() == OrderStatus.RETURNED_TO_SHOP
                 || order.getStatus() == OrderStatus.CANCELLED);
 
         return ShipperLocationResponse.builder()

@@ -68,6 +68,9 @@ public class User {
     String logoUrl;
     String achievement;
     String license;
+    /** Hạng giấy phép lái xe của tài xế (A1, B, C1, C...) */
+    @Column(length = 10)
+    String licenseClass;
     String licenseImageUrl;
 
     /** Toạ độ nhà vườn / shop: dùng để tìm shop lân cận khi đề xuất chiến dịch */
@@ -76,6 +79,9 @@ public class User {
 
     // ===== SHIPPER FIELDS =====
     String vehicleNumber;
+    /** Loại xe (VehicleType): MOTORBIKE | VAN | TRUCK_1T | TRUCK_2T | TRUCK_5T; chưa khai báo = xe máy */
+    @Column(name = "vehicle_type", length = 20)
+    String vehicleType;
     String vehicleDocImageUrl;
 
     // ===== BUYER FIELDS =====

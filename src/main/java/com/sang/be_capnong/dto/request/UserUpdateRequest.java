@@ -33,6 +33,7 @@ public class UserUpdateRequest {
     String logoUrl;
     String achievement;
     String license;
+    String licenseClass;
     String licenseImageUrl;
     /** Toạ độ shop (chọn trên bản đồ); bỏ trống thì BE tự lấy từ địa chỉ */
     Double shopLatitude;
@@ -43,6 +44,7 @@ public class UserUpdateRequest {
 
     // Shipper fields
     String vehicleNumber;
+    String vehicleType;
     String vehicleDocImageUrl;
 
     // Buyer fields

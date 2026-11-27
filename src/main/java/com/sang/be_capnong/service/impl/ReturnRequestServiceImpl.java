@@ -437,7 +437,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         // Bắt buộc 1 đơn tại 1 thời điểm: Shipper không được nhận đơn hoàn nếu đang có đơn giao xuôi hoặc đơn hoàn khác đang chạy
         boolean hasActiveForward = orderRepository.existsByShipper_IdAndStatusIn(
-                currentUserId, List.of(OrderStatus.SHIPPING, OrderStatus.PICKED_UP)
+                currentUserId, List.of(OrderStatus.SHIPPING, OrderStatus.PICKED_UP, OrderStatus.RETURNING_TO_SHOP)
         );
         boolean hasActiveReturn = returnRequestRepository.existsByShipper_IdAndStatusIn(
                 currentUserId, List.of(ReturnStatus.RETURN_SHIPPING, ReturnStatus.RETURN_PICKED_UP)
@@ -821,8 +821,11 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         boolean isBuyer = request.getBuyer() != null && Objects.equals(request.getBuyer().getId(), currentUserId);
         boolean isShop = request.getShop() != null && Objects.equals(request.getShop().getId(), currentUserId);
         boolean isShipper = request.getShipper() != null && Objects.equals(request.getShipper().getId(), currentUserId);
+        boolean isAvailableForShipper = SecurityUtils.hasRole("SHIPPER")
+                && request.getStatus() == ReturnStatus.RETURN_SHIPPING
+                && request.getShipper() == null;
 
-        if (!isBuyer && !isShop && !isShipper) {
+        if (!isBuyer && !isShop && !isShipper && !isAvailableForShipper) {
             throw new AppException(ErrorCode.RETURN_UNAUTHORIZED);
         }
     }

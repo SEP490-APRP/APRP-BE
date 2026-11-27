@@ -50,7 +50,17 @@ public class PreOrderResponse {
     BigDecimal codReservedAmount;
     /** Shipper: tổng cước đã nhận cho đơn này (sau phí dịch vụ) */
     BigDecimal shipperIncomeAmount;
+    /** Số shipper dự kiến nhận khi giao đơn (sau phí dịch vụ): tính theo khoảng cách hub -> người mua nếu đã gán hub */
+    BigDecimal shipperEarnEstimate;
     BigDecimal shippingDiscountAmount;
+    /** Hub shipper tới lấy hàng */
+    Integer hubId;
+    String hubName;
+    String hubAddress;
+    Double hubLatitude;
+    Double hubLongitude;
+    String hubPhone;
+    String hubOpenHours;
     String collectionSiteName;
     String collectionSiteAddress;
     /** Độ gấp khi giao: URGENT (Gấp) | HIGH (Ưu tiên) | NORMAL (Thường) */
@@ -74,6 +84,17 @@ public class PreOrderResponse {
     String status;
     Integer shipperId;
     String shipperName;
+    /** Xem hàng tại hub: xe tải chưa chở đơn tới nơi */
+    Boolean onTheWay;
+    /** Đơn đã đóng gói đang ở đâu: AT_SITE (điểm tập kết) | ON_THE_WAY (trên xe ra hub) | AT_HUB; chỉ có khi status = READY */
+    String hubStage;
+    /** Hub xác nhận đã nhận đơn (ai, lúc nào) hoặc báo thiếu / hư */
+    LocalDateTime hubReceivedAt;
+    String hubReceivedBy;
+    Integer hubIssueCrates;
+    String hubIssueNote;
+    /** Đơn chưa đóng gói xong: số thứ tự các thùng đã đóng */
+    java.util.List<Integer> packedCrates;
     String podImageUrl;
     String failReason;
     String cancelReason;

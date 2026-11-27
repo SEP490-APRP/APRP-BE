@@ -26,6 +26,10 @@ public interface OrderService {
     OrderResponse markOrderAsCancelled(int orderId);
     /** Shipper báo giao thất bại: lý do, số cuộc gọi, ảnh bằng chứng */
     OrderResponse markOrderAsFailed(int orderId, com.sang.be_capnong.dto.request.FailOrderRequest request);
+    /** Shipper trả hàng hoàn về tới Shop sau khi giao thất bại (bắt buộc ảnh bàn giao) */
+    OrderResponse returnOrderToShop(int orderId, com.sang.be_capnong.dto.request.DeliverOrderRequest request);
+    /** Shop xác nhận đã nhận lại hàng hoàn từ Shipper -> cộng lại tồn kho */
+    OrderResponse confirmReturnReceived(int orderId);
     /** BUYER xác nhận đã nhận hàng: DELIVERED -> COMPLETED, sau đó chia tiền vào ví */
     OrderResponse markOrderAsCompleted(int orderId);
     /** Hệ thống tự hoàn tất đơn DELIVERED quá hạn (không kiểm tra người gọi) */
