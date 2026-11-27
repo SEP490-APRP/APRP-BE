@@ -447,7 +447,7 @@ FROM tmp_hv_buyer t
 JOIN users u ON u.email = CONCAT('buyer', t.n, '@gmail.com') COLLATE utf8mb4_unicode_ci;
 
 INSERT INTO wallets (user_id, status, type, total_balance, frozen_balance, total_revenue_all_time, total_withdrawn, commission_wallet, cod_reserved, create_at, update_at)
-SELECT u.id, 'ACTIVE', 'BUYER', 20000000, 0, 0, 0, 0, 0, @now, @now
+SELECT u.id, 'ACTIVE', 'BUYER', 2000000, 0, 0, 0, 0, 0, @now, @now
 FROM users u WHERE u.role_id = 1;
 
 -- ------------------------------------------------------------------------------
@@ -481,7 +481,7 @@ SELECT t.email, @pwd, 3, 'ACTIVE', t.full_name, t.phone, 'TP. Hồ Chí Minh', 0
 FROM tmp_hv_ship t;
 
 INSERT INTO wallets (user_id, status, type, total_balance, frozen_balance, total_revenue_all_time, total_withdrawn, commission_wallet, cod_reserved, create_at, update_at)
-SELECT u.id, 'ACTIVE', 'SHIPPER', 30000000, 0, 0, 0, 0, 0, @now, @now
+SELECT u.id, 'ACTIVE', 'SHIPPER', 2000000, 0, 0, 0, 0, 0, @now, @now
 FROM users u JOIN tmp_hv_ship t ON u.email = t.email COLLATE utf8mb4_unicode_ci;
 
 INSERT INTO shipper_locations (order_id, shipper_id, latitude, longitude, updated_at, delivery_phase, online, last_seen_at)

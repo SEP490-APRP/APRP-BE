@@ -16,6 +16,9 @@ public class ReturnRequestSpecification {
 
             if (status != null) {
                 predicates.add(cb.equal(root.get("status"), status));
+            } else {
+                // Mặc định Admin chỉ xem các khiếu nại đã chuyển qua cho Admin (Shop đã từ chối), không xem đơn PENDING đang chờ Shop xử lý
+                predicates.add(cb.notEqual(root.get("status"), ReturnStatus.PENDING));
             }
 
             if (keyword != null && !keyword.isBlank()) {
