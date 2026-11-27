@@ -387,7 +387,17 @@ public class WalletServiceImpl implements WalletService {
 
         // 1. Hoàn tiền vào ví người mua (cộng totalBalance)
         Wallet buyerWallet = getOrCreateWallet(buyer, TYPE_BUYER);
-        String buyerDesc = "Hoàn tiền yêu cầu #" + returnRequest.getReturnId() + " (Đơn #" + order.getOrderId() + "): +" + vnd(refundAmt);
+        int refundPct = 100;
+        if (returnRequest.getOrderDetail() != null && returnRequest.getOrderDetail().getUnitPrice() != null) {
+            OrderDetail detail = returnRequest.getOrderDetail();
+            BigDecimal unitPrice = detail.getUnitPrice();
+            int qty = (detail.getQuantity() != null && detail.getQuantity() > 0) ? detail.getQuantity() : 1;
+            BigDecimal itemTotal = unitPrice.multiply(BigDecimal.valueOf(qty));
+            if (itemTotal.compareTo(BigDecimal.ZERO) > 0) {
+                refundPct = Math.min(100, Math.max(1, refundAmt.divide(itemTotal, 2, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)).intValue()));
+            }
+        }
+        String buyerDesc = "Hoàn tiền yêu cầu #" + returnRequest.getReturnId() + " (Đơn #" + order.getOrderId() + " - hoàn " + refundPct + "%): +" + vnd(refundAmt);
         credit(buyerWallet, order, WalletTransactionType.BUYER_REFUND, refundAmt, buyerDesc);
 
         // 2. Tính phần khấu trừ của Shop và Sàn từ số tiền hoàn này
@@ -399,24 +409,24 @@ public class WalletServiceImpl implements WalletService {
             if (order.getShop() != null && shopDeduct.signum() > 0) {
                 Wallet shopWallet = getOrCreateWallet(order.getShop(), TYPE_SHOP);
                 deductHoldForRefund(shopWallet, order, WalletTransactionType.SHOP_REFUND_DEDUCT, shopDeduct,
-                        "Đơn #" + order.getOrderId() + ": Trừ tiền tạm giữ do hoàn trả yêu cầu #" + returnRequest.getReturnId() + " (" + vnd(shopDeduct) + ")");
+                        "Đơn #" + order.getOrderId() + ": Trừ tiền tạm giữ do hoàn trả #" + returnRequest.getReturnId() + " (hoàn " + refundPct + "%: " + vnd(shopDeduct) + ")");
             }
             if (platformDeduct.signum() > 0) {
                 Wallet platform = getPlatformWalletEntity();
                 deductHoldForRefund(platform, order, WalletTransactionType.PLATFORM_REFUND_DEDUCT, platformDeduct,
-                        "Đơn #" + order.getOrderId() + ": Trừ tiền tạm giữ sàn do hoàn trả yêu cầu #" + returnRequest.getReturnId() + " (" + vnd(platformDeduct) + ")");
+                        "Đơn #" + order.getOrderId() + ": Trừ tiền tạm giữ sàn do hoàn trả #" + returnRequest.getReturnId() + " (hoàn " + refundPct + "%: " + vnd(platformDeduct) + ")");
             }
         } else {
             // Trường hợp hy hữu đơn đã quyết toán: trừ trực tiếp vào số dư totalBalance của Shop và Sàn
             if (order.getShop() != null && shopDeduct.signum() > 0) {
                 Wallet shopWallet = getOrCreateWallet(order.getShop(), TYPE_SHOP);
                 credit(shopWallet, order, WalletTransactionType.SHOP_REFUND_DEDUCT, shopDeduct.negate(),
-                        "Đơn #" + order.getOrderId() + ": Thu hồi tiền hàng do hoàn trả yêu cầu #" + returnRequest.getReturnId() + " (" + vnd(shopDeduct) + ")");
+                        "Đơn #" + order.getOrderId() + ": Thu hồi tiền hàng do hoàn trả #" + returnRequest.getReturnId() + " (hoàn " + refundPct + "%: " + vnd(shopDeduct) + ")");
             }
             if (platformDeduct.signum() > 0) {
                 Wallet platform = getPlatformWalletEntity();
                 credit(platform, order, WalletTransactionType.PLATFORM_REFUND_DEDUCT, platformDeduct.negate(),
-                        "Đơn #" + order.getOrderId() + ": Giảm doanh thu sàn do hoàn trả yêu cầu #" + returnRequest.getReturnId() + " (" + vnd(platformDeduct) + ")");
+                        "Đơn #" + order.getOrderId() + ": Giảm doanh thu sàn do hoàn trả #" + returnRequest.getReturnId() + " (hoàn " + refundPct + "%: " + vnd(platformDeduct) + ")");
             }
         }
 

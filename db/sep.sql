@@ -1258,25 +1258,29 @@ INSERT INTO shipper_locations (id, order_id, shipper_id, latitude, longitude, up
 (1, 105, 6, 10.7769, 106.7009, NOW(), 'TO_BUYER', 1, NOW())
 ON DUPLICATE KEY UPDATE latitude=VALUES(latitude), longitude=VALUES(longitude), online=VALUES(online), last_seen_at=VALUES(last_seen_at);
 
--- 3.9 WALLETS & WALLET TRANSACTIONS (ĐỒNG BỘ VỚI CÁC ĐƠN MẪU #105, #109)
+-- 3.9 WALLETS & WALLET TRANSACTIONS (ĐỒNG BỘ VỚI CÁC ĐƠN MẪU #105, #109, VÍ BUYER & SHIPPER 2.000.000Đ)
 INSERT INTO wallets (wallet_id, user_id, status, type, total_balance, frozen_balance, cod_reserved, total_revenue_all_time, total_withdrawn, commission_wallet) VALUES
 (1, 1, 'ACTIVE', 'PLATFORM', 100003950, 3950, 0, 3950, 0, 53950),
 (2, 4, 'ACTIVE', 'SHOP', 1531500, 76500, 0, 1531500, 0, 45000),
 (3, 5, 'ACTIVE', 'SHOP', 1200000, 0, 0, 1200000, 0, 36000),
-(4, 6, 'ACTIVE', 'SHIPPER', 264550, 14550, 0, 264550, 0, 0),
-(5, 7, 'ACTIVE', 'SHIPPER', 500000, 0, 0, 0, 0, 0)
+(4, 6, 'ACTIVE', 'SHIPPER', 2000000, 14550, 0, 2000000, 0, 0),
+(5, 7, 'ACTIVE', 'SHIPPER', 2000000, 0, 0, 0, 0, 0),
+(6, 2, 'ACTIVE', 'BUYER', 2000000, 0, 0, 0, 0, 0),
+(7, 3, 'ACTIVE', 'BUYER', 2000000, 0, 0, 0, 0, 0)
 ON DUPLICATE KEY UPDATE total_balance=VALUES(total_balance), frozen_balance=VALUES(frozen_balance), cod_reserved=VALUES(cod_reserved);
 
 INSERT INTO wallet_transactions (id, wallet_id, order_id, type, amount, balance_after, frozen_after, description, created_at) VALUES
-(1, 4, NULL, 'TOP_UP', 250000, 250000, 0, 'Nạp ví tài xế ban đầu qua PayOS', DATE_SUB(NOW(), INTERVAL 7 DAY)),
-(2, 5, NULL, 'TOP_UP', 500000, 500000, 0, 'Nạp ví tài xế ban đầu qua PayOS', DATE_SUB(NOW(), INTERVAL 7 DAY)),
-(3, 4, 109, 'SHIPPER_INCOME', 14550, 264550, 0, 'Đơn #109: cước giao 15.000đ - phí dịch vụ 3% 450đ', DATE_SUB(NOW(), INTERVAL 4 DAY)),
+(1, 4, NULL, 'TOP_UP', 2000000, 2000000, 0, 'Nạp ví tài xế ban đầu qua PayOS', DATE_SUB(NOW(), INTERVAL 7 DAY)),
+(2, 5, NULL, 'TOP_UP', 2000000, 2000000, 0, 'Nạp ví tài xế ban đầu qua PayOS', DATE_SUB(NOW(), INTERVAL 7 DAY)),
+(3, 4, 109, 'SHIPPER_INCOME', 14550, 2014550, 0, 'Đơn #109: cước giao 15.000đ - phí dịch vụ 3% 450đ', DATE_SUB(NOW(), INTERVAL 4 DAY)),
 (4, 2, 109, 'SHOP_INCOME', 31500, 1531500, 0, 'Đơn #109: tiền hàng 35.000đ - phí nông dân 10% 3.500đ', DATE_SUB(NOW(), INTERVAL 3 DAY)),
 (5, 1, 109, 'PLATFORM_FARMER_FEE', 3500, 100003500, 0, 'Đơn #109: phí dịch vụ nông dân 10%', DATE_SUB(NOW(), INTERVAL 3 DAY)),
 (6, 1, 109, 'PLATFORM_SHIPPER_FEE', 450, 100003950, 0, 'Đơn #109: phí dịch vụ shipper 3%', DATE_SUB(NOW(), INTERVAL 3 DAY)),
-(7, 4, 105, 'SHIPPER_INCOME_HOLD', 14550, 264550, 14550, 'Đơn #105: tạm giữ cước giao, nhận khi đơn hoàn tất', DATE_SUB(NOW(), INTERVAL 30 MINUTE)),
+(7, 4, 105, 'SHIPPER_INCOME_HOLD', 14550, 2000000, 14550, 'Đơn #105: tạm giữ cước giao, nhận khi đơn hoàn tất', DATE_SUB(NOW(), INTERVAL 30 MINUTE)),
 (8, 2, 105, 'SHOP_INCOME_HOLD', 76500, 1531500, 76500, 'Đơn #105: tạm giữ tiền hàng, nhận khi đơn hoàn tất', DATE_SUB(NOW(), INTERVAL 30 MINUTE)),
-(9, 1, 105, 'PLATFORM_INCOME_HOLD', 3950, 100003950, 3950, 'Đơn #105: tạm giữ phần sàn, nhận khi đơn hoàn tất', DATE_SUB(NOW(), INTERVAL 30 MINUTE))
+(9, 1, 105, 'PLATFORM_INCOME_HOLD', 3950, 100003950, 3950, 'Đơn #105: tạm giữ phần sàn, nhận khi đơn hoàn tất', DATE_SUB(NOW(), INTERVAL 30 MINUTE)),
+(10, 6, NULL, 'TOP_UP', 2000000, 2000000, 0, 'Nạp ví người mua ban đầu qua PayOS', DATE_SUB(NOW(), INTERVAL 7 DAY)),
+(11, 7, NULL, 'TOP_UP', 2000000, 2000000, 0, 'Nạp ví người mua ban đầu qua PayOS', DATE_SUB(NOW(), INTERVAL 7 DAY))
 ON DUPLICATE KEY UPDATE amount=VALUES(amount), balance_after=VALUES(balance_after), frozen_after=VALUES(frozen_after);
 
 -- 3.10 ALLERGENS & HEALTH CONDITIONS

@@ -187,22 +187,6 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             );
         }
 
-        // Gửi thông báo cho Admin khi có yêu cầu trả hàng mới
-        try {
-            List<User> admins = userRepository.findByRole_NameIn(List.of("ADMIN", "ROLE_ADMIN"));
-            for (User admin : admins) {
-                notificationService.sendNotificationToUser(
-                        admin,
-                        "Có yêu cầu hoàn trả mới",
-                        "Người mua " + buyer.getFullName() + " đã gửi yêu cầu trả hàng cho đơn #" + order.getOrderId() + " (Sản phẩm: \"" + prodName + "\").",
-                        "RETURN_REQUEST",
-                        saved.getReturnId()
-                );
-            }
-        } catch (Exception e) {
-            log.warn("[ReturnRequest] Failed to notify admin: {}", e.getMessage());
-        }
-
         log.info("[ReturnRequest] Created return #{} for orderDetail #{} by buyer #{}",
                 saved.getReturnId(), orderDetail.getOrderDetailId(), buyer.getId());
 
@@ -353,6 +337,11 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         }
 
         ReturnRequest returnRequest = findReturnRequestById(returnId);
+        if (returnRequest.getStatus() != ReturnStatus.DISPUTED) {
+            log.warn("[ReturnRequest] Admin tried to decide on return #{} with invalid status: {}", returnId, returnRequest.getStatus());
+            throw new AppException(ErrorCode.INVALID_RETURN_STATUS,
+                    "Admin chỉ có thể phân xử khi yêu cầu hoàn trả ở trạng thái khiếu nại (Shop đã từ chối).");
+        }
         Order order = returnRequest.getOrderDetail().getOrder();
         User buyer = returnRequest.getBuyer();
         User shop = returnRequest.getShop();
@@ -753,8 +742,8 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         if (!SecurityUtils.isAdmin()) {
             throw new AppException(ErrorCode.UNAUTHORIZED);
         }
-        // Trả về danh sách khiếu nại (DISPUTED, PENDING, RETURN_SHIPPING...) cho admin
-        List<ReturnRequest> all = returnRequestRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
+        // Trả về danh sách khiếu nại dành cho Admin (chỉ lấy các đơn đã chuyển qua cho Admin khi Shop từ chối, không lấy PENDING)
+        List<ReturnRequest> all = returnRequestRepository.findByStatusNot(ReturnStatus.PENDING, Sort.by(Sort.Direction.DESC, "createdAt"));
         return returnRequestMapper.toResponseList(all);
     }
 

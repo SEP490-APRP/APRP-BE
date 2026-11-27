@@ -38,6 +38,8 @@ public interface ReturnRequestRepository extends JpaRepository<ReturnRequest, In
 
     Page<ReturnRequest> findByStatusAndShipperIsNull(ReturnStatus status, Pageable pageable);
 
+    List<ReturnRequest> findByStatusNot(ReturnStatus status, org.springframework.data.domain.Sort sort);
+
     boolean existsByShipper_IdAndStatusIn(int shipperId, Collection<ReturnStatus> statuses);
 
     long countByStatus(ReturnStatus status);
