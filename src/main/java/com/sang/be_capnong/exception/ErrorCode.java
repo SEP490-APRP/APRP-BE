@@ -223,6 +223,7 @@ public enum ErrorCode {
     INVALID_RATING(13006, "Số sao đánh giá phải từ 1 đến 5", HttpStatus.BAD_REQUEST),
     ORDER_DETAIL_NOT_FOUND(13007, "Không tìm thấy sản phẩm trong đơn hàng", HttpStatus.NOT_FOUND),
     INVALID_REVIEW_TARGET(13008, "Cần chọn sản phẩm trong đơn hoặc túi mù để đánh giá", HttpStatus.BAD_REQUEST),
+    CANNOT_REVIEW_RETURNED_ITEM(13009, "Không thể đánh giá sản phẩm đang hoặc đã yêu cầu trả hàng", HttpStatus.BAD_REQUEST),
 
     // Notification Errors (Series 14000)
     NOTIFICATION_NOT_FOUND(14001, "Không tìm thấy thông báo", HttpStatus.NOT_FOUND),
