@@ -33,7 +33,7 @@ public class FarmRegistrationResponse {
     List<String> productImageUrls;
     BigDecimal proposedPricePerKg;
     BigDecimal agreedPricePerKg;
-    /** Giá áp dụng khi chi trả: giá chốt, nếu chưa có thì giá đề xuất, cuối cùng là giá giải cứu */
+    /** Giá thu mua áp dụng khi chi trả */
     BigDecimal effectivePricePerKg;
     BigDecimal campaignPricePerKg;
     Boolean priceCommitted;
@@ -54,7 +54,7 @@ public class FarmRegistrationResponse {
     List<String> intakePhotoUrls;
     String intakeNote;
     LocalDateTime intakeAt;
-    /** Tiền dự tính sau khi cân = giá chốt x kg tính tiền x (1 - phí); tiền thật chuyển khi hoàn thành chiến dịch */
+    /** Tiền dự tính sau khi cân = giá thu mua x kg tính tiền x (1 - phí); tiền thật chuyển khi hoàn thành chiến dịch */
     BigDecimal estimatedPayoutAmount;
     BigDecimal payoutAmount;
     LocalDateTime paidOutAt;

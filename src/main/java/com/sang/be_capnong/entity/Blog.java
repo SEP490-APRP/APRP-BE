@@ -28,6 +28,10 @@ public class Blog {
     @JoinColumn(name = "shop_id", nullable = false)
     User shop;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "product_id")
+    Product product;
+
     @Column(length = 255, nullable = false)
     String title;
 

@@ -8,6 +8,10 @@ public enum DeliveryFailReason {
     SAI_DIA_CHI,
     /** Khách từ chối nhận hàng */
     KHACH_TU_CHOI,
+    /** Nhà vườn đóng cửa hoặc không có người bàn giao hàng */
+    SHOP_DONG_CUA,
+    /** Nhà vườn chưa đóng gói xong hoặc thiếu hàng */
+    SHOP_CHUA_SAN_SANG,
     /** Lý do khác (bắt buộc ghi chú) */
     KHAC
 }

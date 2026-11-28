@@ -45,6 +45,10 @@ public class Campaign {
     @JoinColumn(name = "category_id")
     Category category;
 
+    /** Nông sản cần giải cứu, vd "Thanh long ruột đỏ": mọi lô nhà vườn góp đều mang tên này */
+    @Column(length = 200)
+    String productName;
+
     /** Tên mùa vụ, vd "Vụ vải thiều 2026" */
     @Column(length = 100)
     String season;
@@ -72,7 +76,7 @@ public class Campaign {
     @Column(name = "cutoff_at", nullable = false)
     LocalDateTime cutoffAt;
 
-    /** Ngày bắt đầu chiến dịch, sau hạn chốt đơn đặt trước (cutoffAt) khi đã đủ người đặt */
+    /** Ngày bắt đầu mở điểm tập kết tại điểm tập kết, sau hạn chốt đơn đặt trước (cutoffAt) khi đã đủ người đặt */
     @Column(name = "start_date")
     LocalDate startDate;
 
@@ -92,9 +96,13 @@ public class Campaign {
     @Column(name = "auto_publish_failed_at")
     LocalDateTime autoPublishFailedAt;
 
-    /** Ngày kết thúc chiến dịch, không trước ngày bắt đầu */
+    /** Ngày kết thúc mở điểm tập kết, không trước ngày bắt đầu mở điểm tập kết. Cũng là ngày cần xe chở hàng ra hub */
     @Column(name = "end_date")
     LocalDate endDate;
+
+    /** Ngày kết thúc chiến dịch: ngày tài xế giao hàng xong (kế hoạch), không trước ngày kết thúc mở điểm tập kết */
+    @Column(name = "finish_date")
+    LocalDate finishDate;
 
     /** Ngày dự kiến gom hàng tại điểm tập kết / giao */
     LocalDate deliveryDate;
@@ -107,16 +115,6 @@ public class Campaign {
 
     Double collectionSiteLatitude;
     Double collectionSiteLongitude;
-
-    // ── Phí giao hàng (null = mặc định trong CampaignShippingCalculator) ──
-    /** Từ bấy nhiêu kg trở lên giảm 50% phí giao (mặc định 10) */
-    BigDecimal shipHalfKg;
-    /** Từ bấy nhiêu kg trở lên miễn phí giao trong bán kính shipFreeRadiusKm (mặc định 20) */
-    BigDecimal shipFreeKg;
-    /** Bán kính miễn phí giao (km, mặc định 10) */
-    Double shipFreeRadiusKm;
-    /** Phường có từ bấy nhiêu đơn trở lên được giảm thêm 50% phí giao (mặc định 5) */
-    Integer groupDiscountMinOrders;
     /** Cho phép tự đến điểm tập kết lấy hàng (mặc định có) */
     Boolean pickupEnabled;
 
@@ -136,6 +134,12 @@ public class Campaign {
 
     /** Thời điểm Admin đăng lời kêu gọi nhà vườn tham gia */
     LocalDateTime callPostedAt;
+
+    /** Lần cuối admin gửi thông báo kêu gọi shipper nhận chuyến giao */
+    LocalDateTime shipperCalledAt;
+
+    /** Số chuyến đã kêu gọi lần gần nhất */
+    Integer shipperCallTrips;
     LocalDateTime publishedAt;
     LocalDateTime evaluatedAt;
     LocalDateTime completedAt;
@@ -170,6 +174,14 @@ public class Campaign {
     /** null = có hiện ở trang chủ */
     Boolean bannerOnHome;
     LocalDateTime bannerUpdatedAt;
+
+    /** Thứ tự trên banner đầu trang chủ (tự chuyển); null = không gắn */
+    @Column(name = "home_slide_order")
+    Integer homeSlideOrder;
+
+    /** Số giây tự chuyển banner đầu trang chủ (lưu cùng giá trị trên mọi chiến dịch đang gắn); null = mặc định */
+    @Column(name = "home_slide_seconds")
+    Integer homeSlideSeconds;
 
     LocalDateTime createdAt;
     LocalDateTime updatedAt;

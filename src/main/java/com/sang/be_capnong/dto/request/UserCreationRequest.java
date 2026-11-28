@@ -31,6 +31,7 @@ public class UserCreationRequest {
 
     // Shipper specific fields
     String vehicleNumber;
+    String vehicleType;
     String vehicleDocImageUrl;
     String license;
     String licenseImageUrl;

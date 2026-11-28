@@ -12,6 +12,8 @@ public enum OrderStatus {
     COMPLETED,
     CANCELLED,
     FAILED,
+    RETURNING_TO_SHOP,
+    RETURNED_TO_SHOP,
     REFUND_REQUESTED,
     REFUNDED
 }

@@ -202,8 +202,15 @@ public class UserServiceImpl implements UserService {
             throw new AppException(ErrorCode.CCCD_EXISTED);
         }
 
+        // Xe phải đủ điều kiện mới cho đăng ký: biển số đúng loại, giấy phép đủ hạng
+        com.sang.be_capnong.enums.VehicleType vehicle = com.sang.be_capnong.util.VehicleRules.require(
+                request.getVehicleType(), request.getVehicleNumber(), request.getLicenseClass(), request.getLicense());
+
         User user = userMapper.toUser(request);
         user.setPassword(passwordEncoder.encode(request.getPassword()));
+        user.setVehicleType(vehicle.name());
+        user.setLicenseClass(request.getLicenseClass().trim().toUpperCase());
+        user.setLicense(request.getLicense().trim());
 
         Role role = roleRepository.findByName("SHIPPER")
                 .orElseThrow(() -> new AppException(ErrorCode.ROLE_NOT_FOUND));
@@ -420,11 +427,33 @@ public class UserServiceImpl implements UserService {
 
         // Cập nhật thông tin đặc thù của SHIPPER
         if ("SHIPPER".equals(roleName)) {
-            if (request.getVehicleNumber() != null) user.setVehicleNumber(request.getVehicleNumber());
+            updateVehicle(user, request);
             if (request.getVehicleDocImageUrl() != null) user.setVehicleDocImageUrl(request.getVehicleDocImageUrl());
-            if (request.getLicense() != null) user.setLicense(request.getLicense());
             if (request.getLicenseImageUrl() != null) user.setLicenseImageUrl(request.getLicenseImageUrl());
         }
+    }
+
+    /** Đổi thông tin xe hoặc giấy phép thì cả bộ phải đạt điều kiện; sửa hồ sơ khác không bị chặn */
+    private void updateVehicle(User user, UserUpdateRequest request) {
+        String oldType = user.getVehicleType() != null ? user.getVehicleType() : "MOTORBIKE";
+        String type = request.getVehicleType() != null ? request.getVehicleType().trim().toUpperCase() : oldType;
+        String plate = request.getVehicleNumber() != null ? request.getVehicleNumber().trim().toUpperCase() : user.getVehicleNumber();
+        String licenseClass = request.getLicenseClass() != null ? request.getLicenseClass().trim().toUpperCase() : user.getLicenseClass();
+        String license = request.getLicense() != null ? request.getLicense().trim() : user.getLicense();
+        boolean changed = !type.equalsIgnoreCase(oldType)
+                || !com.sang.be_capnong.enums.VehicleType.normalizePlate(plate)
+                        .equals(com.sang.be_capnong.enums.VehicleType.normalizePlate(user.getVehicleNumber()))
+                || !java.util.Objects.equals(nullToEmpty(licenseClass), nullToEmpty(user.getLicenseClass()))
+                || !java.util.Objects.equals(nullToEmpty(license), nullToEmpty(user.getLicense()));
+        if (!changed) return;
+        user.setVehicleType(com.sang.be_capnong.util.VehicleRules.require(type, plate, licenseClass, license).name());
+        user.setVehicleNumber(plate);
+        user.setLicenseClass(licenseClass);
+        user.setLicense(license);
+    }
+
+    private static String nullToEmpty(String s) {
+        return s == null ? "" : s;
     }
 
     @Override

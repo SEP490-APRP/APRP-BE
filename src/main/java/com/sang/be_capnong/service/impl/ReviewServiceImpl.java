@@ -79,14 +79,19 @@ public class ReviewServiceImpl implements ReviewService {
                 throw new AppException(ErrorCode.ORDER_NOT_FOUND);
             }
 
-            // Phải giao hàng thành công mới được đánh giá
-            if (order.getStatus() != OrderStatus.DELIVERED && order.getStatus() != OrderStatus.COMPLETED) {
+            // Phải là đơn đã giao (kể cả đang/đã hoàn trả một phần) mới được đánh giá
+            if (!isOrderEligibleForReview(order)) {
                 throw new AppException(ErrorCode.ORDER_NOT_DELIVERED);
             }
 
             // Phải chính là buyer sở hữu đơn hàng
             if (order.getBuyer() == null || order.getBuyer().getId() != buyer.getId()) {
                 throw new AppException(ErrorCode.NOT_ORDER_BUYER);
+            }
+
+            // Không cho đánh giá riêng mặt hàng đang hoặc đã yêu cầu trả hàng
+            if (Boolean.TRUE.equals(orderDetail.getIsRequestedReturn())) {
+                throw new AppException(ErrorCode.CANNOT_REVIEW_RETURNED_ITEM);
             }
 
             // Chống spam: 1 order detail chỉ được đánh giá 1 lần
@@ -120,15 +125,25 @@ public class ReviewServiceImpl implements ReviewService {
             List<OrderDetail> deliveredDetails = orderDetailRepository.findDeliveredDetailsByMysteryBoxAndBuyer(
                     mysteryBox.getMysteryId(),
                     buyer.getId(),
-                    List.of(OrderStatus.DELIVERED, OrderStatus.COMPLETED)
-            );
+                    List.of(OrderStatus.DELIVERED, OrderStatus.COMPLETED, OrderStatus.REFUND_REQUESTED, OrderStatus.REFUNDED)
+            ).stream()
+                    .filter(d -> isOrderEligibleForReview(d.getOrder()))
+                    .toList();
 
             if (deliveredDetails.isEmpty()) {
                 throw new AppException(ErrorCode.ORDER_NOT_DELIVERED);
             }
 
+            List<OrderDetail> nonReturnedDetails = deliveredDetails.stream()
+                    .filter(d -> !Boolean.TRUE.equals(d.getIsRequestedReturn()))
+                    .toList();
+
+            if (nonReturnedDetails.isEmpty()) {
+                throw new AppException(ErrorCode.CANNOT_REVIEW_RETURNED_ITEM);
+            }
+
             // Tìm chi tiết đơn hàng chưa từng được đánh giá
-            OrderDetail eligibleDetail = deliveredDetails.stream()
+            OrderDetail eligibleDetail = nonReturnedDetails.stream()
                     .filter(d -> !reviewRepository.existsByOrderDetail_OrderDetailId(d.getOrderDetailId()))
                     .findFirst()
                     .orElseThrow(() -> new AppException(ErrorCode.REVIEW_ALREADY_EXISTS));
@@ -395,6 +410,18 @@ public class ReviewServiceImpl implements ReviewService {
                 .platformTotalReviews(total)
                 .reviews(dtoList)
                 .build();
+    }
+
+    private boolean isOrderEligibleForReview(Order order) {
+        if (order == null || order.getStatus() == null) {
+            return false;
+        }
+        OrderStatus status = order.getStatus();
+        if (status == OrderStatus.DELIVERED || status == OrderStatus.COMPLETED) {
+            return true;
+        }
+        return (status == OrderStatus.REFUND_REQUESTED || status == OrderStatus.REFUNDED)
+                && order.getDeliveredAt() != null;
     }
 
     private ReviewResponse toReviewResponseWithReactions(Review review, Integer currentUserId) {

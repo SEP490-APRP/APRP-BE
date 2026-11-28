@@ -19,6 +19,9 @@ import java.util.Optional;
 @Repository
 public interface CampaignRepository extends JpaRepository<Campaign, Integer> {
 
+    /** Chiến dịch đang gắn banner đầu trang chủ, theo thứ tự */
+    List<Campaign> findByHomeSlideOrderIsNotNullOrderByHomeSlideOrderAsc();
+
     /** Khoá dòng chiến dịch khi cộng sản lượng đã đặt / đổi trạng thái để không vượt mục tiêu */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select c from Campaign c where c.campaignId = :id")

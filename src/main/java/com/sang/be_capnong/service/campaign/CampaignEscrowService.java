@@ -151,6 +151,14 @@ public class CampaignEscrowService {
         return required;
     }
 
+    /** Số dư ví shipper còn dùng được để ký quỹ tiền thu hộ (đang nợ hoặc chưa có ví = 0) */
+    @Transactional(readOnly = true)
+    public BigDecimal shipperAvailable(User shipper) {
+        return walletRepository.findFirstByUser_IdAndType(shipper.getId(), TYPE_SHIPPER)
+                .map(w -> nz(w.getTotalBalance()).subtract(nz(w.getCodReserved())).max(BigDecimal.ZERO))
+                .orElse(BigDecimal.ZERO);
+    }
+
     /** Gỡ ký quỹ của lượt giao hiện tại (giao xong / thất bại) */
     @Transactional(propagation = Propagation.MANDATORY)
     public void releaseShipperCod(PreOrder p, String reason) {
@@ -183,6 +191,20 @@ public class CampaignEscrowService {
                         + " (" + plain(gross) + "đ - phí dịch vụ " + plain(fee) + "đ)");
         adjust(userWallet(p.getShipper(), TYPE_SHIPPER), BigDecimal.ZERO, net, WalletTransactionType.SHIPPER_INCOME,
                 "Cước " + what + " đơn đặt trước " + p.getCode() + ": " + plain(gross) + "đ - phí dịch vụ " + plain(fee) + "đ");
+        return net;
+    }
+
+    /** Trả cước một chuyến xe chở hàng ra hub: sàn trừ số dư, tài xế nhận phần sau phí dịch vụ. Trả về số tài xế nhận */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public BigDecimal payHubTrip(User driver, String what, BigDecimal gross, BigDecimal feeRate) {
+        if (gross == null || gross.signum() <= 0 || driver == null) return BigDecimal.ZERO;
+        BigDecimal fee = gross.multiply(feeRate).setScale(0, RoundingMode.HALF_UP);
+        BigDecimal net = gross.subtract(fee);
+        if (net.signum() <= 0) return BigDecimal.ZERO;
+        adjust(platformWallet(), BigDecimal.ZERO, net.negate(), WalletTransactionType.CAMPAIGN_SHIPPER_PAYOUT,
+                "Trả cước xe chở hàng ra hub " + what + " cho tài xế #" + driver.getId() + " (" + plain(gross) + "đ" + (fee.signum() > 0 ? " - phí dịch vụ " + plain(fee) + "đ" : "") + ")");
+        adjust(userWallet(driver, TYPE_SHIPPER), BigDecimal.ZERO, net, WalletTransactionType.SHIPPER_INCOME,
+                "Cước xe chở hàng ra hub " + what + ": " + plain(gross) + "đ" + (fee.signum() > 0 ? " - phí dịch vụ " + plain(fee) + "đ" : ""));
         return net;
     }
 

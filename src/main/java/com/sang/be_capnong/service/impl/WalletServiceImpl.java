@@ -288,6 +288,79 @@ public class WalletServiceImpl implements WalletService {
         releaseHolds(order, WalletTransactionType.HOLD_CANCELLED, "Đơn #" + orderId + ": " + reason + ", gỡ tiền tạm giữ");
     }
 
+    @Override
+    @Transactional
+    public void settleFailedReturnOrder(int orderId) {
+        Order order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new AppException(ErrorCode.ORDER_NOT_FOUND));
+        if (order.getSettledAt() != null || order.getShipperPaidAt() != null) {
+            return;
+        }
+
+        // Tính trực tiếp từ shippingFee của đơn (không gọi computeSplit vì status lúc này đã là FAILED)
+        BigDecimal shippingFee = money(nz(order.getShippingFee()));
+        boolean hasShipper = order.getShipper() != null;
+        BigDecimal shipperFee = hasShipper ? money(shippingFee.multiply(shipperFeeRate)) : BigDecimal.ZERO;
+        BigDecimal shipperReceive = hasShipper ? shippingFee.subtract(shipperFee) : BigDecimal.ZERO;
+        String ref = "Đơn #" + orderId;
+
+        // 1. Trả cước giao & hoàn hàng cho Shipper (gỡ SHIPPER_INCOME_HOLD -> cộng SHIPPER_INCOME)
+        if (hasShipper && shipperReceive.signum() > 0) {
+            Wallet shipperWallet = getOrCreateWallet(order.getShipper(), TYPE_SHIPPER);
+            hold(shipperWallet, order, WalletTransactionType.HOLD_RELEASED, shipperReceive.negate(),
+                    ref + ": hoàn hàng về shop thành công, chuyển cước giao sang số dư");
+            credit(shipperWallet, order, WalletTransactionType.SHIPPER_INCOME, shipperReceive,
+                    ref + ": công giao & hoàn hàng " + vnd(shippingFee) + " - phí dịch vụ " + pct(shipperFeeRate) + " " + vnd(shipperFee));
+            order.setShipperPaidAt(LocalDateTime.now());
+        }
+
+        // 2. Gỡ các khoản tạm giữ còn lại của Shop và Sàn
+        releaseHolds(order, WalletTransactionType.HOLD_CANCELLED,
+                ref + ": giao thất bại đã hoàn hàng về shop, gỡ tiền tạm giữ");
+
+        // 3. Phân bổ nguồn tiền theo phương thức thanh toán
+        boolean isOnline = "PAYOS".equalsIgnoreCase(order.getPaymentMethod())
+                || "TRANSFER".equalsIgnoreCase(order.getPaymentMethod());
+        BigDecimal walletPaid = nz(order.getWalletPaidAmount());
+        boolean isPrepaid = isOnline || walletPaid.signum() > 0;
+
+        if (isPrepaid) {
+            // PayOS / Ví: hoàn tiền hàng (giữ lại phí ship chiều đi để trả Shipper + phí sàn 3%)
+            if (hasShipper && shipperFee.signum() > 0) {
+                credit(getPlatformWalletEntity(), order, WalletTransactionType.PLATFORM_SHIPPER_FEE, shipperFee,
+                        ref + ": phí dịch vụ shipper (đơn hoàn hàng) " + pct(shipperFeeRate));
+            }
+            BigDecimal totalRefund = nz(order.getTotalAmount()).subtract(shippingFee).max(BigDecimal.ZERO);
+            BigDecimal walletRefundPart = walletPaid.min(totalRefund);
+            if (walletRefundPart.signum() > 0 && order.getWalletRefundedAt() == null && order.getBuyer() != null) {
+                credit(getOrCreateWallet(order.getBuyer(), TYPE_BUYER), order, WalletTransactionType.ORDER_WALLET_REFUND,
+                        walletRefundPart, ref + ": hoàn hàng về shop, hoàn " + vnd(walletRefundPart) + " về ví");
+                order.setWalletRefundedAt(LocalDateTime.now());
+            }
+            BigDecimal payosRefundPart = totalRefund.subtract(walletRefundPart).max(BigDecimal.ZERO);
+            if (isOnline && payosRefundPart.signum() > 0) {
+                order.setRefundAmount(payosRefundPart);
+                order.setRefundReason("Giao thất bại đã hoàn hàng về shop (hoàn tiền hàng, giữ lại phí vận chuyển)");
+                if (order.getBuyer() != null) {
+                    credit(getOrCreateWallet(order.getBuyer(), TYPE_BUYER), order, WalletTransactionType.BUYER_REFUND,
+                            payosRefundPart, ref + ": hoàn tiền hàng về ví do giao thất bại (" + vnd(payosRefundPart) + ")");
+                }
+            }
+        } else {
+            // COD: Buyer chưa trả tiền mặt -> Sàn bù cước giao cho Shipper để bảo vệ tài xế
+            if (hasShipper && shipperReceive.signum() > 0) {
+                credit(getPlatformWalletEntity(), order, WalletTransactionType.PLATFORM_FREESHIP_SUBSIDY,
+                        shipperReceive.negate(), ref + ": sàn bù cước cho shipper do khách không nhận đơn COD");
+            }
+            releaseCodReserveInternal(order, "hoàn hàng về shop");
+        }
+
+        order.setSettledAt(LocalDateTime.now());
+        orderRepository.save(order);
+        log.info("[Wallet] Settled failed return order #{}: prepaid={}, shipper={}, refundAmount={}",
+                orderId, isPrepaid, shipperReceive, order.getRefundAmount());
+    }
+
     // ───────────────────────────── Hoàn tiền / Hoàn hàng ─────────────────────────────
 
     @Override
@@ -314,7 +387,17 @@ public class WalletServiceImpl implements WalletService {
 
         // 1. Hoàn tiền vào ví người mua (cộng totalBalance)
         Wallet buyerWallet = getOrCreateWallet(buyer, TYPE_BUYER);
-        String buyerDesc = "Hoàn tiền yêu cầu #" + returnRequest.getReturnId() + " (Đơn #" + order.getOrderId() + "): +" + vnd(refundAmt);
+        int refundPct = 100;
+        if (returnRequest.getOrderDetail() != null && returnRequest.getOrderDetail().getUnitPrice() != null) {
+            OrderDetail detail = returnRequest.getOrderDetail();
+            BigDecimal unitPrice = detail.getUnitPrice();
+            int qty = (detail.getQuantity() != null && detail.getQuantity() > 0) ? detail.getQuantity() : 1;
+            BigDecimal itemTotal = unitPrice.multiply(BigDecimal.valueOf(qty));
+            if (itemTotal.compareTo(BigDecimal.ZERO) > 0) {
+                refundPct = Math.min(100, Math.max(1, refundAmt.divide(itemTotal, 2, RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)).intValue()));
+            }
+        }
+        String buyerDesc = "Hoàn tiền yêu cầu #" + returnRequest.getReturnId() + " (Đơn #" + order.getOrderId() + " - hoàn " + refundPct + "%): +" + vnd(refundAmt);
         credit(buyerWallet, order, WalletTransactionType.BUYER_REFUND, refundAmt, buyerDesc);
 
         // 2. Tính phần khấu trừ của Shop và Sàn từ số tiền hoàn này
@@ -326,24 +409,24 @@ public class WalletServiceImpl implements WalletService {
             if (order.getShop() != null && shopDeduct.signum() > 0) {
                 Wallet shopWallet = getOrCreateWallet(order.getShop(), TYPE_SHOP);
                 deductHoldForRefund(shopWallet, order, WalletTransactionType.SHOP_REFUND_DEDUCT, shopDeduct,
-                        "Đơn #" + order.getOrderId() + ": Trừ tiền tạm giữ do hoàn trả yêu cầu #" + returnRequest.getReturnId() + " (" + vnd(shopDeduct) + ")");
+                        "Đơn #" + order.getOrderId() + ": Trừ tiền tạm giữ do hoàn trả #" + returnRequest.getReturnId() + " (hoàn " + refundPct + "%: " + vnd(shopDeduct) + ")");
             }
             if (platformDeduct.signum() > 0) {
                 Wallet platform = getPlatformWalletEntity();
                 deductHoldForRefund(platform, order, WalletTransactionType.PLATFORM_REFUND_DEDUCT, platformDeduct,
-                        "Đơn #" + order.getOrderId() + ": Trừ tiền tạm giữ sàn do hoàn trả yêu cầu #" + returnRequest.getReturnId() + " (" + vnd(platformDeduct) + ")");
+                        "Đơn #" + order.getOrderId() + ": Trừ tiền tạm giữ sàn do hoàn trả #" + returnRequest.getReturnId() + " (hoàn " + refundPct + "%: " + vnd(platformDeduct) + ")");
             }
         } else {
             // Trường hợp hy hữu đơn đã quyết toán: trừ trực tiếp vào số dư totalBalance của Shop và Sàn
             if (order.getShop() != null && shopDeduct.signum() > 0) {
                 Wallet shopWallet = getOrCreateWallet(order.getShop(), TYPE_SHOP);
                 credit(shopWallet, order, WalletTransactionType.SHOP_REFUND_DEDUCT, shopDeduct.negate(),
-                        "Đơn #" + order.getOrderId() + ": Thu hồi tiền hàng do hoàn trả yêu cầu #" + returnRequest.getReturnId() + " (" + vnd(shopDeduct) + ")");
+                        "Đơn #" + order.getOrderId() + ": Thu hồi tiền hàng do hoàn trả #" + returnRequest.getReturnId() + " (hoàn " + refundPct + "%: " + vnd(shopDeduct) + ")");
             }
             if (platformDeduct.signum() > 0) {
                 Wallet platform = getPlatformWalletEntity();
                 credit(platform, order, WalletTransactionType.PLATFORM_REFUND_DEDUCT, platformDeduct.negate(),
-                        "Đơn #" + order.getOrderId() + ": Giảm doanh thu sàn do hoàn trả yêu cầu #" + returnRequest.getReturnId() + " (" + vnd(platformDeduct) + ")");
+                        "Đơn #" + order.getOrderId() + ": Giảm doanh thu sàn do hoàn trả #" + returnRequest.getReturnId() + " (hoàn " + refundPct + "%: " + vnd(platformDeduct) + ")");
             }
         }
 
@@ -1230,8 +1313,30 @@ public class WalletServiceImpl implements WalletService {
         BigDecimal shipperFee = withShipper ? money(shippingFee.multiply(shipperFeeRate)) : BigDecimal.ZERO;
         BigDecimal shipperReceive = withShipper ? shippingFee.subtract(shipperFee) : BigDecimal.ZERO;
 
-        // Phần còn lại thuộc về sàn. Bất biến: buyerPaid = shopReceive + shipperReceive + platformReceive + refundAmount
-        BigDecimal platformReceive = buyerPaid.subtract(shopReceive).subtract(shipperReceive).subtract(refundAmount);
+        BigDecimal platformReceive;
+        if (order.getStatus() == OrderStatus.FAILED || order.getStatus() == OrderStatus.CANCELLED) {
+            farmerFee = BigDecimal.ZERO;
+            shopReceive = BigDecimal.ZERO;
+            boolean shipperPaid = order.getShipperPaidAt() != null && order.getShipper() != null;
+            if (!shipperPaid) {
+                shipperFee = BigDecimal.ZERO;
+                shipperReceive = BigDecimal.ZERO;
+                platformReceive = BigDecimal.ZERO;
+            } else {
+                boolean isOnline = "PAYOS".equalsIgnoreCase(order.getPaymentMethod())
+                        || "TRANSFER".equalsIgnoreCase(order.getPaymentMethod());
+                boolean isPrepaid = isOnline || nz(order.getWalletPaidAmount()).signum() > 0;
+                if (isPrepaid) {
+                    platformReceive = shipperFee;
+                } else {
+                    buyerPaid = BigDecimal.ZERO;
+                    platformReceive = shipperReceive.negate();
+                }
+            }
+        } else {
+            // Phần còn lại thuộc về sàn. Bất biến: buyerPaid = shopReceive + shipperReceive + platformReceive + refundAmount
+            platformReceive = buyerPaid.subtract(shopReceive).subtract(shipperReceive).subtract(refundAmount);
+        }
         BigDecimal platformVoucherSubsidy = farmerFee.add(shipperFee).subtract(platformFreeship).subtract(platformReceive);
 
         return new Split(goods, shippingFee, shopVoucher, platformVoucher, platformFreeship, buyerPaid,

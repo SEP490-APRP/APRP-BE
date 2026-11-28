@@ -369,7 +369,12 @@ public class CampaignProposalService {
             p.setUpdatedAt(now);
             proposalRepository.save(p);
         }
+        // Shop được mời mà chưa trả lời: lời mời cùng đề xuất đóng lại, chuyển thành lời mời góp hàng cho chiến dịch vừa tạo
+        List<CampaignProposalMember> unanswered = memberRepository.findByProposal_ProposalIdInAndStatusIn(
+                proposals.stream().map(CampaignProposal::getProposalId).toList(), List.of(ProposalMemberStatus.PENDING));
+        unanswered = unanswered.stream().filter(m -> m.getRole() == ProposalMemberRole.INVITED).toList();
         closeInvites(proposals, null);
+        inviteUnanswered(campaign, unanswered);
         String merged = proposals.size() > 1 ? " (gộp " + proposals.size() + " đơn gần nhau)" : "";
         for (CampaignProposal p : proposals) {
             // So bài đăng admin soạn với đơn shop gửi: giống thì báo duyệt bình thường, khác thì liệt kê thay đổi
@@ -510,6 +515,21 @@ public class CampaignProposalService {
         if (last.plusDays(COOLDOWN_DAYS).isAfter(LocalDateTime.now())) throw new AppException(ErrorCode.PROPOSAL_COOLDOWN);
     }
 
+    /** Gửi lời mời góp hàng (bật popup ở Kênh Nhà Vườn) cho shop được rủ vào đề xuất nhưng chưa kịp trả lời */
+    private void inviteUnanswered(Campaign c, List<CampaignProposalMember> members) {
+        Set<Integer> sent = new HashSet<>();
+        LocalDateTime deadline = c.getFarmCutoffAt() != null ? c.getFarmCutoffAt() : c.getCutoffAt();
+        for (CampaignProposalMember m : members) {
+            if (m.getShop() == null || !sent.add(m.getShop().getId())) continue;
+            // Cùng tiêu đề và cấu trúc nội dung với lời mời admin gửi để web và mobile nhận ra
+            notifyInvite(m.getShop(), c.getCampaignId(), "CapNong mời bạn góp hàng cho chiến dịch giải cứu",
+                    "Chiến dịch \"" + c.getTitle() + "\" cần " + plain(c.getTargetVolumeKg()) + " kg"
+                            + (c.getCollectionSiteName() != null ? ", điểm tập kết " + c.getCollectionSiteName() : "")
+                            + ". Hạn góp hàng " + fmtDate(deadline.toLocalDate()) + "."
+                            + " Lời nhắn: " + shopName(m.getProposal().getInitiator()) + " đã rủ bạn cùng góp hàng, đề xuất đã được CapNong duyệt.");
+        }
+    }
+
     /** Lời mời đang chờ của các đơn đã đóng -> hết hạn; báo cho shop được mời nếu có lời nhắn */
     private void closeInvites(List<CampaignProposal> proposals, String message) {
         List<CampaignProposalMember> pending = memberRepository.findByProposal_ProposalIdInAndStatusIn(
@@ -640,6 +660,119 @@ public class CampaignProposalService {
                 .build();
     }
 
+    // ═══════════════════ ADMIN: MỜI / TÌM SHOP CHO CHIẾN DỊCH ĐÃ TẠO ═══════════════════
+
+    /** Admin: shop đã xác minh quanh điểm tập kết của chiến dịch, kèm số kg shop đã góp trong chiến dịch */
+    @Transactional(readOnly = true)
+    public List<NearbyShopResponse> adminNearbyShops(int campaignId, Double radiusKm, boolean sameCategoryOnly) {
+        Campaign c = campaignRepository.findById(campaignId).orElseThrow(() -> new AppException(ErrorCode.CAMPAIGN_NOT_FOUND));
+        if (c.getCollectionSiteLatitude() == null || c.getCollectionSiteLongitude() == null) {
+            throw new AppException(ErrorCode.CAMPAIGN_SITE_REQUIRED);
+        }
+        double r = radiusKm == null ? DEFAULT_RADIUS_KM : Math.max(1, Math.min(MAX_RADIUS_KM, radiusKm));
+        double lat = c.getCollectionSiteLatitude(), lng = c.getCollectionSiteLongitude();
+        double dLat = r / 111.0;
+        double dLng = r / (111.0 * Math.max(Math.cos(Math.toRadians(lat)), 0.01));
+        record Hit(User shop, double km) {}
+        List<Hit> hits = new ArrayList<>();
+        for (User s : userRepository.findShopsInBox(lat - dLat, lat + dLat, lng - dLng, lng + dLng)) {
+            if (!isVerified(s)) continue;
+            double km = haversineKm(lat, lng, s.getShopLatitude(), s.getShopLongitude());
+            if (km <= r) hits.add(new Hit(s, km));
+        }
+        hits.sort(Comparator.comparingDouble(Hit::km));
+        List<Map.Entry<User, Double>> ordered = new ArrayList<>();
+        for (Hit h : hits) ordered.add(new AbstractMap.SimpleEntry<>(h.shop(), h.km()));
+        return toCampaignShopRows(c, ordered, sameCategoryOnly);
+    }
+
+    /** Admin: tìm shop đang hoạt động theo tên / số điện thoại để nhập hộ lô hàng */
+    @Transactional(readOnly = true)
+    public List<NearbyShopResponse> adminSearchShops(int campaignId, String q) {
+        Campaign c = campaignRepository.findById(campaignId).orElseThrow(() -> new AppException(ErrorCode.CAMPAIGN_NOT_FOUND));
+        String query = trim(q, 100);
+        if (query == null || query.length() < 2) return List.of();
+        List<Map.Entry<User, Double>> rows = new ArrayList<>();
+        for (User s : userRepository.searchActiveShops(query, org.springframework.data.domain.PageRequest.of(0, 20))) {
+            if (!isVerified(s)) continue;
+            Double km = c.getCollectionSiteLatitude() == null || c.getCollectionSiteLongitude() == null
+                    || s.getShopLatitude() == null || s.getShopLongitude() == null ? null
+                    : haversineKm(c.getCollectionSiteLatitude(), c.getCollectionSiteLongitude(), s.getShopLatitude(), s.getShopLongitude());
+            rows.add(new AbstractMap.SimpleEntry<>(s, km));
+        }
+        return toCampaignShopRows(c, rows, false);
+    }
+
+    /** Admin mời shop góp hàng cho chiến dịch: gửi thông báo kèm lời nhắn. Trả số shop đã mời */
+    @Transactional
+    public int adminInviteShops(int campaignId, com.sang.be_capnong.dto.request.campaign.AdminCampaignInviteRequest req) {
+        Campaign c = campaignRepository.findById(campaignId).orElseThrow(() -> new AppException(ErrorCode.CAMPAIGN_NOT_FOUND));
+        if (c.getStatus() != CampaignStatus.DRAFT && c.getStatus() != CampaignStatus.ACTIVE) {
+            throw new AppException(ErrorCode.CAMPAIGN_INVALID_STATUS);
+        }
+        if (req == null || req.getShopIds() == null || req.getShopIds().isEmpty() || req.getShopIds().size() > 50) {
+            throw new AppException(ErrorCode.CAMPAIGN_INVITE_INVALID);
+        }
+        String message = trim(req.getMessage(), 300);
+        LocalDateTime deadline = c.getFarmCutoffAt() != null ? c.getFarmCutoffAt() : c.getCutoffAt();
+        int sent = 0;
+        for (Integer id : new LinkedHashSet<>(req.getShopIds())) {
+            User shop = id == null ? null : userRepository.findById(id).orElse(null);
+            if (!isVerified(shop)) continue;
+            // type + referenceId để Kênh Nhà Vườn bật popup lời mời cho đúng chiến dịch
+            notifyInvite(shop, c.getCampaignId(), "CapNong mời bạn góp hàng cho chiến dịch giải cứu",
+                    "Chiến dịch \"" + c.getTitle() + "\" cần " + c.getTargetVolumeKg().stripTrailingZeros().toPlainString() + " kg"
+                            + (c.getCollectionSiteName() != null ? ", điểm tập kết " + c.getCollectionSiteName() : "")
+                            + ". Hạn góp hàng " + deadline.toLocalDate() + ". "
+                            + (c.getCallPostedAt() != null || c.getStatus() == CampaignStatus.ACTIVE
+                                ? "Vào mục Chiến dịch giải cứu trong Kênh Nhà Vườn để đăng ký số kg."
+                                : "Bạn có thể báo số kg cho CapNong qua tin nhắn, CapNong sẽ nhập hộ.")
+                            + (message != null ? " Lời nhắn: " + message : ""));
+            sent++;
+        }
+        if (sent == 0) throw new AppException(ErrorCode.CAMPAIGN_INVITE_INVALID);
+        log.info("[Campaign] Admin invited {} shops to campaign {}", sent, c.getCode());
+        return sent;
+    }
+
+    private List<NearbyShopResponse> toCampaignShopRows(Campaign c, List<Map.Entry<User, Double>> shops, boolean sameCategoryOnly) {
+        if (shops.isEmpty()) return List.of();
+        Map<Integer, List<CampaignFarmRegistration>> regs = registrationRepository
+                .findByCampaign_CampaignIdOrderByCreatedAtAsc(c.getCampaignId()).stream()
+                .collect(Collectors.groupingBy(r -> r.getShop().getId()));
+        Map<Integer, List<Object[]>> cats = proposalRepository
+                .findShopCategories(shops.stream().map(e -> e.getKey().getId()).toList()).stream()
+                .collect(Collectors.groupingBy(row -> (Integer) row[0]));
+        Integer catId = c.getCategory() == null ? null : c.getCategory().getCategoryId();
+        List<NearbyShopResponse> out = new ArrayList<>();
+        for (Map.Entry<User, Double> e : shops) {
+            User s = e.getKey();
+            List<Object[]> rows = cats.getOrDefault(s.getId(), List.of());
+            boolean same = catId != null && rows.stream().anyMatch(row -> catId.equals(row[1]));
+            if (sameCategoryOnly && !same) continue;
+            List<CampaignFarmRegistration> mine = regs.getOrDefault(s.getId(), List.of());
+            BigDecimal kg = mine.stream()
+                    .filter(r -> r.getStatus() == FarmRegistrationStatus.PENDING || r.getStatus() == FarmRegistrationStatus.APPROVED)
+                    .map(CampaignFarmRegistration::getSurplusVolumeKg).reduce(BigDecimal.ZERO, BigDecimal::add);
+            Double km = e.getValue();
+            out.add(NearbyShopResponse.builder()
+                    .shopId(s.getId())
+                    .shopName(shopName(s))
+                    .logoUrl(s.getLogoUrl())
+                    .ratingAverage(s.getRatingAverage())
+                    .distanceKm(km == null ? null : Math.max(0.5, Math.round(km * 2) / 2.0))
+                    .approxLatitude(s.getShopLatitude() == null ? null : Math.round(s.getShopLatitude() * 100) / 100.0)
+                    .approxLongitude(s.getShopLongitude() == null ? null : Math.round(s.getShopLongitude() * 100) / 100.0)
+                    .categories(rows.stream().map(row -> (String) row[2]).toList())
+                    .sameCategory(same)
+                    .registrationStatus(mine.isEmpty() ? null : mine.get(mine.size() - 1).getStatus().name())
+                    .registeredKg(kg)
+                    .build());
+            if (out.size() >= MAX_NEARBY) break;
+        }
+        return out;
+    }
+
     private static Double distanceTo(CampaignProposal p, User shop) {
         if (p.getSiteLatitude() == null || p.getSiteLongitude() == null || shop.getShopLatitude() == null || shop.getShopLongitude() == null) {
             return null;
@@ -742,6 +875,14 @@ public class CampaignProposalService {
 
     private static String fmtDateTime(LocalDateTime d) {
         return d.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm dd/MM/yyyy"));
+    }
+
+    private void notifyInvite(User user, int campaignId, String title, String message) {
+        try {
+            notificationService.sendNotificationToUser(user, title, message, "CAMPAIGN_INVITE", campaignId);
+        } catch (Exception e) {
+            log.warn("[Campaign] Notify invite to user #{} failed: {}", user.getId(), e.getMessage());
+        }
     }
 
     private void notify(User user, String title, String message) {

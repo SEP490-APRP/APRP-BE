@@ -733,6 +733,15 @@ public class OrderServiceImpl implements OrderService {
         BigDecimal effectiveTotalDiscount = totalGoodsAmount.add(totalShippingFee).subtract(finalTotalAmount).setScale(0, java.math.RoundingMode.HALF_UP);
         if (effectiveTotalDiscount.compareTo(BigDecimal.ZERO) < 0) effectiveTotalDiscount = BigDecimal.ZERO;
 
+        java.util.Map<String, BigDecimal> totalVoucherDiscountsDetail = new java.util.HashMap<>();
+        for (ShopOrderPreview sp : shopOrderPreviews) {
+            if (sp.getVoucherDiscountsDetail() != null) {
+                for (java.util.Map.Entry<String, BigDecimal> entry : sp.getVoucherDiscountsDetail().entrySet()) {
+                    totalVoucherDiscountsDetail.merge(entry.getKey(), entry.getValue(), BigDecimal::add);
+                }
+            }
+        }
+
         boolean isCodAllowed = buyer == null || !userService.isCodBlocked(buyer.getId());
         String codRestrictionReason = isCodAllowed ? null : "Tài khoản của bạn đã bị tước quyền thanh toán COD do có từ 3 lần giao hàng thất bại (bom hàng).";
 
@@ -742,6 +751,7 @@ public class OrderServiceImpl implements OrderService {
                 .totalShippingFee(totalShippingFee)
                 .totalVoucherDiscount(effectiveTotalDiscount)
                 .finalTotalAmount(finalTotalAmount)
+                .voucherDiscountsDetail(totalVoucherDiscountsDetail)
                 .codAllowed(isCodAllowed)
                 .codRestrictionReason(codRestrictionReason)
                 .build();
@@ -828,15 +838,15 @@ public class OrderServiceImpl implements OrderService {
             }
         }
 
-        // Theo dõi số tiền đã giảm theo từng hạng mục cho từng ShopOrderPreview
-        Map<ShopOrderPreview, BigDecimal> shopGoodsDiscountMap = new HashMap<>();
-        Map<ShopOrderPreview, BigDecimal> platformGoodsDiscountMap = new HashMap<>();
-        Map<ShopOrderPreview, BigDecimal> platformShippingDiscountMap = new HashMap<>();
+        // Theo dõi số tiền đã giảm theo từng hạng mục theo shopId (dùng Integer shopId làm key để tránh lỗi HashCode do mutation)
+        Map<Integer, BigDecimal> shopGoodsDiscountMap = new HashMap<>();
+        Map<Integer, BigDecimal> platformGoodsDiscountMap = new HashMap<>();
+        Map<Integer, BigDecimal> platformShippingDiscountMap = new HashMap<>();
 
         for (ShopOrderPreview sp : shopPreviews) {
-            shopGoodsDiscountMap.put(sp, BigDecimal.ZERO);
-            platformGoodsDiscountMap.put(sp, BigDecimal.ZERO);
-            platformShippingDiscountMap.put(sp, BigDecimal.ZERO);
+            shopGoodsDiscountMap.put(sp.getShopId(), BigDecimal.ZERO);
+            platformGoodsDiscountMap.put(sp.getShopId(), BigDecimal.ZERO);
+            platformShippingDiscountMap.put(sp.getShopId(), BigDecimal.ZERO);
         }
 
         // ============================================================
@@ -862,12 +872,12 @@ public class OrderServiceImpl implements OrderService {
             if (discount.compareTo(BigDecimal.ZERO) <= 0) continue;
 
             // Giới hạn giảm giá không vượt quá tiền hàng còn lại của shop đó
-            BigDecimal currentGoodsDiscount = shopGoodsDiscountMap.get(targetShopPreview);
+            BigDecimal currentGoodsDiscount = shopGoodsDiscountMap.getOrDefault(targetShopPreview.getShopId(), BigDecimal.ZERO);
             BigDecimal remainingGoods = targetShopPreview.getGoodsAmount().subtract(currentGoodsDiscount).max(BigDecimal.ZERO);
             discount = discount.min(remainingGoods).setScale(0, java.math.RoundingMode.HALF_UP);
             if (discount.compareTo(BigDecimal.ZERO) <= 0) continue;
 
-            shopGoodsDiscountMap.put(targetShopPreview, currentGoodsDiscount.add(discount));
+            shopGoodsDiscountMap.put(targetShopPreview.getShopId(), currentGoodsDiscount.add(discount));
             targetShopPreview.setVoucherDiscount(targetShopPreview.getVoucherDiscount().add(discount));
             targetShopPreview.getVoucherDiscountsDetail().merge(voucher.getVoucherCode().toUpperCase(), discount, BigDecimal::add);
             totalDiscount = totalDiscount.add(discount);
@@ -885,14 +895,14 @@ public class OrderServiceImpl implements OrderService {
             if (discount.compareTo(BigDecimal.ZERO) <= 0) continue;
 
             // Tính tiền hàng còn lại cho từng shop sau voucher shop và các voucher sàn trước đó
-            Map<ShopOrderPreview, BigDecimal> availableNetGoodsMap = new HashMap<>();
+            Map<Integer, BigDecimal> availableNetGoodsMap = new HashMap<>();
             BigDecimal totalNetGoods = BigDecimal.ZERO;
             for (ShopOrderPreview sp : shopPreviews) {
                 BigDecimal net = sp.getGoodsAmount()
-                        .subtract(shopGoodsDiscountMap.get(sp))
-                        .subtract(platformGoodsDiscountMap.get(sp))
+                        .subtract(shopGoodsDiscountMap.getOrDefault(sp.getShopId(), BigDecimal.ZERO))
+                        .subtract(platformGoodsDiscountMap.getOrDefault(sp.getShopId(), BigDecimal.ZERO))
                         .max(BigDecimal.ZERO);
-                availableNetGoodsMap.put(sp, net);
+                availableNetGoodsMap.put(sp.getShopId(), net);
                 totalNetGoods = totalNetGoods.add(net);
             }
 
@@ -902,38 +912,38 @@ public class OrderServiceImpl implements OrderService {
 
             // Phân bổ tỷ lệ theo netGoods
             BigDecimal allocatedSum = BigDecimal.ZERO;
-            Map<ShopOrderPreview, BigDecimal> shares = new HashMap<>();
+            Map<Integer, BigDecimal> shares = new HashMap<>();
             ShopOrderPreview maxShop = null;
             BigDecimal maxNet = BigDecimal.valueOf(-1);
 
             for (ShopOrderPreview sp : shopPreviews) {
-                BigDecimal net = availableNetGoodsMap.get(sp);
+                BigDecimal net = availableNetGoodsMap.getOrDefault(sp.getShopId(), BigDecimal.ZERO);
                 if (net.compareTo(maxNet) > 0) {
                     maxNet = net;
                     maxShop = sp;
                 }
                 if (net.compareTo(BigDecimal.ZERO) <= 0) {
-                    shares.put(sp, BigDecimal.ZERO);
+                    shares.put(sp.getShopId(), BigDecimal.ZERO);
                     continue;
                 }
                 BigDecimal ratio = net.divide(totalNetGoods, 6, java.math.RoundingMode.HALF_UP);
                 BigDecimal share = discount.multiply(ratio).setScale(0, java.math.RoundingMode.HALF_UP).min(net);
-                shares.put(sp, share);
+                shares.put(sp.getShopId(), share);
                 allocatedSum = allocatedSum.add(share);
             }
 
             // Xử lý chênh lệch làm tròn VNĐ (cộng/trừ vào shop có netGoods lớn nhất)
             BigDecimal diff = discount.subtract(allocatedSum);
             if (diff.compareTo(BigDecimal.ZERO) != 0 && maxShop != null) {
-                BigDecimal currentShare = shares.get(maxShop);
-                BigDecimal adjusted = currentShare.add(diff).min(availableNetGoodsMap.get(maxShop)).max(BigDecimal.ZERO);
-                shares.put(maxShop, adjusted);
+                BigDecimal currentShare = shares.getOrDefault(maxShop.getShopId(), BigDecimal.ZERO);
+                BigDecimal adjusted = currentShare.add(diff).min(availableNetGoodsMap.getOrDefault(maxShop.getShopId(), BigDecimal.ZERO)).max(BigDecimal.ZERO);
+                shares.put(maxShop.getShopId(), adjusted);
             }
 
             for (ShopOrderPreview sp : shopPreviews) {
-                BigDecimal share = shares.getOrDefault(sp, BigDecimal.ZERO);
+                BigDecimal share = shares.getOrDefault(sp.getShopId(), BigDecimal.ZERO);
                 if (share.compareTo(BigDecimal.ZERO) > 0) {
-                    platformGoodsDiscountMap.put(sp, platformGoodsDiscountMap.get(sp).add(share));
+                    platformGoodsDiscountMap.put(sp.getShopId(), platformGoodsDiscountMap.getOrDefault(sp.getShopId(), BigDecimal.ZERO).add(share));
                     sp.setVoucherDiscount(sp.getVoucherDiscount().add(share));
                     sp.getVoucherDiscountsDetail().merge(voucher.getVoucherCode().toUpperCase(), share, BigDecimal::add);
                 }
@@ -952,11 +962,11 @@ public class OrderServiceImpl implements OrderService {
             BigDecimal discount = calculateVoucherDiscount(voucher, VoucherTarget.SHIPPING, totalGoodsAmount, totalShippingFee);
             if (discount.compareTo(BigDecimal.ZERO) <= 0) continue;
 
-            Map<ShopOrderPreview, BigDecimal> availableShippingMap = new HashMap<>();
+            Map<Integer, BigDecimal> availableShippingMap = new HashMap<>();
             BigDecimal totalNetShipping = BigDecimal.ZERO;
             for (ShopOrderPreview sp : shopPreviews) {
-                BigDecimal netShip = sp.getShippingFee().subtract(platformShippingDiscountMap.get(sp)).max(BigDecimal.ZERO);
-                availableShippingMap.put(sp, netShip);
+                BigDecimal netShip = sp.getShippingFee().subtract(platformShippingDiscountMap.getOrDefault(sp.getShopId(), BigDecimal.ZERO)).max(BigDecimal.ZERO);
+                availableShippingMap.put(sp.getShopId(), netShip);
                 totalNetShipping = totalNetShipping.add(netShip);
             }
 
@@ -965,38 +975,38 @@ public class OrderServiceImpl implements OrderService {
             if (discount.compareTo(BigDecimal.ZERO) <= 0) continue;
 
             BigDecimal allocatedSum = BigDecimal.ZERO;
-            Map<ShopOrderPreview, BigDecimal> shares = new HashMap<>();
+            Map<Integer, BigDecimal> shares = new HashMap<>();
             ShopOrderPreview maxShop = null;
             BigDecimal maxShip = BigDecimal.valueOf(-1);
 
             for (ShopOrderPreview sp : shopPreviews) {
-                BigDecimal netShip = availableShippingMap.get(sp);
+                BigDecimal netShip = availableShippingMap.getOrDefault(sp.getShopId(), BigDecimal.ZERO);
                 if (netShip.compareTo(maxShip) > 0) {
                     maxShip = netShip;
                     maxShop = sp;
                 }
                 if (netShip.compareTo(BigDecimal.ZERO) <= 0) {
-                    shares.put(sp, BigDecimal.ZERO);
+                    shares.put(sp.getShopId(), BigDecimal.ZERO);
                     continue;
                 }
                 BigDecimal ratio = netShip.divide(totalNetShipping, 6, java.math.RoundingMode.HALF_UP);
                 BigDecimal share = discount.multiply(ratio).setScale(0, java.math.RoundingMode.HALF_UP).min(netShip);
-                shares.put(sp, share);
+                shares.put(sp.getShopId(), share);
                 allocatedSum = allocatedSum.add(share);
             }
 
             // Xử lý chênh lệch làm tròn VNĐ
             BigDecimal diff = discount.subtract(allocatedSum);
             if (diff.compareTo(BigDecimal.ZERO) != 0 && maxShop != null) {
-                BigDecimal currentShare = shares.get(maxShop);
-                BigDecimal adjusted = currentShare.add(diff).min(availableShippingMap.get(maxShop)).max(BigDecimal.ZERO);
-                shares.put(maxShop, adjusted);
+                BigDecimal currentShare = shares.getOrDefault(maxShop.getShopId(), BigDecimal.ZERO);
+                BigDecimal adjusted = currentShare.add(diff).min(availableShippingMap.getOrDefault(maxShop.getShopId(), BigDecimal.ZERO)).max(BigDecimal.ZERO);
+                shares.put(maxShop.getShopId(), adjusted);
             }
 
             for (ShopOrderPreview sp : shopPreviews) {
-                BigDecimal share = shares.getOrDefault(sp, BigDecimal.ZERO);
+                BigDecimal share = shares.getOrDefault(sp.getShopId(), BigDecimal.ZERO);
                 if (share.compareTo(BigDecimal.ZERO) > 0) {
-                    platformShippingDiscountMap.put(sp, platformShippingDiscountMap.get(sp).add(share));
+                    platformShippingDiscountMap.put(sp.getShopId(), platformShippingDiscountMap.getOrDefault(sp.getShopId(), BigDecimal.ZERO).add(share));
                     sp.setVoucherDiscount(sp.getVoucherDiscount().add(share));
                     sp.getVoucherDiscountsDetail().merge(voucher.getVoucherCode().toUpperCase(), share, BigDecimal::add);
                 }
@@ -1148,10 +1158,10 @@ public class OrderServiceImpl implements OrderService {
             throw new AppException(ErrorCode.SHIPPER_NOT_ONLINE);
         }
 
-        // Bắt buộc 1 đơn tại 1 thời điểm: Kiểm tra xem shipper đã có đơn đang giao hoặc đang lấy hàng chưa (cả đơn xuôi và đơn hoàn)
+        // Bắt buộc 1 đơn tại 1 thời điểm: Kiểm tra xem shipper đã có đơn đang giao, đang lấy hoặc đang hoàn về chưa
         boolean hasActiveShipping = orderRepository.existsByShipper_IdAndStatusIn(
                 currentUser.getId(), 
-                List.of(OrderStatus.SHIPPING, OrderStatus.PICKED_UP)
+                List.of(OrderStatus.SHIPPING, OrderStatus.PICKED_UP, OrderStatus.RETURNING_TO_SHOP)
         );
         boolean hasActiveReturn = returnRequestRepository.existsByShipper_IdAndStatusIn(
                 currentUser.getId(),
@@ -1471,32 +1481,155 @@ public class OrderServiceImpl implements OrderService {
         if (proofs.isEmpty()) {
             throw new AppException(ErrorCode.DELIVERY_PROOF_REQUIRED);
         }
+        boolean wasPickedUp = order.getStatus() == OrderStatus.PICKED_UP;
         order.setFailReason(request.getReason());
         order.setFailNote(note.isEmpty() ? null : note.substring(0, Math.min(note.length(), 500)));
         order.setFailCallAttempts(calls);
         order.setFailProofUrls(String.join("\n", proofs));
         order.setFailedAt(LocalDateTime.now());
 
-        // Giao hàng thất bại -> Hàng trả về shop -> Trả lại kho
-        restoreStock(order);
         restoreOrderVouchers(order);
 
-        // Đơn đã thanh toán online mà giao thất bại -> ghi nhận số tiền sàn phải hoàn cho Buyer
-        if (isPrepaidOnline(order)) {
-            order.setRefundAmount(amountDue(order));
-            order.setRefundReason("Giao hàng thất bại, đơn đã thanh toán online");
+        if (wasPickedUp) {
+            // Đã lấy hàng khỏi vườn: chuyển sang RETURNING_TO_SHOP.
+            // Mở khóa ký quỹ COD (nếu có) nhưng CHƯA hoàn tiền / chưa hủy holds cho tới khi Shop xác nhận đã nhận lại hàng.
+            walletService.releaseCodReserve(order.getOrderId(), "giao thất bại, đang hoàn hàng về shop");
+            order.setStatus(OrderStatus.RETURNING_TO_SHOP);
+            Order saved = orderRepository.save(order);
+            userService.handleDeliveryFailed(saved, request.getReason());
+            dispatchService.notifyStatusChangedAfterCommit(saved.getOrderId());
+            if (saved.getShop() != null) {
+                try {
+                    notificationService.sendNotificationToUser(
+                            saved.getShop(),
+                            "Đơn hàng giao thất bại - Đang hoàn về",
+                            "Đơn #" + saved.getOrderId() + " giao không thành công. Tài xế đang mang hàng hoàn về vườn.",
+                            "ORDER_STATUS",
+                            saved.getOrderId()
+                    );
+                } catch (Exception e) {
+                    log.warn("[Order] Failed to notify shop returning order #{}: {}", saved.getOrderId(), e.getMessage());
+                }
+            }
+            List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
+            return buildOrderResponse(saved, details);
         }
 
-        walletService.cancelHolds(order.getOrderId(), "giao hàng thất bại");
-        walletService.refundOrderWalletPayment(order.getOrderId(), "giao hàng thất bại");
-        // Đơn COD: trả lại tiền ký quỹ cho Shipper
-        walletService.releaseCodReserve(order.getOrderId(), "giao hàng thất bại");
+        // Chưa lấy hàng (SHIPPING): hoàn kho ngay, hoàn tiền 100% (nếu trả trước) và đóng đơn FAILED
+        if (isPrepaidOnline(order)) {
+            order.setRefundAmount(amountDue(order));
+            order.setRefundReason("Giao hàng thất bại tại điểm lấy hàng, đơn đã thanh toán online");
+        }
+        walletService.cancelHolds(order.getOrderId(), "giao hàng thất bại tại điểm lấy hàng");
+        walletService.refundOrderWalletPayment(order.getOrderId(), "giao hàng thất bại tại điểm lấy hàng");
+        walletService.releaseCodReserve(order.getOrderId(), "giao hàng thất bại tại điểm lấy hàng");
         referralService.handleOrderCancelled(order.getOrderId());
+        restoreStock(order);
         order.setStatus(OrderStatus.FAILED);
         Order saved = orderRepository.save(order);
-        // Xử lý phạt khách hàng nếu giao thất bại do lỗi chủ quan (Chống bom hàng)
-        userService.handleDeliveryFailed(saved, request.getReason());
         shipperService.detachOrderFromShipperLocation(saved.getOrderId());
+        dispatchService.notifyStatusChangedAfterCommit(saved.getOrderId());
+        List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
+        return buildOrderResponse(saved, details);
+    }
+
+    @Transactional
+    @Override
+    public OrderResponse returnOrderToShop(int orderId, DeliverOrderRequest request) {
+        Order order = findOrderById(orderId);
+        User currentUser = getCurrentUser();
+        if (order.getShipper() == null || !Objects.equals(order.getShipper().getId(), currentUser.getId())) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
+        if (order.getStatus() != OrderStatus.RETURNING_TO_SHOP) {
+            throw new AppException(ErrorCode.INVALID_ORDER_STATE);
+        }
+        List<String> proofs = cleanUrls(request != null ? request.getProofImageUrls() : null);
+        if (proofs.isEmpty()) {
+            throw new AppException(ErrorCode.DELIVERY_PROOF_REQUIRED);
+        }
+
+        Double shopLat = order.getShopLatitude();
+        Double shopLng = order.getShopLongitude();
+        if ((shopLat == null || shopLng == null) && order.getShop() != null && order.getShop().getAddress() != null) {
+            try {
+                double[] coords = googleMapService.geocodeAddress(order.getShop().getAddress());
+                if (coords != null && coords.length == 2) {
+                    shopLat = coords[0];
+                    shopLng = coords[1];
+                    order.setShopLatitude(shopLat);
+                    order.setShopLongitude(shopLng);
+                }
+            } catch (Exception ignored) {}
+        }
+
+        Double shipperLat = request != null ? request.getLatitude() : null;
+        Double shipperLng = request != null ? request.getLongitude() : null;
+        if (shipperLat == null || shipperLng == null) {
+            double[] lastPos = shipperService.getLastPosition(currentUser.getId());
+            if (lastPos != null && lastPos.length == 2) {
+                shipperLat = lastPos[0];
+                shipperLng = lastPos[1];
+            }
+        }
+
+        if (shopLat != null && shopLng != null && geofenceRadiusMeters > 0) {
+            if (shipperLat == null || shipperLng == null) {
+                throw new AppException(ErrorCode.DELIVERY_LOCATION_REQUIRED);
+            }
+            double dist = com.sang.be_capnong.util.GeoUtils.haversineMeters(shipperLat, shipperLng, shopLat, shopLng);
+            if (dist > geofenceRadiusMeters) {
+                throw new AppException(ErrorCode.DELIVERY_GEOFENCE_EXCEEDED,
+                        ErrorCode.DELIVERY_GEOFENCE_EXCEEDED.getMessage(),
+                        Map.of(
+                                "currentDistanceMeters", Math.round(dist),
+                                "allowedRadiusMeters", Math.round(geofenceRadiusMeters),
+                                "destinationAddress", order.getShop() != null && order.getShop().getAddress() != null ? order.getShop().getAddress() : ""
+                        ));
+            }
+        }
+
+        order.setReturnToShopProofUrls(String.join("\n", proofs));
+        order.setReturnedToShopAt(LocalDateTime.now());
+        order.setStatus(OrderStatus.RETURNED_TO_SHOP);
+        Order saved = orderRepository.save(order);
+        shipperService.detachOrderFromShipperLocation(saved.getOrderId());
+        dispatchService.notifyStatusChangedAfterCommit(saved.getOrderId());
+        if (saved.getShop() != null) {
+            try {
+                notificationService.sendNotificationToUser(
+                        saved.getShop(),
+                        "Tài xế đã trả hàng hoàn về vườn",
+                        "Tài xế đã bàn giao hàng hoàn đơn #" + saved.getOrderId() + ". Vui lòng kiểm tra và xác nhận đã nhận lại hàng.",
+                        "ORDER_STATUS",
+                        saved.getOrderId()
+                );
+            } catch (Exception e) {
+                log.warn("[Order] Failed to notify shop returned order #{}: {}", saved.getOrderId(), e.getMessage());
+            }
+        }
+        List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
+        return buildOrderResponse(saved, details);
+    }
+
+    @Transactional
+    @Override
+    public OrderResponse confirmReturnReceived(int orderId) {
+        Order order = findOrderById(orderId);
+        User currentUser = getCurrentUser();
+        if (order.getShop() == null || !Objects.equals(order.getShop().getId(), currentUser.getId())) {
+            throw new AppException(ErrorCode.UNAUTHORIZED);
+        }
+        if (order.getStatus() != OrderStatus.RETURNED_TO_SHOP) {
+            throw new AppException(ErrorCode.INVALID_ORDER_STATE);
+        }
+
+        restoreStock(order);
+        order.setReturnConfirmedAt(LocalDateTime.now());
+        order.setStatus(OrderStatus.FAILED);
+        Order saved = orderRepository.saveAndFlush(order);
+        walletService.settleFailedReturnOrder(saved.getOrderId());
+        referralService.handleOrderCancelled(saved.getOrderId());
         dispatchService.notifyStatusChangedAfterCommit(saved.getOrderId());
         List<OrderDetail> details = saved.getOrderDetails() != null ? saved.getOrderDetails() : Collections.emptyList();
         return buildOrderResponse(saved, details);
@@ -1908,6 +2041,10 @@ public class OrderServiceImpl implements OrderService {
                 .failCallAttempts(order.getFailCallAttempts())
                 .failProofUrls(splitUrls(order.getFailProofUrls()))
                 .failedAt(order.getFailedAt())
+                .returnToShopProofUrls(splitUrls(order.getReturnToShopProofUrls()))
+                .returnedToShopAt(order.getReturnedToShopAt())
+                .returnConfirmedAt(order.getReturnConfirmedAt())
+                .shipperPaidAt(order.getShipperPaidAt())
                 .items(itemResponses)
                 .build();
     }

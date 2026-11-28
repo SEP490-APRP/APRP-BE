@@ -121,17 +121,10 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
             throw new AppException(ErrorCode.RETURN_ALREADY_REQUESTED);
         }
 
-        // 5. Tính toán số tiền hoàn tối đa
+        // 5. Số tiền hoàn tự động tính bằng đúng số tiền người mua đã thanh toán cho dòng sản phẩm này
         BigDecimal itemUnitPrice = orderDetail.getUnitPrice() != null ? orderDetail.getUnitPrice() : BigDecimal.ZERO;
         int itemQty = orderDetail.getQuantity() != null ? orderDetail.getQuantity() : 1;
-        BigDecimal maxItemTotal = itemUnitPrice.multiply(BigDecimal.valueOf(itemQty));
-
-        BigDecimal refundAmount = request.getRefundAmount();
-        if (refundAmount == null || refundAmount.compareTo(BigDecimal.ZERO) <= 0) {
-            refundAmount = maxItemTotal;
-        } else if (refundAmount.compareTo(maxItemTotal) > 0) {
-            throw new AppException(ErrorCode.RETURN_REFUND_AMOUNT_INVALID);
-        }
+        BigDecimal refundAmount = itemUnitPrice.multiply(BigDecimal.valueOf(itemQty));
 
         boolean isReturnGoods = request.getIsReturnGoods() == null || request.getIsReturnGoods();
 
@@ -183,13 +176,14 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         orderRepository.save(order);
 
         // 9. Gửi thông báo đến Shop
+        String prodName = returnRequestMapper.mapProductName(orderDetail);
         if (shop != null) {
-            String prodName = returnRequestMapper.mapProductName(orderDetail);
             notificationService.sendNotificationToUser(
                     shop,
                     "Yêu cầu hoàn trả sản phẩm mới",
                     "Khách hàng " + buyer.getFullName() + " đã yêu cầu hoàn trả cho sản phẩm \"" + prodName + "\" trong đơn hàng #" + order.getOrderId() + ".",
-                    null
+                    "RETURN_REQUEST",
+                    saved.getReturnId()
             );
         }
 
@@ -277,9 +271,26 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                 notificationService.sendNotificationToUser(
                         buyer,
                         "Shop đã đồng ý yêu cầu trả hàng",
-                        "Shop đã chấp thuận yêu cầu hoàn trả cho sản phẩm \"" + prodName + "\". Shipper sẽ được điều phối đến lấy hàng hoàn từ bạn (Người mua không phải trả phí ship).",
-                        null
+                        "Shop đã chấp thuận yêu cầu hoàn trả cho sản phẩm \"" + prodName + "\". Đơn hoàn hàng đã được tạo, shipper sẽ được điều phối đến lấy hàng từ bạn (Người mua không phải trả phí ship).",
+                        "RETURN_SHIPPING",
+                        returnRequest.getReturnId()
                 );
+
+                // Thông báo cho các tài xế (SHIPPER) có đơn hoàn mới sẵn sàng để nhận
+                try {
+                    List<User> shippers = userRepository.findByRole_NameIn(List.of("SHIPPER", "ROLE_SHIPPER"));
+                    for (User s : shippers) {
+                        notificationService.sendNotificationToUser(
+                                s,
+                                "Có đơn hoàn hàng mới cần nhận",
+                                "Đơn hoàn #" + returnRequest.getReturnId() + " (sản phẩm \"" + prodName + "\") cần lấy từ khách giao về shop. Mở app nhận đơn ngay!",
+                                "RETURN_SHIPPING_AVAILABLE",
+                                returnRequest.getReturnId()
+                        );
+                    }
+                } catch (Exception e) {
+                    log.warn("[ReturnRequest] Failed to notify shippers: {}", e.getMessage());
+                }
             }
         } else {
             // Shop từ chối -> chuyển sang trạng thái tranh chấp DISPUTED để Admin phân xử
@@ -290,8 +301,26 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                     buyer,
                     "Shop đã từ chối yêu cầu hoàn trả",
                     "Shop đã từ chối yêu cầu hoàn trả sản phẩm \"" + prodName + "\". Yêu cầu đã được chuyển lên Quản trị viên (Admin) để giải quyết.",
-                    null
+                    "RETURN_DISPUTED",
+                    returnRequest.getReturnId()
             );
+
+            // Gửi thông báo đến toàn bộ Admin để vào phân xử khiếu nại
+            try {
+                String shopName = returnRequest.getShop() != null ? returnRequest.getShop().getShopName() : "Nhà vườn";
+                List<User> admins = userRepository.findByRole_NameIn(List.of("ADMIN", "ROLE_ADMIN"));
+                for (User admin : admins) {
+                    notificationService.sendNotificationToUser(
+                            admin,
+                            "Có khiếu nại hoàn trả cần xử lý",
+                            "Shop " + shopName + " đã từ chối yêu cầu hoàn trả cho sản phẩm \"" + prodName + "\" (Đơn #" + order.getOrderId() + "). Yêu cầu đã chuyển lên Admin để phân xử.",
+                            "RETURN_DISPUTE",
+                            returnRequest.getReturnId()
+                    );
+                }
+            } catch (Exception e) {
+                log.warn("[ReturnRequest] Failed to notify admin of disputed return: {}", e.getMessage());
+            }
         }
 
         ReturnRequest updated = returnRequestRepository.save(returnRequest);
@@ -308,6 +337,11 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         }
 
         ReturnRequest returnRequest = findReturnRequestById(returnId);
+        if (returnRequest.getStatus() != ReturnStatus.DISPUTED) {
+            log.warn("[ReturnRequest] Admin tried to decide on return #{} with invalid status: {}", returnId, returnRequest.getStatus());
+            throw new AppException(ErrorCode.INVALID_RETURN_STATUS,
+                    "Admin chỉ có thể phân xử khi yêu cầu hoàn trả ở trạng thái khiếu nại (Shop đã từ chối).");
+        }
         Order order = returnRequest.getOrderDetail().getOrder();
         User buyer = returnRequest.getBuyer();
         User shop = returnRequest.getShop();
@@ -316,35 +350,36 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         returnRequest.setAdminRemark(request.getAdminRemark());
 
         if (request.isAccept()) {
-            returnRequest.setStatus(ReturnStatus.ADMIN_APPROVED);
-
             if (request.getRefundAmount() != null && request.getRefundAmount().compareTo(BigDecimal.ZERO) > 0) {
                 returnRequest.setRefundAmount(request.getRefundAmount());
             }
 
-            returnRequest = returnRequestRepository.save(returnRequest);
-
             // Gắn 1 Risk Flag cho Shop khi Admin xác nhận khiếu nại giao hàng hỏng
             userService.addRiskFlagForAdminApprovedReturn(returnRequest, request.getAdminRemark());
 
-            // Cách 1: Chuyển quyền cho Shop vào chọn phương án lấy lại hàng hoặc hoàn tiền ngay trong vòng 24h
+            // Đặt trạng thái ADMIN_APPROVED để Shop vào chọn có lấy lại hàng về không
+            returnRequest.setStatus(ReturnStatus.ADMIN_APPROVED);
+            returnRequest = returnRequestRepository.save(returnRequest);
+
             if (shop != null) {
                 notificationService.sendNotificationToUser(
                         shop,
                         "Admin đã chấp thuận khiếu nại của khách",
-                        "Admin đã chấp thuận khiếu nại hoàn tiền cho sản phẩm \"" + prodName + "\" trong đơn hàng #" + order.getOrderId() + ". Bạn có 24h để vào mục Khiếu nại chọn: Lấy lại hàng (chịu cước ship) hoặc Không lấy lại hàng (hoàn tiền ngay cho khách).",
-                        null
+                        "Admin đã chấp thuận khiếu nại hoàn tiền cho sản phẩm \"" + prodName + "\" trong đơn hàng #" + order.getOrderId() + ". Bạn có 24h để vào mục Khiếu nại chọn: Lấy lại hàng (hệ thống sẽ tạo đơn cho Shipper lấy) hoặc Không lấy lại hàng (hoàn tiền ngay cho khách).",
+                        "ADMIN_APPROVED_RETURN",
+                        returnRequest.getReturnId()
                 );
             }
 
             notificationService.sendNotificationToUser(
                     buyer,
                     "Admin đã chấp thuận khiếu nại của bạn",
-                    "Admin đã chấp thuận khiếu nại cho sản phẩm \"" + prodName + "\". Đang chờ Shop lựa chọn phương án nhận lại hàng.",
-                    null
+                    "Admin đã chấp thuận khiếu nại hoàn trả cho sản phẩm \"" + prodName + "\". Đang chờ Shop lựa chọn phương án nhận lại hàng.",
+                    "ADMIN_APPROVED_RETURN",
+                    returnRequest.getReturnId()
             );
 
-            log.info("[ReturnRequest] Admin approved dispute #{}. Transferred to Shop to choose return goods option.", returnId);
+            log.info("[ReturnRequest] Admin approved dispute #{}. Status set to ADMIN_APPROVED. Transferred to Shop to choose return goods option.", returnId);
         } else {
             // Admin bác bỏ yêu cầu hoàn trả
             // Nếu trước đó shop đã trả tiền ship hoàn qua ví thì hoàn trả lại cho shop
@@ -391,7 +426,7 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
 
         // Bắt buộc 1 đơn tại 1 thời điểm: Shipper không được nhận đơn hoàn nếu đang có đơn giao xuôi hoặc đơn hoàn khác đang chạy
         boolean hasActiveForward = orderRepository.existsByShipper_IdAndStatusIn(
-                currentUserId, List.of(OrderStatus.SHIPPING, OrderStatus.PICKED_UP)
+                currentUserId, List.of(OrderStatus.SHIPPING, OrderStatus.PICKED_UP, OrderStatus.RETURNING_TO_SHOP)
         );
         boolean hasActiveReturn = returnRequestRepository.existsByShipper_IdAndStatusIn(
                 currentUserId, List.of(ReturnStatus.RETURN_SHIPPING, ReturnStatus.RETURN_PICKED_UP)
@@ -576,8 +611,27 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
                     returnRequest.getShop(),
                     "Giao hàng hoàn về shop thất bại",
                     "Shipper đã nhận hàng từ người mua nhưng chưa thể giao về gian hàng của bạn. Lý do: " + note + ". Yêu cầu đã chuyển lên Admin.",
-                    null
+                    "RETURN_DISPUTED",
+                    returnRequest.getReturnId()
             );
+
+            // Gửi thông báo đến toàn bộ Admin
+            try {
+                Order ord = returnRequest.getOrderDetail() != null ? returnRequest.getOrderDetail().getOrder() : null;
+                Integer ordId = ord != null ? ord.getOrderId() : null;
+                List<User> admins = userRepository.findByRole_NameIn(List.of("ADMIN", "ROLE_ADMIN"));
+                for (User admin : admins) {
+                    notificationService.sendNotificationToUser(
+                            admin,
+                            "Sự cố hoàn trả hàng cần can thiệp",
+                            "Đơn hoàn trả #" + returnRequest.getReturnId() + (ordId != null ? " (Đơn #" + ordId + ")" : "") + " giao về shop thất bại và chuyển sang tranh chấp. Vui lòng kiểm tra.",
+                            "RETURN_DISPUTE",
+                            returnRequest.getReturnId()
+                    );
+                }
+            } catch (Exception e) {
+                log.warn("[ReturnRequest] Failed to notify admin of failed return delivery: {}", e.getMessage());
+            }
         } else {
             throw new AppException(ErrorCode.INVALID_RETURN_STATUS);
         }
@@ -688,8 +742,8 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         if (!SecurityUtils.isAdmin()) {
             throw new AppException(ErrorCode.UNAUTHORIZED);
         }
-        // Trả về danh sách khiếu nại (DISPUTED, PENDING, RETURN_SHIPPING...) cho admin
-        List<ReturnRequest> all = returnRequestRepository.findAll(Sort.by(Sort.Direction.DESC, "createdAt"));
+        // Trả về danh sách khiếu nại dành cho Admin (chỉ lấy các đơn đã chuyển qua cho Admin khi Shop từ chối, không lấy PENDING)
+        List<ReturnRequest> all = returnRequestRepository.findByStatusNot(ReturnStatus.PENDING, Sort.by(Sort.Direction.DESC, "createdAt"));
         return returnRequestMapper.toResponseList(all);
     }
 
@@ -756,8 +810,11 @@ public class ReturnRequestServiceImpl implements ReturnRequestService {
         boolean isBuyer = request.getBuyer() != null && Objects.equals(request.getBuyer().getId(), currentUserId);
         boolean isShop = request.getShop() != null && Objects.equals(request.getShop().getId(), currentUserId);
         boolean isShipper = request.getShipper() != null && Objects.equals(request.getShipper().getId(), currentUserId);
+        boolean isAvailableForShipper = SecurityUtils.hasRole("SHIPPER")
+                && request.getStatus() == ReturnStatus.RETURN_SHIPPING
+                && request.getShipper() == null;
 
-        if (!isBuyer && !isShop && !isShipper) {
+        if (!isBuyer && !isShop && !isShipper && !isAvailableForShipper) {
             throw new AppException(ErrorCode.RETURN_UNAUTHORIZED);
         }
     }

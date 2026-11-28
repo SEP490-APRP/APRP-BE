@@ -106,7 +106,7 @@ public class VoucherServiceImpl implements VoucherService {
                 .voucherScope(scope)
                 .voucherTarget(request.getVoucherTarget())
                 .discountValue(request.getDiscountValue())
-                .maxDiscount(request.getMaxDiscount())
+                .maxDiscount(request.getVoucherType() == VoucherType.PERCENTAGE ? request.getMaxDiscount() : null)
                 .minOrderValue(request.getMinOrderValue())
                 .claimLimit(request.getClaimLimit())
                 .usageLimit(request.getClaimLimit())
